@@ -1,897 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>SmartStarsAI v0.4.1.1</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0d0d0d;--bg2:#141414;--bg3:#1c1c1c;--bg4:#242424;--bg5:#2c2c2c;
-  --border:#2a2a2a;--border2:#383838;
-  --text:#f0f0f0;--text2:#a0a0a0;--text3:#555;
-  --blue:#5b8dee;--blue2:#7aa3f5;--blue-bg:rgba(91,141,238,0.1);
-  --green:#3dd68c;--green-bg:rgba(61,214,140,0.1);
-  --red:#f06060;--red-bg:rgba(240,96,96,0.1);
-  --amber:#f0a040;--amber-bg:rgba(240,160,64,0.1);
-  --purple:#a78bfa;--purple-bg:rgba(167,139,250,0.08);
-  --r:6px;--r2:10px;
-  --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
-}
-body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;line-height:1.5;height:100vh;overflow:hidden;display:flex;flex-direction:column}
-
-/* TOP BAR */
-.topbar{display:flex;align-items:center;gap:10px;padding:0 16px;height:48px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
-.brand{display:flex;align-items:center;gap:8px}
-.brand-icon{width:24px;height:24px;background:var(--blue);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:var(--mono);flex-shrink:0}
-.brand-name{font-size:13px;font-weight:600;letter-spacing:-0.01em}
-.brand-name em{color:var(--blue2);font-style:normal}
-.sep{width:1px;height:18px;background:var(--border)}
-.db-status{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)}
-.db-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);transition:all 0.4s;flex-shrink:0}
-.spacer{flex:1}
-.api-sw{display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
-.api-sw button{padding:4px 12px;background:none;border:none;color:var(--text3);font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s}
-.api-sw button.on{background:var(--blue-bg);color:var(--blue2)}
-.btn{padding:5px 11px;border-radius:var(--r);border:1px solid var(--border2);background:none;color:var(--text2);font-family:var(--font);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;white-space:nowrap}
-.btn:hover{border-color:var(--blue);color:var(--blue2)}
-.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
-.btn.primary:hover{background:var(--blue2);border-color:var(--blue2)}
-.btn.sm{padding:3px 8px;font-size:10px}
-.btn.danger{color:var(--red);border-color:rgba(240,96,96,0.2)}
-.btn.danger:hover{border-color:var(--red)}
-.btn.success{color:var(--green);border-color:rgba(61,214,140,0.2)}
-.btn.success:hover{border-color:var(--green)}
-
-/* LAYOUT */
-.main{display:flex;flex:1;overflow:hidden}
-
-/* SIDEBAR */
-.sidebar{width:210px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-.sb-top{padding:10px;border-bottom:1px solid var(--border)}
-.sb-tabs{display:flex;gap:4px;margin-bottom:8px;background:var(--bg3);padding:2px;border-radius:var(--r);border:1px solid var(--border)}
-.sb-tab{flex:1;background:transparent;border:none;color:var(--text3);font-family:var(--font);font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;padding:5px 6px;border-radius:calc(var(--r) - 1px);cursor:pointer;transition:all 0.12s}
-.sb-tab:hover{color:var(--text2)}
-.sb-tab.on{background:var(--bg2);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,0.2)}
-.sb-search{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:5px 9px;color:var(--text2);font-family:var(--font);font-size:11px}
-.sb-search:focus{outline:none;border-color:var(--border2)}
-.sb-search::placeholder{color:var(--text3)}
-.sb-body{flex:1;overflow-y:auto;padding:6px}
-.model-group{margin-bottom:2px}
-.mg-head{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;cursor:pointer;border-radius:var(--r);transition:background 0.1s;user-select:none}
-.mg-head:hover{background:var(--bg3)}
-.mg-name{font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--text3)}
-.mg-count{font-size:10px;color:var(--text3);background:var(--bg4);padding:1px 5px;border-radius:8px}
-.mg-sessions{padding:0 2px}
-.mg-sessions.closed{display:none}
-.sc{padding:7px 9px;border-radius:var(--r);border:1px solid transparent;cursor:pointer;margin-bottom:2px;transition:all 0.12s}
-.sc:hover{background:var(--bg3);border-color:var(--border)}
-.sc.on{background:var(--blue-bg);border-color:rgba(91,141,238,0.25)}
-.sc.flagged{border-left:2px solid var(--red)}
-.sc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1px}
-.sc-name{font-size:11px;font-weight:500;color:var(--text)}
-.sc-prev{font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.badge{padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600}
-.badge.g{background:var(--green-bg);color:var(--green)}
-.badge.a{background:var(--amber-bg);color:var(--amber)}
-.badge.r{background:var(--red-bg);color:var(--red)}
-.sb-foot{padding:8px 10px;border-top:1px solid var(--border)}
-.sb-empty{padding:20px 10px;text-align:center;color:var(--text3);font-size:11px;line-height:1.8}
-.sc-row{display:flex;align-items:center;gap:6px}
-.sc-row .sc{flex:1;min-width:0}
-.sc-reopen{flex-shrink:0;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:var(--font);font-size:9px;font-weight:600;padding:4px 7px;border-radius:var(--r);cursor:pointer;transition:all 0.12s;text-transform:uppercase;letter-spacing:0.04em}
-.sc-reopen:hover{background:var(--green-bg);color:var(--green);border-color:var(--green)}
-.sc-delete{flex-shrink:0;background:var(--bg3);border:1px solid var(--border);color:var(--text3);font-family:var(--font);font-size:14px;font-weight:600;width:22px;height:22px;display:flex;align-items:center;justify-content:center;line-height:1;border-radius:var(--r);cursor:pointer;transition:all 0.12s;padding:0}
-.sc-delete:hover{background:var(--red-bg,rgba(255,80,80,0.15));color:var(--red);border-color:var(--red)}
-.ro-banner{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--amber-bg);border-bottom:1px solid var(--border);color:var(--amber);font-size:11px;font-weight:500}
-.ro-banner .ro-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
-.ro-banner .ro-spacer{flex:1}
-
-/* CONTENT */
-.content{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.dash{padding:24px;overflow-y:auto;flex:1}
-.dash-title{font-size:18px;font-weight:600;letter-spacing:-0.02em;margin-bottom:2px}
-.dash-sub{font-size:11px;color:var(--text3);margin-bottom:20px}
-.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.stat{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px}
-.stat-l{font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:5px}
-.stat-v{font-size:20px;font-weight:600}
-.stat-v.blue{color:var(--blue2)}
-.stat-v.green{color:var(--green)}
-
-/* SESSION — 3 cols */
-.sw{flex:1;display:flex;overflow:hidden}
-
-/* COL LEFT */
-.cl{width:220px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg2);flex-shrink:0;overflow-y:auto}
-.cl-head{padding:10px 12px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0}
-.cl-av{width:30px;height:30px;border-radius:50%;background:var(--blue-bg);border:1px solid rgba(91,141,238,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--blue2);flex-shrink:0}
-.cl-name{font-size:12px;font-weight:600;line-height:1.3}
-.cl-sub{font-size:10px;color:var(--text3)}
-.pb{padding:8px 12px;border-bottom:1px solid var(--border)}
-.pl{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:5px;display:flex;align-items:center;justify-content:space-between}
-.chips{display:flex;flex-wrap:wrap;gap:3px}
-.chip{padding:2px 7px;border-radius:3px;font-size:10px;border:1px solid var(--border);background:var(--bg3);color:var(--text2)}
-.chip.blue{color:var(--blue2);border-color:rgba(91,141,238,0.2);background:var(--blue-bg)}
-.chip.green{color:var(--green);border-color:rgba(61,214,140,0.2);background:var(--green-bg)}
-.chip.amber{color:var(--amber);border-color:rgba(240,160,64,0.2);background:var(--amber-bg)}
-.chip.red{color:var(--red);border-color:rgba(240,96,96,0.2);background:var(--red-bg)}
-.chip.purple{color:var(--purple);border-color:rgba(167,139,250,0.2);background:var(--purple-bg)}
-.crm-txt{font-size:11px;color:var(--text2);line-height:1.6;white-space:pre-wrap;max-height:80px;overflow-y:auto}
-.pf{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:6px 8px;color:var(--text);font-family:var(--font);font-size:11px;resize:none;min-height:42px;transition:border-color 0.15s}
-.pf:focus{outline:none;border-color:var(--border2)}
-.pf::placeholder{color:var(--text3)}
-.ppv-row{display:flex;gap:5px}
-.ppv-in{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:5px 8px;color:var(--text);font-family:var(--font);font-size:11px}
-.ppv-in:focus{outline:none;border-color:var(--green)}
-.vn-wrap{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px;min-height:16px}
-.vn-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:3px;background:var(--bg3);border:1px solid var(--border);font-size:10px;color:var(--text2)}
-.vn-chip button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:10px;padding:0}
-.vn-chip button:hover{color:var(--red)}
-.vn-row{display:flex;gap:4px}
-.vn-in{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:4px 7px;color:var(--text);font-family:var(--font);font-size:10px}
-.vn-in:focus{outline:none;border-color:var(--blue)}
-
-/* COL MIDDLE */
-.cm{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--bg);min-width:0}
-.cm-head{padding:9px 13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--bg2);flex-shrink:0}
-/* INPUT MODE TABS */
-.mode-tabs{display:flex;gap:0;padding:8px 12px 4px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
-.mode-tab{padding:4px 12px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid var(--border);color:var(--text3);transition:all 0.15s;background:var(--bg3)}
-.mode-tab:first-child{border-radius:var(--r) 0 0 var(--r)}
-.mode-tab:last-child{border-radius:0 var(--r) var(--r) 0;border-left:none}
-.mode-tab.on{background:var(--blue-bg);color:var(--blue2);border-color:rgba(91,141,238,0.3)}
-.chat-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:5px}
-.chat-empty{text-align:center;color:var(--text3);font-size:11px;margin:auto;padding:28px;line-height:1.8}
-/* BUBBLES */
-.brow{display:flex;align-items:flex-end;gap:5px}
-.brow.customer{justify-content:flex-start}
-.brow.model{justify-content:flex-end}
-.brow.ppv{justify-content:flex-end}
-.bbl{max-width:78%;padding:7px 11px;font-size:12px;line-height:1.5;position:relative;cursor:pointer;transition:opacity 0.15s;word-break:break-word;border-radius:13px}
-.bbl:hover{opacity:0.8}
-.brow.customer .bbl{background:#1a1a2e;border:1px solid #252545;border-bottom-left-radius:3px;color:var(--text)}
-.brow.model .bbl{background:#1a2240;border:1px solid #1e2e60;border-bottom-right-radius:3px;color:var(--text)}
-.brow.ppv .bbl{background:linear-gradient(135deg,#2a1f0a 0%,#2e2410 100%);border:1px solid rgba(230,184,77,0.35);border-bottom-right-radius:3px;color:var(--text);box-shadow:0 0 0 1px rgba(230,184,77,0.08) inset}
-.brow.ppv .bbl.opened{background:linear-gradient(135deg,#0f2418 0%,#122a1c 100%);border:1px solid rgba(61,214,140,0.35);box-shadow:0 0 0 1px rgba(61,214,140,0.08) inset}
-.ppv-tag{display:inline-block;font-size:9px;font-weight:700;letter-spacing:0.06em;color:#e6b84d;margin-bottom:3px;opacity:0.9}
-.ppv-tag.opened{color:var(--green)}
-.ppv-price{display:inline-block;background:rgba(230,184,77,0.15);border:1px solid rgba(230,184,77,0.3);color:#e6b84d;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:6px;vertical-align:middle}
-.ppv-price.opened{background:rgba(61,214,140,0.12);border-color:rgba(61,214,140,0.3);color:var(--green)}
-.ppv-unopened{display:inline-block;font-size:8px;font-weight:700;letter-spacing:0.08em;color:#e6b84d;background:rgba(230,184,77,0.1);border:1px solid rgba(230,184,77,0.25);padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle}
-.ppv-unlock-hint{font-size:9px;color:var(--text3);margin-top:4px;text-align:right;opacity:0.6;font-style:italic}
-
-.ppv-draft-bbl{background:linear-gradient(135deg,rgba(230,184,77,0.08) 0%,rgba(230,184,77,0.03) 100%)!important;border:1px dashed rgba(230,184,77,0.4)!important}
-
-/* PPV CAPTION→PRICE MODAL */
-.ppv-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(2px)}
-.ppv-modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:18px 20px;width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.6)}
-.ppv-modal-title{font-size:12px;font-weight:600;color:#e6b84d;letter-spacing:0.04em;margin-bottom:4px;display:flex;align-items:center;gap:6px}
-.ppv-modal-sub{font-size:10px;color:var(--text3);margin-bottom:12px;line-height:1.5}
-.ppv-modal-caption{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:12px;max-height:80px;overflow-y:auto}
-.ppv-modal-label{font-size:10px;color:var(--text3);font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:5px}
-.ppv-modal-price-row{display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.ppv-modal-dollar{color:#e6b84d;font-size:16px;font-weight:600}
-.ppv-modal-price-in{flex:1;background:var(--bg3);border:1px solid rgba(230,184,77,0.35);border-radius:var(--r);padding:8px 11px;color:var(--text);font-family:var(--font);font-size:15px;font-weight:600}
-.ppv-modal-price-in:focus{outline:none;border-color:#e6b84d;box-shadow:0 0 0 2px rgba(230,184,77,0.15)}
-.ppv-modal-suggestion{font-size:10px;color:var(--text3);margin-bottom:14px;line-height:1.5;padding:6px 8px;background:rgba(230,184,77,0.06);border-left:2px solid rgba(230,184,77,0.4);border-radius:3px}
-.ppv-modal-suggestion b{color:#e6b84d;font-weight:600}
-.ppv-modal-acts{display:flex;gap:6px;justify-content:flex-end}
-
-/* PPV SUGGESTION CARD in AI Intelligence */
-.ppv-suggest-card{background:linear-gradient(135deg,rgba(230,184,77,0.08) 0%,rgba(230,184,77,0.03) 100%);border:1px solid rgba(230,184,77,0.25);border-radius:var(--r);padding:9px 11px;margin-bottom:6px}
-.ppv-suggest-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.ppv-suggest-label{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#e6b84d;display:flex;align-items:center;gap:5px}
-.ppv-suggest-amt{font-size:18px;font-weight:700;color:#e6b84d;font-family:var(--mono);letter-spacing:-0.02em}
-.ppv-suggest-reason{font-size:10px;color:var(--text2);line-height:1.5}
-.ppv-suggest-loading{font-size:10px;color:var(--text3);font-style:italic;animation:pulse 1.4s infinite}
-.bbl-x{position:absolute;top:-5px;right:-5px;width:14px;height:14px;border-radius:50%;background:var(--red);border:none;color:#fff;font-size:8px;cursor:pointer;display:none;align-items:center;justify-content:center;font-weight:700}
-.copy-btn{padding:2px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3);font-family:var(--font);font-size:10px;cursor:pointer;transition:all 0.15s;flex-shrink:0;align-self:flex-end;margin-bottom:2px}
-.copy-btn:hover{border-color:var(--blue2);color:var(--blue2)}
-.copy-btn.copied{border-color:var(--green);color:var(--green)}
-.bbl-ts{font-size:10px;color:var(--text3);margin-top:2px;padding:0 4px}
-.bbl:hover .bbl-x{display:flex}
-.bav{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
-.bav.c{background:rgba(240,160,64,0.15);border:1px solid rgba(240,160,64,0.25);color:var(--amber)}
-.bav.m{background:var(--blue-bg);border:1px solid rgba(91,141,238,0.25);color:var(--blue2)}
-.bav.p{background:rgba(230,184,77,0.15);border:1px solid rgba(230,184,77,0.3);color:#e6b84d;font-size:11px}
-/* DRAFT */
-.draft-wrap{padding:8px 0 0}
-.draft-label{font-size:9px;color:var(--blue2);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:3px;text-align:right;padding-right:4px}
-.draft-bbl{background:rgba(91,141,238,0.07);border:1px dashed rgba(91,141,238,0.25);border-radius:13px;border-bottom-right-radius:3px;padding:9px 12px;font-size:12px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word;margin-left:auto;max-width:78%}
-.draft-acts{display:flex;gap:5px;justify-content:flex-end;margin-top:6px}
-.fb-area{margin-top:6px;display:none}
-.fb-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:6px 8px;color:var(--text2);font-family:var(--font);font-size:11px;resize:none;min-height:38px}
-.fb-input:focus{outline:none;border-color:rgba(240,96,96,0.4)}
-.fb-input::placeholder{color:var(--text3)}
-/* PASTE MODE */
-.paste-mode{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-.paste-area{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:9px 10px;color:var(--text);font-family:var(--font);font-size:12px;resize:none;flex:1;min-height:120px;line-height:1.6}
-.paste-area:focus{outline:none;border-color:var(--border2)}
-.paste-area::placeholder{color:var(--text3)}
-/* CHAT INPUT */
-.chat-in-area{background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0}
-.sender-bar{display:flex;padding:7px 11px 3px}
-.s-btn{padding:3px 11px;background:var(--bg3);border:1px solid var(--border);font-family:var(--font);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--text3)}
-.s-btn:first-child{border-radius:var(--r) 0 0 var(--r)}
-.s-btn:not(:first-child){border-left:none}
-.s-btn:last-child{border-radius:0 var(--r) var(--r) 0}
-.s-btn.sc{color:var(--amber);background:rgba(240,160,64,0.08);border-color:rgba(240,160,64,0.2)}
-.s-btn.sm{color:var(--blue2);background:var(--blue-bg);border-color:rgba(91,141,238,0.2)}
-.s-btn.sp{color:#e6b84d;background:rgba(230,184,77,0.1);border-color:rgba(230,184,77,0.3)}
-.chat-in-row{display:flex;gap:5px;padding:3px 11px 8px;align-items:flex-end}
-.chat-ti{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:6px 9px;color:var(--text);font-family:var(--font);font-size:12px;resize:none;min-height:34px;max-height:80px;line-height:1.5}
-.chat-ti:focus{outline:none;border-color:var(--border2)}
-.chat-ti::placeholder{color:var(--text3)}
-.btn-add{padding:6px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);color:var(--text2);font-family:var(--font);font-size:12px;cursor:pointer;transition:all 0.15s}
-.btn-add:hover{border-color:var(--blue2);color:var(--blue2)}
-/* CONTEXT + GENERATE */
-.ctx-area{padding:7px 11px;border-top:1px solid var(--border);background:var(--bg2)}
-.ctx-l{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:3px}
-.ctx-opt{font-size:9px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0}
-.ctx-in{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:6px 8px;color:var(--text);font-family:var(--font);font-size:11px;resize:none;min-height:34px}
-.ctx-in:focus{outline:none;border-color:var(--blue)}
-.ctx-in::placeholder{color:var(--text3)}
-.gen-area{padding:7px 11px 11px;background:var(--bg2)}
-.btn-gen{width:100%;padding:10px;background:var(--blue);border:none;border-radius:var(--r);color:#fff;font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
-.btn-gen:hover:not(:disabled){background:var(--blue2)}
-.btn-gen:disabled{background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:not-allowed}
-.btn-gen.loading{background:var(--bg3);border:1px solid var(--blue);color:var(--blue2);animation:pulse 1.4s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-
-/* COL RIGHT — COACH */
-.cr{width:280px;display:flex;flex-direction:column;background:var(--bg2);flex-shrink:0;min-height:0;overflow:hidden}
-#coachContent{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
-.cr-head{padding:10px 12px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-shrink:0}
-.cr-title{font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text2)}
-.coach-body{flex:1;overflow-y:auto;padding:10px}
-.coach-empty{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--text3);font-size:11px;text-align:center;line-height:1.8}
-/* ANALYSIS */
-.a-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:10px;margin-bottom:8px}
-.a-sec{margin-bottom:8px}
-.a-sec:last-child{margin-bottom:0}
-.a-l{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:3px}
-.a-v{font-size:12px;color:var(--text);line-height:1.4}
-.a-v.blue{color:var(--blue2);font-weight:500}
-.a-v.green{color:var(--green)}
-.a-v.amber{color:var(--amber)}
-.a-v.red{color:var(--red)}
-.a-v.purple{color:var(--purple)}
-.a-note{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.5}
-.lvl-bar{height:3px;background:var(--bg4);border-radius:2px;margin-top:5px;overflow:hidden}
-.lvl-fill{height:100%;border-radius:2px;background:var(--blue);transition:width 0.5s}
-.a-box{background:var(--bg4);border-radius:var(--r);padding:7px 9px;font-size:11px;color:var(--text2);line-height:1.6;border-left:2px solid var(--blue)}
-.a-box.green{border-left-color:var(--green)}
-.a-box.amber{border-left-color:var(--amber);color:var(--amber)}
-/* PSYCH DASHBOARD */
-.psych-dash{padding:10px}
-.speed-wrap{display:flex;justify-content:center;margin-bottom:10px}
-.speed-svg{width:160px;height:90px}
-.psych-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
-.psych-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px}
-.psych-box-label{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
-.psych-box-value{font-size:12px;font-weight:600;color:var(--text);line-height:1.3}
-.psych-box-value.blue{color:var(--blue2)}
-.psych-box-value.green{color:var(--green)}
-.psych-box-value.amber{color:var(--amber)}
-.psych-box-value.red{color:var(--red)}
-.psych-box-value.purple{color:var(--purple)}
-.psych-box-note{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.4}
-.psych-full{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;margin-bottom:6px}
-.psych-full-label{font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--text3);margin-bottom:5px}
-.psych-insight{font-size:11px;color:var(--text2);line-height:1.6;padding:6px 8px;background:var(--bg4);border-radius:4px;border-left:2px solid var(--blue)}
-.psych-insight.green{border-left-color:var(--green)}
-.psych-insight.amber{border-left-color:var(--amber);color:var(--amber)}
-.psych-insight.red{border-left-color:var(--red);color:var(--red)}
-.lvl-track{display:flex;gap:3px;margin-top:6px}
-.lvl-seg{flex:1;height:4px;border-radius:2px;background:var(--bg4);transition:background 0.4s}
-.lvl-seg.on{background:var(--blue)}
-.lvl-seg.on.green{background:var(--green)}
-.psych-empty{padding:20px 10px;text-align:center;color:var(--text3);font-size:11px;line-height:1.8}
-.pre-analysis-note{font-size:10px;color:var(--text3);padding:4px 6px;background:var(--amber-bg);border-radius:3px;border-left:2px solid var(--amber);margin-bottom:8px;line-height:1.5}
-
-/* QA */
-.qa-wrap{border-top:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;max-height:200px}
-.qa-msgs{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:40px}
-.qa-msg{padding:6px 9px;border-radius:var(--r);font-size:11px;line-height:1.5}
-.qa-msg.agent{background:var(--bg4);color:var(--text2);align-self:flex-end;max-width:88%}
-.qa-msg.ai{background:var(--bg3);border:1px solid var(--border);color:var(--text);align-self:flex-start;max-width:96%}
-.qa-msg.thinking{color:var(--text3);font-style:italic;font-size:10px}
-.qa-in-row{display:flex;gap:5px;padding:6px 10px;border-top:1px solid var(--border);flex-shrink:0}
-.qa-in{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:5px 8px;color:var(--text);font-family:var(--font);font-size:11px}
-.qa-in:focus{outline:none;border-color:var(--blue)}
-.qa-in::placeholder{color:var(--text3)}
-
-/* MODALS */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(6px)}
-.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:22px;width:500px;max-height:88vh;overflow-y:auto;box-shadow:0 40px 120px rgba(0,0,0,0.9)}
-.modal.lg{width:660px}
-.m-title{font-size:15px;font-weight:600;letter-spacing:-0.01em;margin-bottom:2px}
-.m-sub{font-size:11px;color:var(--text3);margin-bottom:18px}
-.fg{margin-bottom:11px}
-.fl{display:block;font-size:9px;font-weight:700;color:var(--text3);letter-spacing:0.07em;text-transform:uppercase;margin-bottom:3px}
-.fi{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:7px 9px;color:var(--text);font-family:var(--font);font-size:12px;transition:border-color 0.15s}
-.fi:focus{outline:none;border-color:var(--blue)}
-.fi::placeholder{color:var(--text3)}
-.fs{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:7px 9px;color:var(--text);font-family:var(--font);font-size:12px;cursor:pointer}
-.fs:focus{outline:none;border-color:var(--blue)}
-.ft{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:7px 9px;color:var(--text);font-family:var(--font);font-size:12px;resize:vertical;min-height:72px;transition:border-color 0.15s}
-.ft:focus{outline:none;border-color:var(--blue)}
-.frow{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.m-acts{display:flex;gap:7px;justify-content:flex-end;margin-top:16px}
-.stabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:16px}
-.stab{padding:7px 13px;font-size:11px;font-weight:500;color:var(--text3);cursor:pointer;border:1px solid transparent;border-bottom:none;margin-bottom:-1px;border-radius:var(--r) var(--r) 0 0;transition:all 0.15s}
-.stab.on{background:var(--bg2);border-color:var(--border);color:var(--text)}
-.mc{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:14px;margin-bottom:10px}
-.mc-av{width:32px;height:32px;border-radius:50%;background:var(--blue-bg);border:1px solid rgba(91,141,238,0.3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--blue2);flex-shrink:0}
-.mc-head{display:flex;align-items:center;gap:10px;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border)}
-.mc-title{min-width:0}
-.mc-name{font-size:13px;font-weight:600;color:var(--text);letter-spacing:-0.01em}
-.mc-tier{font-size:10px;color:var(--text3);margin-top:1px}
-.mc-section{margin-bottom:10px}
-.mc-section:last-child{margin-bottom:0}
-.mc-label{display:flex;align-items:baseline;gap:7px;font-size:9px;font-weight:700;color:var(--text3);letter-spacing:0.07em;text-transform:uppercase;margin-bottom:4px}
-.mc-label-green{color:var(--green)}
-.mc-hint{font-size:9px;font-weight:400;color:var(--text3);letter-spacing:0;text-transform:none;opacity:0.75}
-.mc-textarea{width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.55;resize:vertical;min-height:120px;transition:border-color 0.15s}
-.mc-textarea:focus{outline:none;border-color:var(--border2)}
-.mc-library{min-height:100px;background:rgba(240,160,64,0.04);border-color:rgba(240,160,64,0.15)}
-.mc-library:focus{border-color:rgba(240,160,64,0.4)}
-.mc-learned{padding-top:10px;border-top:1px solid var(--border);margin-top:4px}
-.mc-rules{background:var(--bg4);border:1px solid rgba(61,214,140,0.2);border-radius:var(--r);padding:8px 10px;font-size:11px;color:var(--green);font-family:var(--mono);line-height:1.6;white-space:pre-wrap}
-
-/* PDF UPLOAD */
-.pdf-drop{border:2px dashed var(--border2);border-radius:var(--r2);padding:20px;text-align:center;cursor:pointer;transition:border-color 0.2s;margin-bottom:10px}
-.pdf-drop:hover{border-color:var(--blue)}
-.pdf-drop.over{border-color:var(--blue);background:var(--blue-bg)}
-.pdf-status{font-size:11px;color:var(--text3);margin-top:6px}
-.pdf-status.ok{color:var(--green)}
-.pdf-status.err{color:var(--red)}
-
-/* TOASTS */
-.toasts{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:5px;pointer-events:none;max-width:320px}
-.toast{padding:8px 13px;border-radius:var(--r);font-size:11px;font-weight:500;animation:slideIn 0.2s ease;max-width:320px;max-height:80px;overflow:hidden;text-overflow:ellipsis;word-break:break-word;line-height:1.4;pointer-events:auto}
-.toast.s{background:var(--green-bg);border:1px solid rgba(61,214,140,0.2);color:var(--green)}
-.toast.e{background:var(--red-bg);border:1px solid rgba(240,96,96,0.2);color:var(--red)}
-.toast.i{background:var(--blue-bg);border:1px solid rgba(91,141,238,0.2);color:var(--blue2)}
-@keyframes slideIn{from{transform:translateX(14px);opacity:0}to{transform:translateX(0);opacity:1}}
-::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-/* v0.4.1.0: date-range modal */
-.dr-preset{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);padding:9px 12px;font-size:12px;font-family:var(--font);text-align:center;cursor:pointer;transition:all 0.12s}
-.dr-preset:hover{border-color:var(--blue);color:var(--blue2)}
-.dr-preset.on{border-color:var(--blue);background:var(--blue-bg);color:var(--blue2)}
-.dr-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text2);border-radius:var(--r);cursor:pointer;transition:all 0.1s;user-select:none;font-family:var(--font);background:none;border:1px solid transparent}
-.dr-day:hover:not(.dr-disabled){background:var(--bg3)}
-.dr-day.dr-other{color:var(--text3);opacity:0.4}
-.dr-day.dr-today{color:var(--blue2);font-weight:600}
-.dr-day.dr-sel{background:var(--blue);color:#fff}
-.dr-day.dr-in-range{background:var(--blue-bg);color:var(--blue2);border-radius:0}
-.dr-day.dr-range-start{background:var(--blue);color:#fff;border-radius:var(--r) 0 0 var(--r)}
-.dr-day.dr-range-end{background:var(--blue);color:#fff;border-radius:0 var(--r) var(--r) 0}
-.dr-dow{font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);text-align:center;padding:6px 0}
-</style>
-</head>
-<body>
-
-<!-- ═══════════════════════════════════════════════════════════ -->
-<!-- v0.4.0: AUTH OVERLAY — invite-only login                   -->
-<!-- ═══════════════════════════════════════════════════════════ -->
-<div id="authOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0d10;align-items:center;justify-content:center;padding:20px">
-  <div style="width:100%;max-width:380px;background:var(--bg2,#13171b);border:1px solid var(--border,#222);border-radius:12px;padding:32px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px">S★</div>
-      <div style="font-size:18px;font-weight:600;color:#fff">SmartStarsAI</div>
-    </div>
-    <div style="font-size:12px;color:#888;margin-bottom:24px">Sign in with your invited account</div>
-    <div style="margin-bottom:14px">
-      <label style="display:block;font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Email</label>
-      <input id="authEmail" type="email" autocomplete="email" placeholder="you@agency.com" style="width:100%;padding:10px 12px;background:#0a0d10;border:1px solid #2a3038;border-radius:6px;color:#fff;font-size:13px;outline:none;box-sizing:border-box">
-    </div>
-    <div style="margin-bottom:18px">
-      <label style="display:block;font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Password</label>
-      <input id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••" style="width:100%;padding:10px 12px;background:#0a0d10;border:1px solid #2a3038;border-radius:6px;color:#fff;font-size:13px;outline:none;box-sizing:border-box">
-    </div>
-    <div id="authError" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:14px"></div>
-    <button id="authBtn" onclick="doLogin()" style="width:100%;padding:11px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Sign in</button>
-    <div style="margin-top:18px;font-size:11px;color:#666;text-align:center;line-height:1.6">Access is invite-only. Contact your manager if you need an account.</div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════ -->
-<!-- v0.4.1.1: FORCED PASSWORD CHANGE — first login after invite  -->
-<!-- ═══════════════════════════════════════════════════════════ -->
-<div id="pwChangeOverlay" style="display:none;position:fixed;inset:0;z-index:10000;background:#0a0d10;align-items:center;justify-content:center;padding:20px">
-  <div style="width:100%;max-width:420px;background:var(--bg2,#13171b);border:1px solid var(--border,#222);border-radius:12px;padding:32px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px">S★</div>
-      <div style="font-size:18px;font-weight:600;color:#fff">Set your password</div>
-    </div>
-    <div style="font-size:12px;color:#888;margin-bottom:24px;line-height:1.6">Your account was created by your manager with a temporary password. Choose a new one before continuing — only you should know it.</div>
-    <div style="margin-bottom:14px">
-      <label style="display:block;font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">New password</label>
-      <input id="pwNew" type="password" autocomplete="new-password" placeholder="At least 8 characters" style="width:100%;padding:10px 12px;background:#0a0d10;border:1px solid #2a3038;border-radius:6px;color:#fff;font-size:13px;outline:none;box-sizing:border-box">
-    </div>
-    <div style="margin-bottom:18px">
-      <label style="display:block;font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Confirm new password</label>
-      <input id="pwConfirm" type="password" autocomplete="new-password" placeholder="Type it again" style="width:100%;padding:10px 12px;background:#0a0d10;border:1px solid #2a3038;border-radius:6px;color:#fff;font-size:13px;outline:none;box-sizing:border-box">
-    </div>
-    <div id="pwError" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:14px"></div>
-    <button id="pwSaveBtn" onclick="savePasswordChange()" style="width:100%;padding:11px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Save & continue</button>
-    <div style="margin-top:14px;font-size:11px;color:#666;text-align:center;line-height:1.6">You cannot skip this step.</div>
-  </div>
-</div>
-
-<!-- App shell — hidden until auth resolves -->
-<div id="appShell" style="display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden">
-
-<div class="topbar">
-  <div class="brand" onclick="goToDashboard()" style="cursor:pointer" title="Go to dashboard">
-    <div class="brand-icon">S★</div>
-    <div class="brand-name">SmartStars<em>AI</em><span style="font-size:9px;color:var(--text3);font-weight:400;margin-left:6px;letter-spacing:0;opacity:0.7" id="brandVersion"></span></div>
-  </div>
-  <div class="sep"></div>
-  <div class="db-status"><div class="db-dot" id="dbDot"></div><span id="dbLabel">connecting</span></div>
-  <div class="spacer"></div>
-  <div class="api-sw" id="apiSwitcher" style="display:none">
-    <button id="btnAuto" onclick="setApi('auto')" title="Claude decides — explicit content routes to Mistral">Auto</button>
-    <button class="on" id="btnClaude" onclick="setApi('claude')" title="Force Claude">Claude</button>
-    <button id="btnMistral" onclick="setApi('mistral')" title="Force Mistral" style="color:var(--purple)">Mistral ✦</button>
-  </div>
-  <div class="sep" id="settingsSep" style="display:none"></div>
-  <button class="btn sm" id="settingsBtn" onclick="openSettings()" style="display:none;position:relative">Settings<span id="settingsBadge" style="display:none;position:absolute;top:-3px;right:-3px;background:var(--red);width:8px;height:8px;border-radius:50%;border:1.5px solid var(--bg2)"></span></button>
-  <button class="btn sm primary" onclick="openNewSession()">+ New Session</button>
-  <div class="sep"></div>
-  <div id="chatterBadge" style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);padding:4px 10px;background:rgba(255,255,255,0.04);border-radius:6px">
-    <span id="chatterName" style="font-weight:600;color:var(--text1)"></span>
-    <span id="chatterRoleBadge" style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(59,130,246,0.15);color:#60a5fa;text-transform:uppercase;letter-spacing:0.5px"></span>
-    <button onclick="doLogout()" title="Sign out" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;padding:2px 4px;margin-left:2px">↗</button>
-  </div>
-</div>
-
-<div class="main">
-  <div class="sidebar">
-    <div class="sb-top">
-      <div class="sb-tabs">
-        <button class="sb-tab on" id="sbTabActive" onclick="setSidebarMode('active')">Active</button>
-        <button class="sb-tab" id="sbTabArchived" onclick="setSidebarMode('archived')">Archived</button>
-      </div>
-      <input class="sb-search" placeholder="Search customers..." id="sbSearch" oninput="renderSidebar()">
-    </div>
-    <div class="sb-body" id="sbBody">
-      <div class="sb-empty">No sessions yet.</div>
-    </div>
-    <div class="sb-foot">
-      <button class="btn" style="width:100%" onclick="openNewSession()">+ New Session</button>
-    </div>
-  </div>
-
-  <div class="content" id="content">
-    <div class="dash" id="dashView">
-      <div class="dash-title">SmartStars<span style="color:var(--blue2)">AI</span></div>
-      <div class="dash-sub" id="dashDate"></div>
-      <div class="dash-stats" id="topStatsRow" style="grid-template-columns:repeat(5,1fr)">
-        <div class="stat"><div class="stat-l">Active Sessions</div><div class="stat-v blue" id="sSess">0</div></div>
-        <div class="stat"><div class="stat-l">Responses Today</div><div class="stat-v" id="sResp">0</div></div>
-        <div class="stat" id="sApiCard"><div class="stat-l">Active API</div><div class="stat-v blue" id="sApi">Claude</div></div>
-        <div class="stat"><div class="stat-l">Models</div><div class="stat-v" id="sModels">0</div></div>
-        <div class="stat" id="sApiCostCard" style="cursor:pointer" title="Click to see API call breakdown — diagnoses cache hit/miss issues. Sonnet 4.6 pricing." onclick="openCostDiagnostic()"><div class="stat-l">$/msg · Cache <span style="opacity:0.5">(click)</span></div><div class="stat-v" id="sApiCost" style="font-size:18px">$0.00 · —</div></div>
-      </div>
-
-      <!-- PERFORMANCE DASHBOARD -->
-      <div style="margin-top:28px;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;letter-spacing:-0.01em" id="perfHeader">Performance — Today</div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-          <button id="dashRangeBtn" onclick="openDateRangeModal()" title="Click to choose a date range" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:5px">
-            <span id="dashRangeLabel">Today</span>
-            <span style="opacity:0.5;font-size:9px">▾</span>
-          </button>
-          <span id="dashTzLabel" title="Day boundaries computed in UTC." style="font-size:10px;color:var(--text3);letter-spacing:0.02em">UTC</span>
-          <span id="dashChatterWrap" style="display:none;align-items:center;gap:4px">
-            <select id="dashChatter" onchange="loadDashMetrics()" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text)">
-              <option value="">All agents</option>
-            </select>
-          </span>
-          <select id="dashModel" onchange="loadDashMetrics()" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text)">
-            <option value="">All models</option>
-          </select>
-          <button class="btn sm" onclick="loadDashMetrics()" title="Refresh">↻</button>
-        </div>
-      </div>
-
-      <div class="dash-stats" style="grid-template-columns:repeat(4,1fr)">
-        <div class="stat"><div class="stat-l">Messages Generated</div><div class="stat-v" id="mMsgs">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mMsgsSub"></div></div>
-        <div class="stat"><div class="stat-l">PPVs Pitched / Landed</div><div class="stat-v" id="mPpv">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mPpvSub"></div></div>
-        <div class="stat"><div class="stat-l">PPV Conversion Rate</div><div class="stat-v" id="mConv">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mConvSub"></div></div>
-        <div class="stat"><div class="stat-l">PPV Miss Rate</div><div class="stat-v" id="mMiss">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mMissSub"></div></div>
-      </div>
-      <div class="dash-stats" style="grid-template-columns:repeat(4,1fr);margin-top:8px">
-        <div class="stat" title="Avg AI msgs between landed PPVs in climbing-ladder state. Doctrine: 3-4 beats between pitches. 5+ = drift, 7+ = severe drift. Excludes aftercare and miss-lockout messages — those are doctrine working, not drift."><div class="stat-l">Post-Pitch Drift</div><div class="stat-v" id="mDrift">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mDriftSub"></div></div>
-        <div class="stat" title="Average AI messages logged BEFORE the first pitch fires in a session. Lower = AI pitches sooner. Watch for very high values — means AI is over-warming and burning rapport beats."><div class="stat-l">Pre-Pitch Warmup</div><div class="stat-v" id="mWarmup">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mWarmupSub"></div></div>
-        <div class="stat"><div class="stat-l">Time-to-First-Pitch</div><div class="stat-v" id="mTtfp">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px">avg AI msgs before first PPV</div></div>
-        <div class="stat"><div class="stat-l">Aftercare Triggers</div><div class="stat-v" id="mAfter">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mAfterSub"></div></div>
-      </div>
-      <div class="dash-stats" style="grid-template-columns:repeat(4,1fr);margin-top:8px">
-        <div class="stat"><div class="stat-l">TW Flags Today</div><div class="stat-v" id="mTw">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mTwSub"></div></div>
-        <div class="stat"><div class="stat-l">Sessions Archived</div><div class="stat-v" id="mArchived">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mArchivedSub"></div></div>
-        <div class="stat"><div class="stat-l">PPVs Missed</div><div class="stat-v" id="mMissCount">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mMissCountSub"></div></div>
-        <div class="stat"><div class="stat-l">Spend Overrides</div><div class="stat-v" id="mOverride">—</div><div style="font-size:10px;color:var(--text3);margin-top:2px" id="mOverrideSub"></div></div>
-      </div>
-
-      <!-- TIER DISTRIBUTION + MODEL BREAKDOWN -->
-      <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Landed PPVs · Tier Distribution</div>
-          <div id="tierDist" style="display:flex;flex-direction:column;gap:6px;font-size:12px">
-            <div style="color:var(--text3);font-style:italic">No data yet</div>
-          </div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">By Model</div>
-          <div id="modelBreak" style="display:flex;flex-direction:column;gap:6px;font-size:12px">
-            <div style="color:var(--text3);font-style:italic">No data yet</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- FORK DISTRIBUTION + WHALE SIGNALS (V2) -->
-      <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Fork Distribution <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">— V2</span></div>
-          <div id="forkDist" style="display:flex;flex-direction:column;gap:6px;font-size:12px">
-            <div style="color:var(--text3);font-style:italic">No fork events in range</div>
-          </div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Whale Signals <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">— V2</span></div>
-          <div id="whaleSignals" style="display:flex;flex-direction:column;gap:6px;font-size:12px">
-            <div style="color:var(--text3);font-style:italic">No whale signals in range</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- CHATTER LEADERBOARD (v0.4.1.0 — manager-only) -->
-      <div id="chatterLeaderboardWrap" style="display:none;margin-top:24px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3)">Chatter Leaderboard <span style="color:var(--text3);opacity:0.6;font-weight:400;text-transform:none;letter-spacing:0">— SSAI usage & doctrine adherence</span></div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="btn sm" id="leaderboardExportBtn" onclick="exportLeaderboardCsv()" title="Download as CSV">↓ Export</button>
-          </div>
-        </div>
-        <div id="chatterLeaderboard" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;font-size:12px">
-          <div style="padding:14px;color:var(--text3);font-style:italic">Loading...</div>
-        </div>
-      </div>
-
-      <!-- RECENT ARCHIVED SESSIONS WITH OUTCOMES -->
-      <div style="margin-top:24px">
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">Recent Sessions Archived</div>
-        <div id="recentSess" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:0;overflow:hidden;font-size:12px">
-          <div style="padding:14px;color:var(--text3);font-style:italic">No archived sessions in range</div>
-        </div>
-      </div>
-    </div>
-    <div id="sessContainer" style="display:none;flex:1;overflow:hidden;flex-direction:column"></div>
-  </div>
-</div>
-
-<div class="toasts" id="toasts"></div>
-
-<!-- No-key warning banner: visible at all times until ss_claude is set in localStorage -->
-<div id="noKeyBanner" style="display:none;position:fixed;top:0;left:0;right:0;background:#7f1d1d;color:#fecaca;padding:8px 14px;font-size:12px;text-align:center;z-index:9999;border-bottom:1px solid #991b1b">
-  ⚠️ Claude API key not configured — contact your manager. No generations will work until this is fixed.
-</div>
-
-<!-- NEW SESSION MODAL -->
-<div class="overlay" id="modalNew" style="display:none" onclick="if(event.target===this)closeNew()">
-  <div class="modal">
-    <div class="m-title">New Session</div>
-    <div class="m-sub">Customer details from CreatorHero</div>
-    <div class="fg"><label class="fl">Creator Model</label><select class="fs" id="ns_model"></select></div>
-    <div class="frow">
-      <div class="fg"><label class="fl">Customer Name <span style="opacity:.6;font-weight:400">(optional if username given)</span></label><input class="fi" id="ns_name" placeholder="e.g. Jake — or leave blank if only username known" type="text"></div>
-      <div class="fg"><label class="fl">OF Username <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label><input class="fi" id="ns_username" placeholder="@username · leave blank if unknown" type="text"></div>
-    </div>
-    <div class="fg"><label class="fl">CRM Notes</label><textarea class="ft" id="ns_notes" placeholder="Paste everything from CreatorHero notes — preferences, past purchases, trust level, personality, key details the AI must know..." style="min-height:90px"></textarea></div>
-    <div class="frow">
-      <div class="fg"><label class="fl">Total Spend ($)</label><input class="fi" id="ns_spend" placeholder="e.g. 340" type="text"></div>
-      <div class="fg"><label class="fl">Tips Only ($)</label><input class="fi" id="ns_tips" placeholder="e.g. 120" type="text"></div>
-    </div>
-    <div class="frow">
-      <div class="fg"><label class="fl">Time on Page</label><input class="fi" id="ns_time" placeholder="e.g. 8 months" type="text"></div>
-      <div class="fg"><label class="fl">Subscription Status</label>
-        <select class="fs" id="ns_status">
-          <option value="subscribed">Subscribed</option>
-          <option value="expired">Expired</option>
-          <option value="free">Free</option>
-        </select>
-      </div>
-    </div>
-    <div class="m-acts">
-      <button class="btn" onclick="closeNew()">Cancel</button>
-      <button class="btn primary" onclick="createSession()">Start Session</button>
-    </div>
-  </div>
-</div>
-
-<!-- DATE RANGE MODAL (v0.4.1.0) -->
-<div class="overlay" id="modalDateRange" style="display:none" onclick="if(event.target===this)closeDateRangeModal()">
-  <div class="modal" style="width:680px;max-width:95vw;padding:0;overflow:hidden">
-    <div style="display:flex;min-height:440px">
-      <!-- Left: quick presets -->
-      <div style="width:200px;background:var(--bg);border-right:1px solid var(--border);padding:18px 14px;display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Quick select</div>
-        <button class="dr-preset" data-range="today">Today</button>
-        <button class="dr-preset" data-range="yesterday">Yesterday</button>
-        <button class="dr-preset" data-range="this_week">This Week</button>
-        <button class="dr-preset" data-range="last_week">Last Week</button>
-        <button class="dr-preset" data-range="this_month">This Month</button>
-        <button class="dr-preset" data-range="last_month">Last Month</button>
-        <button class="dr-preset" data-range="this_year">This Year</button>
-        <button class="dr-preset" data-range="last_year">Last Year</button>
-        <button class="dr-preset" data-range="all_time">All Time</button>
-      </div>
-      <!-- Right: calendar grid -->
-      <div style="flex:1;padding:18px 22px;display:flex;flex-direction:column">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">Select date range</div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px">
-          <div style="font-size:22px;font-weight:600" id="drSelectionLabel">—</div>
-          <div style="font-size:11px;color:var(--text3)">(UTC+00:00)</div>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <button class="btn sm" id="drPrevMonth" style="width:32px;padding:4px 0">‹</button>
-          <div style="font-weight:600;font-size:13px" id="drMonthLabel"></div>
-          <button class="btn sm" id="drNextMonth" style="width:32px;padding:4px 0">›</button>
-        </div>
-        <div id="drGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;flex:1"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-          <div style="font-size:10px;color:var(--text3)">Click once for single day · click two days for a range</div>
-          <div style="display:flex;gap:6px">
-            <button class="btn" onclick="closeDateRangeModal()">Cancel</button>
-            <button class="btn primary" id="drApply" onclick="applyDateRange()">Apply</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- SETTINGS MODAL -->
-<div class="overlay" id="modalSettings" style="display:none" onclick="if(event.target===this)closeSettings()">
-  <div class="modal lg">
-    <div class="m-title">Settings</div>
-    <div class="stabs">
-      <div class="stab on" id="stab_models" onclick="switchTab('models')">Creator Models</div>
-      <div class="stab" id="stab_status" onclick="switchTab('status')">Creator Status</div>
-      <div class="stab" id="stab_training" onclick="switchTab('training')">Global Training</div>
-      <div class="stab" id="stab_feedback" onclick="switchTab('feedback')" style="display:none">Feedback Queue <span id="fbQueueBadge" style="display:none;background:var(--red);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;margin-left:4px;font-weight:700"></span></div>
-      <div class="stab" id="stab_team" onclick="switchTab('team')" style="display:none">Team</div>
-    </div>
-
-    <div id="tab_models">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.7">Paste each model's full prompt. This is loaded on top of global training. Model rules always override global rules. Changes save directly to Supabase.</div>
-      <div id="modelCards"></div>
-      <button class="btn" style="width:100%;margin-top:7px" onclick="addModel()">+ Add Model</button>
-    </div>
-
-    <div id="tab_status" style="display:none">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.7">v0.3.0.37.5 — Creator real-life context. Add status entries (location, mood, recent events, voice tics, current obsessions) per creator. Drafts will reference these naturally to feel more authentically alive. Update as the creator's actual life updates. Entries auto-expire after 7 days unless marked permanent.</div>
-      <div id="statusCards"></div>
-    </div>
-
-    <div id="tab_training" style="display:none">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.7">Global agency knowledge base — Layer 1 injected into every API call. Upload your training PDF or paste text directly. Saved to Supabase.</div>
-      <div class="pdf-drop" id="pdfDrop" onclick="document.getElementById('pdfFile').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="handlePdfDrop(event)">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Click to upload training PDF</div>
-        <div style="font-size:10px;color:var(--text3)">or drag and drop · text PDF required (not scanned)</div>
-        <input type="file" id="pdfFile" accept=".pdf" style="display:none" onchange="handlePdfFile(this)">
-      </div>
-      <div class="pdf-status" id="pdfStatus"></div>
-      <div class="fg" style="margin-top:10px">
-        <label class="fl">Training Text (edit or paste directly)</label>
-        <textarea class="ft" id="globalTraining" style="min-height:320px;font-size:11px;font-family:var(--mono);line-height:1.5"></textarea>
-      </div>
-      <div class="m-acts">
-        <button class="btn" onclick="resetTraining()">Reset Default</button>
-        <button class="btn primary" onclick="saveTraining()">Save Training</button>
-      </div>
-    </div>
-
-    <div id="tab_feedback" style="display:none">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.7">Rejection feedback from chatters lands here. Review each batch, decide whether to promote synthesized rules into the model's learned rules, or dismiss. Until you approve, feedback only affects the session it came from — it never auto-rewrites a model's behavior.</div>
-      <div id="fbQueueBody" style="display:flex;flex-direction:column;gap:10px"></div>
-    </div>
-
-    <div id="tab_team" style="display:none">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.7">Manage chatters who can access SmartStarsAI. Invites only — chatters cannot self-register. Each chatter gets a unique proxy token that authenticates their API calls.</div>
-      <div style="background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:6px;padding:14px;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text1)">Invite a new chatter</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <input class="fi" id="ti_email" type="email" placeholder="email@agency.com">
-          <input class="fi" id="ti_name" type="text" placeholder="Full name (optional)">
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 120px;gap:8px;margin-bottom:8px">
-          <input class="fi" id="ti_password" type="text" placeholder="Initial password (chatter changes later)">
-          <select class="fi" id="ti_role">
-            <option value="chatter">Chatter</option>
-            <option value="manager">Manager</option>
-          </select>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Assign models (chatters only):</div>
-        <div id="ti_models_box" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-        <button class="btn primary" onclick="inviteChatter()" style="width:100%">Send invite</button>
-        <div id="ti_status" style="margin-top:10px;font-size:11px"></div>
-      </div>
-      <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text1)">Team members</div>
-      <div id="teamList" style="display:flex;flex-direction:column;gap:8px"></div>
-    </div>
-
-    <div style="margin-top:14px;display:flex;justify-content:flex-end"><button class="btn" onclick="closeSettings()">Close</button></div>
-  </div>
-</div>
-
-<script>
-// v0.3.0.37.4: single source of truth for app version. The <title> in the
-// HTML head is set to the same value at build time, but if it ever drifts
-// (e.g. sed-replace targets the wrong string), this auto-fixes it on load
-// so the tab title is always the actual code version.
-const SSAI_VERSION='0.4.1.1';
-try{document.title='SmartStarsAI v'+SSAI_VERSION;}catch(e){}
-try{const bv=document.getElementById('brandVersion');if(bv)bv.textContent='v'+SSAI_VERSION;}catch(e){}
-// v0.3.0.38: also surface version in topbar so chatters can confirm which build they're on
-try{
-  const setBrandVersion=()=>{const el=document.getElementById('brandVersion');if(el) el.textContent='v'+SSAI_VERSION;};
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',setBrandVersion);
-  else setBrandVersion();
-}catch(e){}
-
-const SB_URL='https://atzuqzdgqqcrcwthshfs.supabase.co';
-const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0enVxemRncXFjcmN3dGhzaGZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NDY3NzksImV4cCI6MjA5MjEyMjc3OX0.YwUSoh2OHuIBFW9R-BxTFS2DstIn5XjcH7a8jRqYz6I';
-// Claude key is loaded from localStorage only (set in Settings → API Keys).
-// Never hardcoded in this file. If empty, callApi throws and the UI shows
-// a clear "no key" banner instead of silently using a leaked key.
-const CK_DEFAULT='';
-
-// v0.3.0.38: Edge Function proxy for Anthropic API.
-// Default mode: PROXY ON. The browser never holds a real Anthropic key —
-// it sends a low-value proxy token to a Supabase Edge Function which
-// forwards to Anthropic with the server-held real key.
-// To revert temporarily (emergency): set localStorage.ss_use_proxy='false'.
-const PROXY_URL='https://atzuqzdgqqcrcwthshfs.supabase.co/functions/v1/anthropic-proxy';
-const PROXY_TOKEN_DEFAULT='ssai_a7f3k9m2x8p4q1w5n6r0t8v2y4z7c3b9';
-// v0.3.0.38: same proxy pattern for Mistral via OpenRouter.
-const MISTRAL_PROXY_URL='https://atzuqzdgqqcrcwthshfs.supabase.co/functions/v1/mistral-proxy';
-function useProxy(){
-  // Default ON. Only OFF if explicitly set to the string 'false'.
-  return localStorage.getItem('ss_use_proxy')!=='false';
-}
-function getProxyToken(){
-  return localStorage.getItem('ss_proxy_token')||PROXY_TOKEN_DEFAULT;
-}
-
-const DEFAULT_TRAINING=`SMARTSTARSAI — GLOBAL AGENCY TRAINING
-Applies to all models. Model-specific prompt always overrides this document.
-
-CORE PHILOSOPHY
-Sell the Girlfriend Experience (GFE). Customers pay for connection and personal attention — not just content. Top chatters have had customers spend $20,000+ through emotional connection alone.
-Trust is the foundation of all sales. One slip and the illusion breaks permanently.
-Every message has intent: rapport, intel, trust building, or moving toward a sale. No throwaway messages.
-Lead every conversation. Never let the customer set the pace.
-Think several moves ahead. Every message sets up the next 2-3 interactions.
-
-TRUST PYRAMID — always push toward Level 5
-Level 1: Trusts it's the real model chatting
-Level 2: Trusts model won't waste his money
-Level 3: Trusts model genuinely likes talking to him — Mode 2 activates here
-Level 4: Trusts model with personal information — confidant
-Level 5: Believes he is special and different from all other fans — highest LTV
-
-CHAT SKELETON
-Step 1 Warm Welcome: Make him feel good instantly. Different from every other account.
-Step 2 Chit Chat: Light, fun, short. Ask one open question. Spot green flags.
-Step 3 Yes Flow: Subtly get him agreeing to small things. Build agreement momentum.
-Step 4 CTA 1: Transition toward content naturally.
-Step 5 The Promise: MANDATORY before sending any content. Creates trust and exclusivity.
-Step 6 Content with Curiosity Caption: Never reveal what's inside. Curiosity only.
-Step 7 CTA 2: Personal reason to buy right after sending.
-Step 8 Objection Handling: Stay positive, redirect, never lose value.
-Step 9 Aftercare: After every purchase. Restart the cycle deeper.
-
-RLS FRAMEWORK: Rapport then Link (free teasing pic or VN) then Sale
-
-BREADCRUMB SYSTEM
-Never offer content directly. Build the scene until he asks.
-Daily triggers: just got home / post gym / cooking late / getting ready to go out / about to shower.
-
-SELL TIMING — attempt first sell only when ALL true:
-He has responded at least twice with more than one word. Natural positive flow. At least one personal detail exchanged. Natural opening available.
-Accelerate if: unprompted appearance compliment / asks about content / CRM shows prior spending / Decisive type.
-Slow down if: emotionally heavy message / one-word replies / skeptical / deep in personal story.
-
-CUSTOMER ARCHETYPES
-Decisive: Direct, asks clear questions — give options, be efficient
-Consensus: Seeks reassurance — validate gently
-Relationship: Shares personal stories — deep rapport, use name and details
-Skeptical: Hesitant, slow to trust — patient, never rush
-Rational: Talks price, logical — explain value clearly
-Emotional: Lots of emojis, compliments — warmth, tease, reward attention
-Most are hybrids. They evolve. Never write anyone off.
-
-POWER DYNAMICS
-Let him chase, you steer. Never beg. Never apologize for prices.
-Create FOMO naturally. Keep slight tension alive at Level 5.
-
-THE PROMISE RITUAL — MANDATORY BEFORE ANY CONTENT
-First time: Full ritual — 3-4 messages of genuine connection, get the promise, wait 1-3 minutes, deliver with curiosity caption.
-Maximum 2-3 reinforcements. After that promise is assumed.
-Caption rule: Never reveal what's inside. Curiosity and vulnerability only.
-
-OBJECTION HANDLING
-Respond positively then redirect with curiosity 3-4 times then if still objecting: big exception + free teaser "does this make you a happy man?" then YES return to sell then NO contact manager.
-
-AFTERCARE
-Aftercare is a manual-toggle state controlled by the agent (default OFF). When the toggle is ON, follow the Percival formula in the wall-handling block below. When OFF, NEVER auto-pivot to aftercare after a purchase — keep climbing the ladder. Post-purchase default is the next CTA, not gratitude.
-
-HIGH TICKET
-Move from logic to emotion. Personalized offers worth 10x generic. Make spending feel like his idea.
-
-VOICE NOTES
-Never suggest a VN already in the used list for this customer.
-
-TIMEWASTER FRAMEWORK
-Only classify after 4-5 separate sessions with different prices AND different approaches and zero spending.
-
-OUTREACH RULES
-Maximum 2 messages to unresponsive customer then stop.
-Minimum 24 hours wait before trying again.
-Never send outreach to a chat that received a message in the last 3.5 hours.
-
-HARD RULES — NEVER VIOLATE
-Never break character as the creator.
-Never reference being AI, a bot, or a chatter.
-Never answer questions the customer did not ask.
-Never fabricate details not in the customer profile or CRM notes.
-Never repeat a VN already in the used list.
-Output ONE message only — nothing else.
-Never contact blocked or flagged customers.
-Never send a new locked message if the previous one has not been opened.`;
-
-let sb,api=localStorage.getItem('ss_api_mode')||'claude',sessions={},activeId=null,models=[],respCount=0,currentSender='customer';
-let globalTraining=localStorage.getItem('ss_training')||DEFAULT_TRAINING;
-let collapsed={};
-let sidebarMode='active'; // 'active' | 'archived'
-let archivedSessions={}; // loaded lazily when user flips to archived tab
-let archivedLoaded=false;
-
-// v0.4.1.1: Supabase library readiness guard. The cache-control headers added
-// to bust stale builds also forced a re-fetch of the Supabase JS lib from the
-// CDN every load, which created a race condition where doLogin() / bootstrap
-// could fire before window.supabase was defined. This helper polls up to 5s
-// for the library to land before resolving. Throws a clean error after timeout
-// instead of the cryptic 'createClient of undefined'.
-async function ensureSupabaseLoaded(timeoutMs=5000){
-  if(window.supabase && typeof window.supabase.createClient==='function') return;
-  const start=Date.now();
-  while(Date.now()-start < timeoutMs){
-    if(window.supabase && typeof window.supabase.createClient==='function') return;
-    await new Promise(r=>setTimeout(r,50));
-  }
-  throw new Error('Supabase library failed to load. Check your network connection and reload.');
-}
-
-// v0.4.1.1: single-source-of-truth client creator. Use this everywhere instead
-// of calling window.supabase.createClient directly so the readiness check is
-// guaranteed to run first.
-async function getOrCreateSb(){
-  if(sb) return sb;
-  await ensureSupabaseLoaded();
-  sb=window.supabase.createClient(SB_URL,SB_KEY);
-  return sb;
-}
 
 // ── INIT ──────────────────────────────────────────────────────
 async function init(){
@@ -1113,6 +219,7 @@ function renderDiag(){
 <b style="color:var(--text3)">recent first-PPV</b><span>${ladderState.recentFirstPpv?'<span style="color:var(--green)">YES — depth gate bypassed</span>':'no'}</span>
 <b style="color:var(--text3)">posture / tier</b><span>${fmt(s._posture)} · ${fmt(s._customerTier)}</span>
 <b style="color:var(--text3)">free / unpaidCTA</b><span>${fmt(s._freeMsgCount)} / ${fmt(s._unpaidCtaCount)}</span>
+<b style="color:var(--text3)">investment (v0.4.1.2)</b><span>${(()=>{try{const inv=detectInvestmentSignals(s);const aiCount=s?.messages?.filter(m=>m.sender==='model').length||0;const lifetimeSpend=parseFloat((s?._profile?.total_spend||s?.total_spend||0).toString().replace(/[$,]/g,''))||0;const frameHold=inv.count===0&&aiCount>=3&&lifetimeSpend===0;const color=frameHold?'var(--amber)':inv.count>=2?'var(--green)':'var(--text2)';const tags=inv.signals.map(x=>x.type).join(', ')||'none';return `<span style="color:${color};font-weight:600">${inv.count}</span> <span style="color:var(--text3);font-size:10px">${tags}${frameHold?' · FRAME-HOLD':''}</span>`;}catch(e){return '<span style="color:var(--text3)">err</span>';}})()}</span>
 </div>
 <div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:6px">
 <div style="color:var(--text3);font-weight:600;font-size:9px;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px">PLAN CONTINUITY</div>
@@ -1441,8 +548,8 @@ async function loadDashMetrics(){
   // already deduped at log time (only fires on fork-type CHANGE per session),
   // so this count = number of distinct fork transitions, not raw firings.
   const forkEv=ev.filter(e=>e.event_type==='fork_detected');
-  const forkCounts={love_framing:0,sexual_urgency:0,deflection:0,silence_breaker:0};
-  const forkSessions={love_framing:new Set(),sexual_urgency:new Set(),deflection:new Set(),silence_breaker:new Set()};
+  const forkCounts={love_framing:0,sexual_urgency:0,deflection:0,silence_breaker:0,vending_machine_attempt:0};
+  const forkSessions={love_framing:new Set(),sexual_urgency:new Set(),deflection:new Set(),silence_breaker:new Set(),vending_machine_attempt:new Set()};
   forkEv.forEach(e=>{
     const t=e.payload?.fork_type;
     if(t&&forkCounts[t]!=null){
@@ -1459,7 +566,8 @@ async function loadDashMetrics(){
       love_framing:{name:'Love framing',emoji:'🌹',color:'#f472b6'},
       sexual_urgency:{name:'Sexual urgency',emoji:'🔥',color:'#fb923c'},
       deflection:{name:'Deflection',emoji:'↩️',color:'#a78bfa'},
-      silence_breaker:{name:'Silence breaker',emoji:'🌙',color:'#7dd3fc'}
+      silence_breaker:{name:'Silence breaker',emoji:'🌙',color:'#7dd3fc'},
+      vending_machine_attempt:{name:'Vending-machine',emoji:'🤖',color:'#94a3b8'}
     };
     forkEl.innerHTML=Object.keys(forkCounts).map(k=>{
       const cnt=forkCounts[k];
@@ -1703,8 +811,8 @@ async function loadChatterLeaderboard(eventsArg){
       last_seen:a.last_seen,
       sessions:a.sessions.size,
       drafts:a.drafts,
-      accept_rate:a.drafts?a.accepted/a.drafts:null,
-      reject_rate:a.drafts?a.rejected/a.drafts:null,
+      accept_rate:a.drafts?a.accepted/a.drafts:0,
+      reject_rate:a.drafts?a.rejected/a.drafts:0,
       pitched:a.pitched,
       landed:a.landed,
       conv:a.pitched?a.landed/a.pitched:null,
@@ -2185,31 +1293,255 @@ function updateModelDrop(){
 }
 
 // ── TRAINING SYNC ──────────────────────────────────────────────
+
+// v0.4.1.4: DOCTRINE INTEGRITY CHECK
+// Verifies that a candidate brain string contains required structural markers and
+// meets a minimum length. Prevents accidental wipes (textbox cleared, partial paste,
+// truncated upload, malicious row edit) from silently destroying the brain.
+//
+// Returns: {ok: true} | {ok: false, reason: string, missing: [markers], words: number}
+//
+// Required markers are deliberately spread across the brain so a partial copy that
+// includes only the first half cannot pass. Length floor is 6000 words — well below
+// the v0.4.1.3 brain (~10,500 words) but well above any reasonable summary that
+// would still be useful as doctrine.
+function checkDoctrineIntegrity(text){
+  if(!text||typeof text!=='string') return {ok:false,reason:'empty or non-string',missing:[],words:0};
+  const words=text.trim().split(/\s+/).length;
+  const MIN_WORDS=6000;
+  const REQUIRED_MARKERS=[
+    'UNDERLYING FRAMEWORK',
+    'IDENTIFYING CUSTOMERS',
+    'CHAT SKELETON',
+    'PROMISE RITUAL',
+    'POSTURE SYSTEM',
+    'OBJECTION HANDLING',
+    'GOODBYE FRAMEWORK',
+    'AFTERCARE',
+    'TOS',
+    'HARD RULES'
+  ];
+  const missing=REQUIRED_MARKERS.filter(m=>!text.includes(m));
+  if(words<MIN_WORDS) return {ok:false,reason:`too short — ${words} words (min ${MIN_WORDS})`,missing,words};
+  if(missing.length>0) return {ok:false,reason:`missing ${missing.length} required section markers`,missing,words};
+  return {ok:true,words};
+}
+
 async function syncTraining(){
   try{
     const{data}=await sb.from('aich_models').select('prompt').eq('name','__global_training__').single();
-    if(data?.prompt){
-      globalTraining=data.prompt;
-      localStorage.setItem('ss_training',globalTraining);
+    const supabaseBrain=data?.prompt;
+
+    // v0.4.2.2: Two-source-of-truth resolution.
+    // Code constant is primary. Supabase row is secondary (RLS-locked + backed up).
+    // Decision matrix:
+    //   code OK  + supabase OK     → use Supabase (latest canonical, may be ahead of code)
+    //   code OK  + supabase missing → use code (Supabase not yet seeded)
+    //   code OK  + supabase drifted → use code (Supabase corrupted, code is truth)
+    //   code BAD + supabase OK     → use Supabase (CODE CORRUPTED — recovery mode)
+    //   code BAD + supabase missing → REFUSE TO RUN (no trustworthy brain anywhere)
+    //   code BAD + supabase drifted → REFUSE TO RUN (both corrupted)
+
+    const tamper=await verifyBrainTamper(supabaseBrain);
+
+    if(!tamper.codeMatch){
+      // CODE CONSTANT CORRUPTED — the local DEFAULT_TRAINING doesn't match its declared SHA256.
+      console.error('[brain-tamper] CODE INTEGRITY BROKEN:',tamper.reason);
+      console.error('[brain-tamper] expected SHA256:',DEFAULT_TRAINING_SHA256,'computed:',tamper.codeHash);
+      // Try Supabase as recovery fallback. We can't trust the SHA256 constant if code is
+      // tampered, so we fall back to STRUCTURAL integrity check (word count + sections).
+      if(supabaseBrain){
+        const structural=checkDoctrineIntegrity(supabaseBrain);
+        if(structural.ok){
+          console.warn('[brain-tamper] Code is corrupted but Supabase row passes structural check — using Supabase as canonical.');
+          toast('⚠️ Code DEFAULT_TRAINING corrupted. App is running on Supabase canonical. Restore code from git ASAP.','e',15000);
+          globalTraining=supabaseBrain;
+          localStorage.setItem('ss_training',supabaseBrain);
+          window.__brainRecoveryMode=true; // flag so manager UI can surface this
+          return;
+        } else {
+          console.error('[brain-tamper] Code corrupted AND Supabase row fails structural check — no trustworthy brain.');
+          toast('🚨 BRAIN CORRUPTED in BOTH code and Supabase. SSAI generations disabled. Restore from git or aich_models_backups table.','e',60000);
+          window.__brainCorrupted=true;
+          return;
+        }
+      } else {
+        console.error('[brain-tamper] Code corrupted AND Supabase has no row — no trustworthy brain.');
+        toast('🚨 BRAIN CORRUPTED — code is bad and Supabase is empty. SSAI generations disabled. Restore from git.','e',60000);
+        window.__brainCorrupted=true;
+        return;
+      }
     }
-  }catch(e){}
+
+    // CODE IS GOOD past this point.
+    if(!supabaseBrain){
+      // No Supabase row — code is canonical, nothing to compare against
+      return;
+    }
+
+    // v0.4.1.4: structural integrity gate on Supabase row
+    const check=checkDoctrineIntegrity(supabaseBrain);
+    if(!check.ok){
+      console.warn('[doctrine] Supabase global training failed structural check:',check.reason,'— falling back to code DEFAULT_TRAINING');
+      toast('Supabase doctrine corrupted — using code fallback. Re-save from Models settings or check aich_models_backups.','e');
+      globalTraining=DEFAULT_TRAINING;
+      localStorage.setItem('ss_training',DEFAULT_TRAINING);
+      return;
+    }
+
+    if(!tamper.supabaseMatch){
+      console.warn('[brain-tamper] Supabase row drifted from canonical SHA256 — using code constant instead.');
+      console.warn('[brain-tamper] canonical:',DEFAULT_TRAINING_SHA256,'supabase:',tamper.supabaseHash);
+      toast('Supabase brain row failed tamper check — using code-canonical version.','e',6000);
+      globalTraining=DEFAULT_TRAINING;
+      localStorage.setItem('ss_training',DEFAULT_TRAINING);
+      return;
+    }
+
+    // Both code and Supabase agree — use Supabase (canonical)
+    globalTraining=supabaseBrain;
+    localStorage.setItem('ss_training',globalTraining);
+  }catch(e){
+    console.warn('[syncTraining] error:',e);
+  }
 }
+
+// v0.4.1.4: STARTUP DOCTRINE CHECK
+// Runs once on app load. Verifies the active brain (whatever globalTraining
+// got initialized to from localStorage or DEFAULT_TRAINING) passes integrity.
+// If it fails, force-recover from DEFAULT_TRAINING and surface a banner.
+function startupDoctrineCheck(){
+  const check=checkDoctrineIntegrity(globalTraining);
+  if(!check.ok){
+    console.warn('[doctrine] Active brain failed integrity check on startup:',check.reason);
+    console.warn('[doctrine] Missing markers:',check.missing);
+    // Force-recover from code constant
+    globalTraining=DEFAULT_TRAINING;
+    localStorage.setItem('ss_training',DEFAULT_TRAINING);
+    // Surface a persistent warning so the user knows something happened
+    setTimeout(()=>{
+      toast(`Doctrine recovered from code (was ${check.words} words, expected 10000+). Check Models settings.`,'e');
+    },1500);
+  }
+}
+try{startupDoctrineCheck();}catch(e){console.warn('startup doctrine check error:',e);}
+
+// v0.4.2.0: SHA256 check on localStorage brain at startup.
+// Closes the 1-2 second window between page load and syncTraining()'s
+// Supabase fetch. Catches: stale localStorage from a previous app version
+// where DEFAULT_TRAINING has since been bumped; tampered localStorage on a
+// machine someone else had access to. If hash mismatches, force-load the
+// code-canonical brain immediately. This also makes brain updates push to
+// users automatically — they don't have to clear cache when DEFAULT_TRAINING
+// changes; the hash mismatch on next page load triggers a refresh.
+async function startupBrainHashCheck(){
+  try{
+    const cached=localStorage.getItem('ss_training');
+    if(!cached) return; // nothing to check, will fetch from Supabase or use DEFAULT
+    const cachedHash=await computeBrainSha256(cached);
+    const codeHash=await computeBrainSha256(DEFAULT_TRAINING);
+    if(codeHash!==DEFAULT_TRAINING_SHA256){
+      console.error('[brain-tamper] CODE INTEGRITY BROKEN at startup — DEFAULT_TRAINING constant does not match declared SHA256.');
+      console.error('[brain-tamper] expected:',DEFAULT_TRAINING_SHA256,'computed:',codeHash);
+      // Don't force anything — this is a developer-visible alert.
+      return;
+    }
+    if(cachedHash!==DEFAULT_TRAINING_SHA256){
+      console.warn('[brain-tamper] localStorage brain does not match canonical SHA256 — refreshing from code.');
+      console.warn('[brain-tamper] canonical:',DEFAULT_TRAINING_SHA256,'localStorage:',cachedHash);
+      globalTraining=DEFAULT_TRAINING;
+      localStorage.setItem('ss_training',DEFAULT_TRAINING);
+      setTimeout(()=>{
+        toast('Brain auto-refreshed from latest code version.','i',5000);
+      },1200);
+    }
+  }catch(e){
+    console.warn('startup brain hash check error:',e);
+  }
+}
+startupBrainHashCheck();
 
 async function saveTraining(){
   const text=document.getElementById('globalTraining').value.trim();
   if(!text){toast('Cannot be empty','e');return;}
+  // v0.4.1.4: integrity gate on save — refuse to write a broken brain
+  const check=checkDoctrineIntegrity(text);
+  if(!check.ok){
+    const proceed=await confirmInPage(
+      `⚠️ DOCTRINE INTEGRITY WARNING\n\n`+
+      `What you're about to save fails the integrity check:\n`+
+      `  • Reason: ${check.reason}\n`+
+      `  • Word count: ${check.words}\n`+
+      (check.missing.length?`  • Missing required sections: ${check.missing.join(', ')}\n`:'')+
+      `\nThis will REPLACE the doctrine. Saving an incomplete brain will degrade SSAI behavior across all sessions.\n\n`+
+      `Type SAVE ANYWAY to override and save the broken version.\n`+
+      `Cancel to keep the current doctrine.`,
+      'SAVE ANYWAY'
+    );
+    if(!proceed){toast('Save cancelled — doctrine unchanged','i');return;}
+  }
   globalTraining=text;
   localStorage.setItem('ss_training',text);
-  if(sb) await sb.from('aich_models').upsert({name:'__global_training__',tier:'system',prompt:text},{onConflict:'name'});
-  toast('Global training saved','s');
+  // v0.4.2.0: Supabase __global_training__ writes are now RLS-locked.
+  // Authenticated session cannot upsert this row — only postgres/service_role
+  // (i.e. dashboard SQL Editor or Edge Functions) can. Detect blocked write
+  // and surface a clear message instead of silently failing.
+  if(sb){
+    try{
+      const{data,error}=await sb.from('aich_models')
+        .upsert({name:'__global_training__',tier:'system',prompt:text},{onConflict:'name'})
+        .select('name');
+      if(error){
+        console.warn('[brain-save] Supabase write rejected:',error.message);
+        toast('Saved locally. Supabase write blocked by RLS — to update canonical, edit DEFAULT_TRAINING in code or push via SQL Editor.','i',7000);
+      } else if(!data||data.length===0){
+        toast('Saved locally. Supabase write blocked by RLS — local-only change. Update DEFAULT_TRAINING in code for canonical.','i',7000);
+      } else {
+        toast(`Global training saved to Supabase (${check.ok?check.words:text.trim().split(/\s+/).length} words)`,'s');
+      }
+    }catch(e){
+      console.warn('[brain-save] Supabase write error:',e);
+      toast('Saved locally. Supabase write failed: '+e.message,'e');
+    }
+  } else {
+    toast(`Global training saved locally (${check.ok?check.words:text.trim().split(/\s+/).length} words)`,'s');
+  }
 }
 
 async function resetTraining(){
-  if(!await confirmInPage('Reset to default?')) return;
+  // v0.4.1.4: typed-confirmation guard
+  // Casual misclick can no longer wipe doctrine — user must type the exact phrase.
+  const confirmed=await confirmInPage(
+    `⚠️ RESET DOCTRINE TO CODE DEFAULT\n\n`+
+    `This will replace the current global training (in textarea, localStorage, AND Supabase) with the DEFAULT_TRAINING constant from the app code.\n\n`+
+    `If a custom doctrine is currently saved, it will be overwritten. Code default is the canonical brain shipped with this app version (v${SSAI_VERSION}).\n\n`+
+    `Type RESET DOCTRINE to confirm.`,
+    'RESET DOCTRINE'
+  );
+  if(!confirmed){toast('Reset cancelled','i');return;}
   globalTraining=DEFAULT_TRAINING;
   document.getElementById('globalTraining').value=DEFAULT_TRAINING;
   localStorage.setItem('ss_training',DEFAULT_TRAINING);
-  toast('Reset to default','i');
+  // v0.4.2.0: Supabase write is RLS-locked. Attempt and report cleanly.
+  if(sb){
+    try{
+      const{data,error}=await sb.from('aich_models')
+        .upsert({name:'__global_training__',tier:'system',prompt:DEFAULT_TRAINING},{onConflict:'name'})
+        .select('name');
+      if(error){
+        console.warn('[brain-reset] Supabase write rejected:',error.message);
+        toast('Reset locally. Supabase row not changed (RLS write-lock). To reset canonical row, run UPDATE via SQL Editor.','i',7000);
+      } else if(!data||data.length===0){
+        toast('Reset locally. Supabase row not changed (RLS write-lock).','i',7000);
+      } else {
+        toast(`Reset to code default (${DEFAULT_TRAINING.trim().split(/\s+/).length} words) — synced to Supabase`,'s');
+      }
+    }catch(e){
+      toast('Reset locally but Supabase sync failed: '+e.message,'e');
+    }
+  } else {
+    toast('Reset to code default — no Supabase connection, local only','i');
+  }
 }
 
 // ── PDF UPLOAD ─────────────────────────────────────────────────
@@ -3077,7 +2409,11 @@ function acceptDraft(){
     openPpvPriceModal(caption,ts);
     return;
   }
-  s.messages.push({sender:'model',text:s.draft,ts_iso:new Date().toISOString()});
+  // v0.4.1.5: persist strategy phase on the message so per-rung pitch counter
+  // and goodbye phase counter can read it (engineering loop guards depend on this).
+  // Phase is the strategy.phase field from the last strategy call — null if missing.
+  const persistedPhase=s._lastStrategy?.phase||null;
+  s.messages.push({sender:'model',text:s.draft,ts_iso:new Date().toISOString(),phase:persistedPhase});
   s.response=s.draft;s.draft=null;
   // Posture: always increment free msg count (resets only on paid action)
   const lastPhase=s._lastStrategy?.phase||'';
@@ -3237,12 +2573,15 @@ function computePosture(s,profile){
   const free=s._freeMsgCount||0;
   const unpaid=s._unpaidCtaCount||0;
 
-  // Tightened thresholds — pre-pitch warmup was averaging 16.9 msgs.
-  // Doctrine: breadcrumb by AI msg 10 max, CTA by 15, PPV by 18.
-  // Posture transitions are the foundation of that timing.
+  // v0.4.1.2: LOOSENED thresholds. v0.4.1.1 overcorrected from 16.9 avg warmup
+  // by forcing PRESSURE at msg 8 — that crushed the rapport→breadcrumb→promise
+  // sequence (~11+ msgs of pre-ladder work) and made AI sound like a vending
+  // machine. New doctrine: rapport is signal-gated, not count-gated. Posture
+  // escalation is a backstop for actual stalls, not a clock-driven push.
+  // Target warmup: ~12 msgs for new tier (was 8).
   const thresholds={
-    new:         {probe:5, pressure:8,  tw:12},
-    old:         {probe:4, pressure:6,  tw:9},
+    new:         {probe:7, pressure:11, tw:16},
+    old:         {probe:5, pressure:8,  tw:12},
     flagged_tw:  {probe:2, pressure:3,  tw:5}
   }[tier];
 
@@ -3260,6 +2599,45 @@ function computePosture(s,profile){
   if(unpaid>=3) baseIdx=3;
   let posture=levels[baseIdx];
 
+  // v0.4.1.2: INVESTMENT-ZERO TIMEWASTER OVERRIDE
+  // If 20+ AI msgs have passed AND he's shown zero investment AND zero spend,
+  // force TIMEWASTER regardless of normal threshold. He's treating her like a
+  // vending machine — drop creator energy, make him work or peel off.
+  // This is the frame-protection escape valve.
+  const aiMsgCount=s?.messages?.filter(m=>m.sender==='model').length||0;
+  const lifetimeSpend=parseFloat((profile?.total_spend||0).toString().replace(/[$,]/g,''))||0;
+  if(aiMsgCount>=20&&lifetimeSpend===0){
+    const inv=detectInvestmentSignals(s);
+    if(inv.count===0){
+      posture='TIMEWASTER';
+    }
+  }
+
+  // v0.4.1.5: LADDER-CLOSED TIMEWASTER OVERRIDE
+  // If the persuasion cap has been hit on the current rung (3 pitch attempts
+  // without conversion), force TIMEWASTER for cost optimization. This is the
+  // post-cap state — stay nice but go SHORT. Buy resets the rung and lifts
+  // the override automatically because rung start moves past the new opened PPV.
+  if(s&&s.messages&&s.messages.length>0){
+    let rungStart=0;
+    for(let i=s.messages.length-1;i>=0;i--){
+      if(s.messages[i].sender==='ppv'&&s.messages[i].opened===true){
+        rungStart=i+1;
+        break;
+      }
+    }
+    let rungAttempts=0;
+    const pitchPhases=['cta1','cta2','sell','send_content'];
+    for(let i=rungStart;i<s.messages.length;i++){
+      const m=s.messages[i];
+      if(m.sender==='ppv') rungAttempts++;
+      else if(m.sender==='model'&&m.phase&&pitchPhases.includes(m.phase)) rungAttempts++;
+    }
+    if(rungAttempts>=3){
+      posture='TIMEWASTER';
+    }
+  }
+
   // Whale override — trust_level >= 4 AND total_spend >= 100 caps at PRESSURE
   const spend=parseFloat((profile?.total_spend||0).toString().replace(/[$,]/g,''))||0;
   const trust=parseInt(profile?.trust_level||1);
@@ -3275,6 +2653,68 @@ function computePosture(s,profile){
     if(hasPendingPpv&&posture==='TIMEWASTER') posture='PRESSURE';
   }
   return posture;
+}
+
+// v0.4.1.2: INVESTMENT SIGNAL DETECTOR — frame protection layer.
+// Doctrine: sexual heat alone is not a green light. Heat + investment = green light.
+// He has to show he's invested in HER (not just the content) before the ladder opens.
+// This prevents AI from becoming a vending machine on aggressive customers.
+//
+// Returns {count, signals: [...]} — checked customer-side messages only.
+// Floor for promise ritual to start: count >= 2.
+function detectInvestmentSignals(s){
+  if(!s||!s.messages) return {count:0,signals:[]};
+  const customerMsgs=s.messages.filter(m=>m.sender==='customer'&&m.text);
+  if(customerMsgs.length===0) return {count:0,signals:[]};
+  const creatorName=(s.creator_model||'').toLowerCase().trim();
+  const creatorDisplayName=(s._profile?.creator_display_name||creatorName).toLowerCase().trim();
+  const compliments_beyond_body=['vibe','energy','funny','smart','sweet','cool','interesting','different','real','genuine','chill','kind','nice personality','easy to talk','easy talking'];
+  const personal_questions=[
+    /\bhow are (you|u)\b/i,/\bhow('?s| is) (your|ur) day\b/i,/\bwhat (do|r|are) (you|u) (do|doing|up to|into)\b/i,
+    /\bwhere (are|r) (you|u) from\b/i,/\bwhat('?s| is) (your|ur) name\b/i,/\bhow old (are|r) (you|u)\b/i,
+    /\bwhat (do|are) (you|u) like\b/i,/\btell me (about (you|ur)|something about)\b/i
+  ];
+  const signals=[];
+  // Track unique signal types across the whole convo, not per-message — one signal of each type max
+  const found=new Set();
+  for(const m of customerMsgs){
+    const t=(m.text||'').toLowerCase();
+    if(t.length<2) continue;
+    // 1. Personal question to her
+    if(!found.has('personal_question')&&personal_questions.some(rx=>rx.test(t))){
+      found.add('personal_question');signals.push({type:'personal_question',sample:m.text.slice(0,60)});
+    }
+    // 2. Used her name
+    if(!found.has('used_her_name')&&creatorDisplayName.length>=3&&t.includes(creatorDisplayName)){
+      found.add('used_her_name');signals.push({type:'used_her_name',sample:m.text.slice(0,60)});
+    } else if(!found.has('used_her_name')&&creatorName.length>=3&&t.includes(creatorName)){
+      found.add('used_her_name');signals.push({type:'used_her_name',sample:m.text.slice(0,60)});
+    }
+    // 3. Self-disclosure (he shared something about himself, unprompted, not a question)
+    if(!found.has('self_disclosure')&&t.length>=20&&!t.includes('?')&&/\b(i|i'?m|i'?ve|my|me)\b/.test(t)
+       &&!/\bsend\b|\bshow\b|\bhow much\b|\bprice\b|\bcost\b|\bcan i (see|get|have)\b/.test(t)){
+      found.add('self_disclosure');signals.push({type:'self_disclosure',sample:m.text.slice(0,60)});
+    }
+    // 4. Compliment beyond body
+    if(!found.has('compliment_beyond_body')&&compliments_beyond_body.some(c=>t.includes(c))){
+      found.add('compliment_beyond_body');signals.push({type:'compliment_beyond_body',sample:m.text.slice(0,60)});
+    }
+    // 5. Reaction to a breadcrumb — customer references content of the prior AI message
+    // Heuristic: customer message length >= 15 chars AND not just emoji/short reaction
+    // AND comes immediately after an AI message AND contains a content word from that AI message
+    const idx=s.messages.indexOf(m);
+    if(!found.has('breadcrumb_reaction')&&idx>0&&t.length>=15){
+      const priorAi=[...s.messages.slice(0,idx)].reverse().find(x=>x.sender==='model'&&x.text);
+      if(priorAi){
+        const aiWords=(priorAi.text||'').toLowerCase().match(/\b[a-z]{4,}\b/g)||[];
+        const contentWords=aiWords.filter(w=>!['just','really','about','have','this','that','your','what','when','where','which','would','could','being','their','there','still','some','very','also','then','than','from','with','they','them','were','been','will','only','more','like','want','take','make','said','says','here','dont','don\'t'].includes(w));
+        if(contentWords.length>=2&&contentWords.some(w=>t.includes(w))){
+          found.add('breadcrumb_reaction');signals.push({type:'breadcrumb_reaction',sample:m.text.slice(0,60)});
+        }
+      }
+    }
+  }
+  return {count:signals.length,signals};
 }
 
 // Trust level hard caps by spend — AI cannot assign higher than spend allows
@@ -3504,10 +2944,78 @@ function auditAnalysisVsGroundTruth(analysis,session){
     }
   }
 
+  // 12. v0.4.1.2: FRAME-HOLD validator
+  // If session shows zero investment + transactional behavior + AI is pitching,
+  // flag it. This is the vending-machine drift — pitching here kills future LTV.
+  try {
+    const inv=detectInvestmentSignals(session);
+    const aiMsgCount=session?.messages?.filter(m=>m.sender==='model').length||0;
+    const lifetimeSpend=parseFloat((session?._profile?.total_spend||session?.total_spend||0).toString().replace(/[$,]/g,''))||0;
+    if(inv.count===0&&aiMsgCount>=3&&lifetimeSpend===0){
+      const pitching=phase==='cta1'||phase==='cta2'||phase==='send_content'||phase==='sell'
+        ||nextMove.includes('pitch')||nextMove.includes('cta')||purpose.includes('pitch');
+      if(pitching&&strategy.frame_hold_active!==true){
+        warns.push(`Zero investment signals after ${aiMsgCount} AI msgs but strategy is pitching — this is vending-machine drift. Frame-hold required: playful tease that makes him chase, not a pitch.`);
+      }
+    }
+  } catch(e){ /* detector failure = non-fatal, skip */ }
+
+  // 13. v0.4.1.5: PERSUASION-CAP validator
+  // If 3+ pitch attempts on the current rung have failed (ladder closed for session),
+  // strategy must NOT continue pitching. Posture system already forces TIMEWASTER,
+  // but this validator catches cases where the strategy generation ignored the
+  // posture override and tried to pitch anyway.
+  try {
+    if(session&&session.messages&&session.messages.length>0){
+      let rungStart=0;
+      for(let i=session.messages.length-1;i>=0;i--){
+        if(session.messages[i].sender==='ppv'&&session.messages[i].opened===true){
+          rungStart=i+1;
+          break;
+        }
+      }
+      let rungAttempts=0;
+      const pitchPhases=['cta1','cta2','sell','send_content'];
+      for(let i=rungStart;i<session.messages.length;i++){
+        const m=session.messages[i];
+        if(m.sender==='ppv') rungAttempts++;
+        else if(m.sender==='model'&&m.phase&&pitchPhases.includes(m.phase)) rungAttempts++;
+      }
+      if(rungAttempts>=3){
+        const pitching=phase==='cta1'||phase==='cta2'||phase==='send_content'||phase==='sell'
+          ||nextMove.includes('pitch')||nextMove.includes('cta')||purpose.includes('pitch');
+        if(pitching){
+          warns.push(`Persuasion cap exhausted (${rungAttempts} attempts on current rung, no conversion) — ladder closed for session. Strategy must NOT continue pitching. Posture should be TIMEWASTER (stay warm, go short) and goodbye framework should run when conversation reaches natural close.`);
+        }
+      }
+    }
+  } catch(e){ /* detector failure = non-fatal, skip */ }
+
+  // 14. v0.4.1.5: GOODBYE-CAP validator
+  // If goodbye phase has run for 4+ AI messages, the session should be closing.
+  // Strategy must not continue generating goodbye-phase messages beyond the cap.
+  try {
+    if(session&&session.messages&&session.messages.length>0){
+      let goodbyeMsgs=0;
+      for(let i=session.messages.length-1;i>=0;i--){
+        const m=session.messages[i];
+        if(m.sender!=='ai') continue;
+        if(m.phase==='goodbye'||m.phase==='close'){
+          goodbyeMsgs++;
+        } else {
+          break;
+        }
+      }
+      if(goodbyeMsgs>=4 && (phase==='goodbye'||phase==='close')){
+        warns.push(`Goodbye phase has run ${goodbyeMsgs} consecutive AI messages — exceeds 4-message cap. Session should be treated as closed. Don't generate further goodbye beats; one final warm exit line ("rest well 💕" / "talk soon 😌") and end.`);
+      }
+    }
+  } catch(e){ /* detector failure = non-fatal, skip */ }
+
   return warns;
 }
 
-function validateStrategy(strategy,session){
+function validateStrategy(strategy,session,ladderState){
   const violations=[];
   const cs=parseInt(strategy.customer_sexual_level);
   const ce=parseInt(strategy.customer_emotional_level);
@@ -3618,6 +3126,45 @@ function validateStrategy(strategy,session){
     }
     if(strategy.wall_detected&&strategy.wall_detected!=='none'){
       violations.push('next_move_after_wall is run_promise_reinforcement but wall_detected is "'+strategy.wall_detected+'" — walls take precedence, route to the correct wall handler');
+    }
+  }
+
+  // v0.4.3.0 — V2 LADDER STATE VALIDATORS (whale + pause-pitching + percival)
+  // These hard-validate that the strategy respects the V2 signals computed from
+  // session state. Soft warnings would be insufficient — these failures cascade
+  // into wrong creator behavior at runtime (pitching during devotion, clamping
+  // emo right after first PPV, vending-machine treatment of whale candidates).
+  if(ladderState){
+    const skel=String(strategy.skeleton_step||'');
+    const phaseL=String(strategy.phase||'').toLowerCase();
+    const nextMoveL=String(strategy.next_move||'').toLowerCase();
+    const purposeL=String(strategy.message_purpose||'').toLowerCase();
+    const isPitching=
+      ['CTA 1','CTA 2','Send Content','Promise Ritual'].includes(skel)
+      ||['cta1','cta2','send_content','sell'].includes(phaseL)
+      ||nextMoveL.includes('pitch')||nextMoveL.includes(' cta')
+      ||purposeL.includes('pitch');
+
+    // 15. PAUSE-PITCHING violation
+    if(ladderState.pausePitching && isPitching){
+      violations.push('pause-pitching mode is ON ('+(ladderState.pauseReason||'unknown reason')+') but strategy is pitching (skeleton_step='+skel+', phase='+phaseL+'). Generator must NOT advance the skeleton this turn — sit in the emotional beat. Set skeleton_step to Chit Chat or Yes Flow, lower creator_target_sexual_level, and pursue connection deepening instead.');
+    }
+
+    // 16. WHALE BUILD-A-WHALE: aggressive pitch into whale-candidate signal kills LTV
+    if(ladderState.whaleSignal && ladderState.whaleSignal.doctrine==='BUILD_A_WHALE'){
+      const ts=parseInt(strategy.creator_target_sexual_level)||0;
+      if(isPitching && ts>=4){
+        violations.push('whale-candidate signal active ('+ladderState.whaleSignal.reason+') but strategy is pushing creator_target_sexual_level='+ts+' with a pitch — this is max-extract treatment of a future whale. Build-a-whale doctrine: deeper rapport, longer horizon, no aggressive pitch this turn. Lower sexual level and pivot to connection deepening.');
+      }
+    }
+
+    // 17. PERCIVAL no-clamp: post-first-PPV window must NOT downgrade creator emo
+    if(ladderState.recentFirstPpv){
+      const te=parseInt(strategy.creator_target_emotional_level)||0;
+      const ce=parseInt(strategy.customer_emotional_level)||0;
+      if(ce>=6 && te<ce-2){
+        violations.push('Percival window active (recent first-PPV within last 4 msgs) — depth gate is BYPASSED. Customer is at emotional level '+ce+' but strategy set creator_target_emotional_level='+te+'. Match his depth — he earned it by paying. Lift creator_target_emotional_level to within 1-2 of his.');
+      }
     }
   }
 
@@ -3806,7 +3353,7 @@ function computeWallState(s){
 // returns null when nothing fires rather than guessing.
 //
 // Returns: {type, evidence} | null
-//   type: 'love_framing' | 'sexual_urgency' | 'deflection' | 'silence_breaker'
+//   type: 'love_framing' | 'sexual_urgency' | 'deflection' | 'silence_breaker' | 'vending_machine_attempt'
 //   evidence: short string explaining why it fired (for logging + diag)
 function detectFork(msgs,replyGapMin){
   if(!msgs||!msgs.length) return null;
@@ -3828,6 +3375,41 @@ function detectFork(msgs,replyGapMin){
   // a re-engagement frame, not a continuation.
   if(typeof replyGapMin==='number'&&replyGapMin>=24*60){
     return {type:'silence_breaker',evidence:`reply gap ${Math.floor(replyGapMin/60)}h`};
+  }
+
+  // ── 1.5 VENDING_MACHINE_ATTEMPT (v0.4.1.2) ─────────────────
+  // Fires BEFORE sexual_urgency — transactional/demanding heat with zero
+  // investment is the vending-machine pattern. Pitching here ruins the frame.
+  // Conditions: (a) demanding/transactional tokens in recent messages, (b)
+  // zero investment signals from the customer across the whole convo. The
+  // strategy should respond with frame-hold (playful tease, qualify him),
+  // not pitch.
+  const vendingTokens=[
+    'show me','send me','send pic','send pics','send a pic','send vid',
+    'show tits','show ass','show pussy','show me your','show your',
+    'how much','price?','how much for','whats the price','cost','what\'s the cost',
+    'just send','can you send','i want to see','wanna see','let me see',
+    'naked pics','nudes','boobs','tits','tit pic','show ur'
+  ];
+  const recentLower=recentText;
+  const vendingHits=vendingTokens.filter(t=>recentLower.includes(t));
+  if(vendingHits.length>=1){
+    // Check investment count from the session — assume parent passes session
+    // via a side channel. We re-derive here using the messages array we have.
+    const customerMsgs=msgs.filter(m=>m.sender==='customer'&&m.text);
+    let invCount=0;
+    const found=new Set();
+    for(const m of customerMsgs){
+      const t=(m.text||'').toLowerCase();
+      if(t.length<2) continue;
+      if(!found.has('pq')&&(/\bhow are (you|u)\b/i.test(t)||/\bhow('?s| is) (your|ur) day\b/i.test(t)||/\bwhat (do|r|are) (you|u) (do|doing|up to|into)\b/i.test(t)||/\bwhere (are|r) (you|u) from\b/i.test(t)||/\bwhat('?s| is) (your|ur) name\b/i.test(t)||/\btell me (about (you|ur)|something about)\b/i.test(t))){found.add('pq');invCount++;}
+      if(!found.has('sd')&&t.length>=20&&!t.includes('?')&&/\b(i|i'?m|i'?ve|my|me)\b/.test(t)&&!/\bsend\b|\bshow\b|\bhow much\b|\bprice\b|\bcost\b/.test(t)){found.add('sd');invCount++;}
+      if(!found.has('cb')&&/\b(vibe|energy|funny|smart|sweet|cool|interesting|different|real|genuine|chill|kind)\b/.test(t)){found.add('cb');invCount++;}
+    }
+    const aiMsgCount=msgs.filter(m=>m.sender==='model').length;
+    if(invCount===0&&aiMsgCount>=2){
+      return {type:'vending_machine_attempt',evidence:`transactional: "${vendingHits[0]}" with zero investment`};
+    }
   }
 
   // ── 2. LOVE_FRAMING ────────────────────────────────────────
@@ -3917,6 +3499,42 @@ function detectFork(msgs,replyGapMin){
     if(prevModelMsg&&(prevModelMsg.text||'').trim().endsWith('?')){
       return {type:'deflection',evidence:`short ?-reply to creator's ?`};
     }
+  }
+
+  // ── 5. VULNERABILITY_SIGNAL (v0.4.3.1) ─────────────────────
+  // Raw emotional vulnerability — depression, isolation, hopelessness, grief.
+  // Distinct from love_framing (devotion) — this is NOT about her, it's about
+  // his pain. Doctrine: pause-pitching MUST fire. Pitching into "i feel empty
+  // / nothing matters" reads predatory and breaks the rapport that LTV depends
+  // on. Support first, then over multiple turns the moment converts to depth
+  // that earns the next tier — but never in this turn.
+  // Strict tokens — false positives kill correct fork classification on the
+  // many customers who casually say "rough day".
+  const vulnTokensStrong=[
+    'feel empty','feeling empty','feel hopeless','no point',
+    'nothing matters','nothing means anything','want to give up',
+    'cant go on','can\'t go on','feel worthless','feeling worthless',
+    'no one cares','nobody cares','have nobody','have no one',
+    'completely alone','so alone','really lonely',
+    'breaking down','falling apart','at my breaking point',
+    'cant cope','can\'t cope','barely holding on'
+  ];
+  for(const t of vulnTokensStrong){
+    if(lastText.includes(t)){
+      return {type:'vulnerability_signal',evidence:`strong vulnerability: "${t}"`};
+    }
+  }
+  // Cluster signal: multiple soft vulnerability tokens in last msg
+  const vulnTokensSoft=[
+    'no one to talk to','nobody to talk to','no one listens','no one understands',
+    'everything sucks','really struggling','having a hard time',
+    'feel so lost','feeling lost','dont know what to do','don\'t know what to do',
+    'rough patch','dark place','depressed','depression','anxious','anxiety',
+    'cant sleep','can\'t sleep','havent slept','haven\'t slept'
+  ];
+  const vulnHits=vulnTokensSoft.filter(t=>lastText.includes(t));
+  if(vulnHits.length>=2){
+    return {type:'vulnerability_signal',evidence:`vulnerability cluster: ${vulnHits.slice(0,2).join(', ')}`};
   }
 
   return null;
@@ -4017,10 +3635,11 @@ function computeLadderState(s,wallState){
   // ── PAUSE-PITCHING MODE (V2) ─────────────────────────────────
   // First-class flag (separate from fork) — generator must explicitly check
   // this before any pitch. Triggers on:
-  //   (a) fork === love_framing  → pure devotion, no pitch
-  //   (b) whaleSignal present    → long-horizon, no pitch this turn
-  //   (c) fork === silence_breaker AND no proven sexual signal in last 2 msgs
-  //       → re-engagement, rebuild rapport before re-pitching
+  //   (a) fork === love_framing       → pure devotion, no pitch
+  //   (b) whaleSignal present         → long-horizon, no pitch this turn
+  //   (c) fork === silence_breaker    → re-engage before re-pitch
+  //   (d) fork === vending_machine    → frame-hold, no pitch into transactional demand
+  //   (e) fork === vulnerability_signal (v0.4.3.1) → support first, never pitch into pain
   // Does NOT trigger on sexual_urgency or deflection — those are pitch-active
   // forks. Sexual urgency is a PRIME pitch window; deflection is a tease move.
   let pausePitching=false;
@@ -4034,7 +3653,76 @@ function computeLadderState(s,wallState){
   } else if(fork&&fork.type==='silence_breaker'){
     pausePitching=true;
     pauseReason='silence_breaker fork — re-engage before re-pitch';
+  } else if(fork&&fork.type==='vending_machine_attempt'){
+    pausePitching=true;
+    pauseReason='vending_machine_attempt fork — frame-hold required, do not pitch into transactional demand';
+  } else if(fork&&fork.type==='vulnerability_signal'){
+    pausePitching=true;
+    pauseReason='vulnerability_signal fork — support first, never pitch into pain';
   }
+
+  // ── PER-RUNG PITCH ATTEMPTS (v0.4.1.5) ───────────────────────
+  // A "rung" begins on session start and resets after every successful unlock
+  // (opened=true). Within a rung we count PITCH ATTEMPTS — both PPV bubbles
+  // sent AND text-only persuasion turns (cta1/cta2/sell/send_content phases
+  // where no PPV bubble was sent that turn).
+  //
+  // Doctrine: 3 attempts per rung max (1 sell + 2 persuasion), resets on buy.
+  // If 3 attempts fail to convert, ladder is closed for the session.
+  //
+  // Find index of last successful purchase (opened ppv). Everything after
+  // that index is the current rung. Before any successful purchase, the
+  // current rung starts at message 0.
+  let currentRungStartIdx=0;
+  for(let i=msgs.length-1;i>=0;i--){
+    if(msgs[i].sender==='ppv'&&msgs[i].opened===true){
+      currentRungStartIdx=i+1;
+      break;
+    }
+  }
+  // Count pitch attempts on the current rung. A pitch attempt is:
+  //   (a) any PPV bubble sent (whether opened or missed) at index >= rungStart
+  //   (b) any AI message at index >= rungStart whose recorded phase is one of
+  //       cta1 / cta2 / sell / send_content (these are pitch phases per schema)
+  // A single turn with both a PPV bubble AND an AI text doesn't double-count;
+  // PPV bubble takes precedence (it's the actual sent content).
+  let pitchAttemptsOnCurrentRung=0;
+  const pitchPhases=['cta1','cta2','sell','send_content'];
+  for(let i=currentRungStartIdx;i<msgs.length;i++){
+    const m=msgs[i];
+    if(m.sender==='ppv'){
+      pitchAttemptsOnCurrentRung++;
+    } else if(m.sender==='model'&&m.phase&&pitchPhases.includes(m.phase)){
+      pitchAttemptsOnCurrentRung++;
+    }
+  }
+  // Cap is 3. After 3 failed attempts on a single rung, ladder closes for session.
+  // Note: if the most recent PPV was OPENED, the rung already reset (currentRungStartIdx
+  // moved past it), so this counter would be 0 and ladder is NOT closed — buy resets it.
+  const PITCH_CAP_PER_RUNG=3;
+  const ladderClosedForSession=(pitchAttemptsOnCurrentRung>=PITCH_CAP_PER_RUNG);
+
+  // ── GOODBYE PHASE COUNTER (v0.4.1.5) ─────────────────────────
+  // Once goodbye framework triggers (phase === 'goodbye' or 'close'), count
+  // how many AI messages have run in goodbye state. Hard cap of 4 — after
+  // that, the session is treated as closed regardless of phase progression.
+  // This is the loop guard against goodbye-loops.
+  let goodbyePhaseMsgCount=0;
+  let goodbyePhaseActive=false;
+  for(let i=msgs.length-1;i>=0;i--){
+    const m=msgs[i];
+    if(m.sender!=='ai') continue;
+    const ph=m.phase;
+    if(ph==='goodbye'||ph==='close'){
+      goodbyePhaseActive=true;
+      goodbyePhaseMsgCount++;
+    } else if(goodbyePhaseActive){
+      // Hit a non-goodbye AI msg before the goodbye phase started — stop counting backwards
+      break;
+    }
+  }
+  const GOODBYE_CAP=4;
+  const goodbyeCapHit=(goodbyePhaseMsgCount>=GOODBYE_CAP);
 
   return {
     lastPpvIdx,
@@ -4049,6 +3737,15 @@ function computeLadderState(s,wallState){
     whaleSignal,
     pausePitching,
     pauseReason,
+    // v0.4.1.5: per-rung tracking
+    pitchAttemptsOnCurrentRung,
+    pitchCapPerRung:PITCH_CAP_PER_RUNG,
+    ladderClosedForSession,
+    currentRungStartIdx,
+    // v0.4.1.5: goodbye phase tracking
+    goodbyePhaseActive,
+    goodbyePhaseMsgCount,
+    goodbyeCapHit,
     nextPlannedMove:s._nextPlannedMove||null,
     nextPlannedMoveAtMsg:s._nextPlannedMoveAtMsg||null
   };
@@ -4917,13 +4614,13 @@ ${profile.key_details||'none'}`
   postureGuidance+=`Customer tier: ${s._customerTier||'new'}\n`;
   postureGuidance+=`Lifetime spend: $${s.total_spend||0}\n\n`;
   if(s._posture==='WARM_BUILD'){
-    postureGuidance+=`Standard rapport: build, tease, breadcrumb. No pressure yet. Warmth leads.`;
+    postureGuidance+=`Standard rapport: build, tease, breadcrumb. Warmth leads. Watch investment signals — when count reaches 2+, breadcrumb phase can advance to promise ritual. If he's pushing sexual/transactional with zero investment, FRAME-HOLD: playful tease that makes him chase, do not pitch. Doctrine: heat alone is not green light; heat + investment = green light.`;
   } else if(s._posture==='PROBE'){
-    postureGuidance+=`Stop pure rapport. Every message must either (a) test buying interest with a soft hook referencing specific content, or (b) qualify his desire — pull a sexual cue, a want, a willingness signal. No "how was your day" small talk. If he deflects, note it — we are feeding an investment signal, not a conversation.`;
+    postureGuidance+=`Rapport done. Now testing investment. Every message either (a) drops a breadcrumb tied to specific content (scene cue, daily trigger), (b) qualifies his desire (pull a sexual cue, a want, a willingness signal), or (c) reinforces investment with personal callbacks. No "how was your day" small talk. If investment_signal_count >= 2 AND he's reacted to a breadcrumb, promise ritual can start. If he deflects investment opportunities, that's a signal — note it.`;
   } else if(s._posture==='PRESSURE'){
-    postureGuidance+=`This is the last real offer window. Shorter replies. Scarcity or time framing allowed. Promise ritual must be tight — no more setup. If unlocked_tier allows, move to explicit PPV. One real offer, not a soft seed. Do not send another rapport message; if he deflects, the next posture will escalate to TIMEWASTER.`;
+    postureGuidance+=`Ladder window is open. Promise ritual must complete this turn or next, then pitch. Shorter replies. Scarcity or time framing allowed if it fits the scene. Move to explicit PPV when unlocked_tier and trust both allow. Real offer, not a soft seed. Rapport is still allowed — but it is now in service of the close, not in place of it. If he deflects after the pitch, run objection handling per doctrine; do not push through walls.`;
   } else if(s._posture==='TIMEWASTER'){
-    postureGuidance+=`This customer is costing tokens and agent attention without return. Creator's energy drops — reality, not punishment. Keep replies minimal: one short line, low-effort warmth, no new hooks, no fresh breadcrumbs, no questions that invite more free chat. If he pays, posture resets instantly and full energy returns.`;
+    postureGuidance+=`Cost-optimization mode. Stay nice — same warm tone, same kindness. But go SHORT. Minimum-effort warmth, no fresh hooks, no new breadcrumbs, no questions that invite more free chat. One short sentence is the right reply length. Goal: spend fewer tokens on this conversation, not punish him. He's not converting yet — text less so the cost stays low. If he pays, posture resets instantly and full energy returns. If posture was forced TIMEWASTER by investment-zero override (msg >= 20 with zero investment), this is the frame-protection backstop — make him work or peel off, but always nicely.`;
   }
 
   // Depth gate — customers below L4 (under $100 floor) do not unlock emotional depth
@@ -5058,17 +4755,24 @@ RE-ENTRY DOCTRINE (follow strictly):
       const strategyPrompt=`Analyze this OnlyFans conversation and return a strategy JSON for the message generator. The generator (Mistral or Claude) will execute your strategy — you must think through every training rule that applies to this exact message and translate them into explicit instructions in the JSON. If you don't put a rule in the JSON, it won't be followed.
 
 === PRIME DIRECTIVE — READ BEFORE EVERYTHING ELSE ===
-This system exists to extract money inside persona. Not to be a good pen pal. Not to be emotionally supportive without a return. Every generated message must either (a) extract money, (b) move the customer one rung closer to the next extraction, or (c) protect a prior extraction from regret. A turn that does none of those three is waste.
+This system exists to extract money inside persona. Not to be a good pen pal. Not to be emotionally supportive without a return. Every generated message must either (a) extract money, (b) move the customer one rung closer to the next extraction, (c) protect a prior extraction from regret, or (d) HOLD THE FRAME against vending-machine behavior so the future ladder is intact. A turn that serves none of those is waste.
 
-"Rapport" is not the goal. Rapport is the toolkit for the goal. If a customer has been chatting warmly for many turns with no ladder movement, that is NOT a good conversation — it is the AI being an agent instead of a chatter. Warmth without a next step is the polite-assistant failure mode, not a win.
+"Rapport" is not the goal. Rapport is the toolkit for the goal. If a customer has been chatting warmly for many turns with no ladder movement AND he's showing zero investment in her, that is NOT a good conversation — it is the AI being an agent instead of a chatter. Warmth without a next step (and without a frame-hold purpose) is the polite-assistant failure mode.
 
-The anti-pattern to watch for in your own reasoning: "he seems happy, keep the rapport going." NO. He is happy BECAUSE the ladder is climbing. If the ladder is not climbing, he will lose interest or just keep chatting free forever — both are losses. Every reply either pays rent (extract / setup / protect) or it is dead weight.
+The anti-pattern to watch for in your own reasoning: "he seems happy, keep the rapport going." Check this against investment signals. If he's invested (asking about her, using her name, sharing about himself, reacting to breadcrumbs), the climbing ladder IS what's making him happy — keep climbing. If he's NOT invested but seems happy chatting, he's being entertained for free — that's the polite-assistant failure mode.
 
-Rapport that does not ladder = free messages, drains the creator, burns session budget, and trains the customer that warm talk is free. Do not produce dead-weight turns. If you can't name which of (a/b/c) above your proposed move serves, that move is wrong — find one that serves one of them.
+The OPPOSITE anti-pattern, equally bad: "he sent a sexual message, pitch now." Sexual heat without investment is a vending-machine attempt. Pitching here = becoming the vending machine = no whale, no GFE, no LTV. The seductive move is frame-hold — make him chase, make him invest, THEN open the ladder.
 
-The posture system tracks this: free message count escalates WARM_BUILD → PROBE → PRESSURE → TIMEWASTER. Use it. Do not drift past PROBE without a real CTA attempt. If the posture is PRESSURE and you are still recommending soft rapport moves, you are failing doctrine.
+Rapport that does not ladder AND does not protect future ladder access = dead weight. Do not produce dead-weight turns. If you can't name which of (a/b/c/d) above your proposed move serves, that move is wrong.
 
-Exception: aftercare (manual toggle ON) is category (c) — protecting a prior extraction. That is the ONLY time rapport without a pitch is the correct move. Otherwise, every turn carries the extraction mandate.
+The posture system tracks investment, not just message count: free message count escalates WARM_BUILD → PROBE → PRESSURE → TIMEWASTER, but rapport stays valid as long as investment signals are climbing. Phase-completion gates (rapport → breadcrumb → promise → ladder) progress on signals, not on a clock. The investment-zero TIMEWASTER override (msg >= 20 with zero investment) is the automatic backstop — you don't need to force-pitch on a clock.
+
+Exceptions where rapport without a pitch is correct:
+- Aftercare (manual toggle ON) — category (c), protecting prior extraction
+- Frame-hold (vending_machine_attempt fork) — category (d), protecting future ladder
+- Pause-pitching (devotion/vulnerability framing) — category (b) via deepening, next pitch lands harder
+
+Outside those, every turn carries the extraction mandate.
 
 Return ONLY raw JSON, no markdown, no backticks.
 
@@ -5102,6 +4806,117 @@ Lifetime spend across all sessions: $${wallState.lifetimeSpend}
 Has ever spent: ${wallState.hasEverSpent?'YES (proven spender — any hold/pause is earned)':'NO (never spent — no hold earned, do not burn sessions on unproven)'}
 Aftercare mode (manual toggle): ${aftercareActive?`ON — ${aftercareContext.toUpperCase()} VARIANT`:'OFF'}
 PPV-missed lockout active: ${wallState.ppvMissedAfterChance?'YES — no more standard PPVs this session':'no'}
+
+=== INVESTMENT SIGNALS (v0.4.1.2 — FRAME PROTECTION) ===
+${(()=>{
+  const inv=detectInvestmentSignals(s);
+  const aiMsgCount=s?.messages?.filter(m=>m.sender==='model').length||0;
+  const lifetimeSpend=parseFloat((s?._profile?.total_spend||s?.total_spend||0).toString().replace(/[$,]/g,''))||0;
+  const sigList=inv.signals.map(x=>x.type).join(', ')||'none';
+  const frameHold=inv.count===0&&aiMsgCount>=3&&lifetimeSpend===0;
+  let block=`Customer investment signal count: ${inv.count} (signals detected: ${sigList})\n`;
+  block+=`Promise ritual gate: ${inv.count>=2?'OPEN — investment floor met, ritual can start':'CLOSED — need 2+ investment signals before promise ritual'}\n`;
+  if(frameHold){
+    block+=`FRAME-HOLD MODE: ACTIVE — ${aiMsgCount} AI msgs in, zero investment from him, never spent. He is treating creator as a vending machine. Correct response is playful frame-hold (make him chase, make him invest), NOT a pitch. Examples: "slow down babyyy 😂 i don't even know your name yet" / "lol you don't even ask how my day is and want the goods? work for it" / "tell me something about you first". Do NOT advance to pitch even if posture says PROBE/PRESSURE. The frame is the long game.`;
+  } else if(inv.count===0&&aiMsgCount<3){
+    block+=`Frame-hold: not yet evaluated (only ${aiMsgCount} AI msgs in — too early)`;
+  } else if(inv.count>=2){
+    block+=`Frame-hold: NOT NEEDED — investment is climbing, ladder progression is earned`;
+  } else {
+    block+=`Frame-hold: WATCHING — investment is thin (${inv.count}/2), favor breadcrumb + qualifying questions over pitch`;
+  }
+  return block;
+})()}
+
+=== LADDER STATE V2 (v0.4.3.0 — TIER TRACKER + WHALE + PAUSE-PITCHING + PERCIVAL) ===
+${(()=>{
+  if(!ladderState||ladderState._err) return 'ladder state unavailable';
+  const lines=[];
+  // Content tier tracker
+  const tierStr=ladderState.lastPitchTier
+    ?`${ladderState.lastPitchTier}${ladderState.lastPpvPrice!=null?' ($'+ladderState.lastPpvPrice+')':''}${ladderState.lastPpvOpened===true?' — OPENED':ladderState.lastPpvOpened===false?' — not opened':''}`
+    :'no PPV pitched yet this session';
+  lines.push(`Last PPV tier: ${tierStr}`);
+  lines.push(`Pitches this session: ${ladderState.pitchCountSession||0}`);
+  lines.push(`Messages since last pitch: ${ladderState.messagesSinceLastPitch||0}`);
+  lines.push(`Drift signal: ${ladderState.driftSignal||'ok'}`);
+
+  // Percival fix — recent first-PPV bypass
+  if(ladderState.recentFirstPpv){
+    lines.push('');
+    lines.push('PERCIVAL WINDOW ACTIVE (recent first-PPV): Customer just paid for the first time within the last 4 messages.');
+    lines.push('  → Depth gate is BYPASSED for this turn. Match his emotional depth — do NOT clamp creator_target_emotional_level even if his spend would normally cap trust below L4.');
+    lines.push('  → He earned upward emotional re-anchor by paying. Reinforce the trust the purchase created.');
+  }
+
+  // Whale signal — build vs protect
+  if(ladderState.whaleSignal){
+    const w=ladderState.whaleSignal;
+    lines.push('');
+    lines.push(`WHALE SIGNAL: ${w.level.toUpperCase()} — doctrine: ${w.doctrine}`);
+    lines.push(`  Reason: ${w.reason}`);
+    if(w.doctrine==='BUILD_A_WHALE'){
+      lines.push('  → He is over-invested emotionally relative to dollars spent. This is a future whale being BUILT, not a vending-machine to extract from now.');
+      lines.push('  → Power calibration: deeper rapport, longer horizon, no aggressive pitch this turn. The right move is connection deepening — set up the LTV, do not blow it for a Tier 1.');
+      lines.push('  → If a pitch is naturally available, hold it. Whales spend big over weeks-months; the next pitch lands harder when this turn was patient.');
+    } else if(w.doctrine==='PROTECT_WHALE'){
+      lines.push('  → Active whale in deep emotional state. Protect the relationship above all else.');
+      lines.push('  → No pressure pitches. Aftercare-style depth, reinforcement of the bond, optional high-tier ask only if HE escalates first.');
+    }
+  }
+
+  // Pause-pitching mode — first-class flag, must be read explicitly
+  if(ladderState.pausePitching){
+    lines.push('');
+    lines.push(`PAUSE-PITCHING MODE: ON — reason: ${ladderState.pauseReason||'unknown'}`);
+    lines.push('  → Generator MUST NOT advance the skeleton this turn. Do NOT set skeleton_step to CTA 1, Promise Ritual, Send Content, or CTA 2.');
+    lines.push('  → Correct moves: Chit Chat (deepening), Yes Flow (if mid-ritual), or Aftercare (if a prior PPV is being protected).');
+    lines.push('  → The seductive move is sitting in the emotional beat. Pitching into devotion/vulnerability/silence-break/vending-machine signal kills the future ladder.');
+  }
+
+  return lines.join('\n');
+})()}
+
+=== LADDER STATE (v0.4.1.5 — PERSUASION CAP & GOODBYE GUARDS) ===
+${(()=>{
+  if(!s||!s.messages) return 'no session messages yet';
+  // Per-rung pitch attempt counter
+  let rungStart=0;
+  for(let i=s.messages.length-1;i>=0;i--){
+    if(s.messages[i].sender==='ppv'&&s.messages[i].opened===true){rungStart=i+1;break;}
+  }
+  let rungAttempts=0;
+  const pitchPhases=['cta1','cta2','sell','send_content'];
+  for(let i=rungStart;i<s.messages.length;i++){
+    const m=s.messages[i];
+    if(m.sender==='ppv') rungAttempts++;
+    else if(m.sender==='model'&&m.phase&&pitchPhases.includes(m.phase)) rungAttempts++;
+  }
+  const remainingAttempts=Math.max(0,3-rungAttempts);
+  const ladderClosed=rungAttempts>=3;
+  let block=`Pitch attempts on current rung: ${rungAttempts}/3 (${remainingAttempts} remaining before cap fires)\n`;
+  if(ladderClosed){
+    block+=`LADDER CLOSED FOR SESSION: 3 attempts on current rung exhausted without conversion. Posture is forced TIMEWASTER. DO NOT pitch again this session. Stay warm but go SHORT. When conversation reaches natural close, run goodbye framework (max 4 messages). If he tips/buys/shows new strong investment signals, ladder can reopen — buy resets the rung counter.`;
+  } else if(rungAttempts===2){
+    block+=`Final attempt warning: 1 pitch attempt remaining on this rung. If next pitch fails, ladder closes for session.`;
+  } else if(rungAttempts===1){
+    block+=`Soft-no follow-up budget: 2 persuasion attempts remaining on this rung after the initial sell.`;
+  } else {
+    block+=`Fresh rung: full 3-attempt budget available (1 sell + 2 persuasion).`;
+  }
+  // Goodbye phase counter
+  let goodbyeMsgs=0;
+  for(let i=s.messages.length-1;i>=0;i--){
+    const m=s.messages[i];
+    if(m.sender!=='ai') continue;
+    if(m.phase==='goodbye'||m.phase==='close') goodbyeMsgs++;
+    else break;
+  }
+  if(goodbyeMsgs>0){
+    block+=`\nGoodbye phase: ${goodbyeMsgs}/4 messages used. ${goodbyeMsgs>=4?'CAP HIT — session must close, one final warm exit line then end.':goodbyeMsgs===3?'Approaching cap — wrap up with the smooth exit beat next.':'Goodbye in progress.'}`;
+  }
+  return block;
+})()}
 
 === PASS C SESSION STATE — FORCING-MOVE STATE ===
 Story framework step: ${s._storyFrameworkStep||0}/9 (beats delivered so far in the session's 9-beat Case-5 arc; 0 = not started, 9 = complete arc)
@@ -5286,27 +5101,58 @@ If you set "next_planned_move" last turn AND the customer's reply does NOT trigg
 **PLAN-AHEAD REQUIREMENT:**
 In every JSON output, set "next_planned_move" to the move you intend to recommend NEXT turn (one of: "rapport_beat", "qualifying_question", "seed_cta", "cta1", "cta2", "send_ppv", "tier_jump_test", "aftercare", "exclusive_custom", "goodbye_script", "manager_flag"). This becomes the binding plan for the next turn unless a wall fires.
 
-**FORCE-PITCH-BY-MSG-10 RULE (HARD):**
-Pre-pitch warmup has been a money leak — sessions averaging 16+ AI messages before first pitch. Doctrine: by AI message 10 max, breadcrumb/seeding MUST happen unless a hard wall is active. By msg 15, real CTA. By msg 18, PPV ships.
+**PHASE-COMPLETION GATES (v0.4.1.2 — replaces hard msg-count rules):**
 
-This means:
-- AI msg count 1-7: free build (rapport, qualify, light flirt). seed_cta or qualifying_question is fine here.
-- AI msg count 8-9: seed_cta is mandatory if posture is at least PROBE. No more pure rapport_beat.
-- **AI msg count 10+: phase MUST be cta1 OR seed_cta MINIMUM. forcing_move MUST be set. No pure rapport_beat allowed.**
-- AI msg count 12+: phase MUST be cta1/cta2/sell. Promise ritual must be in_progress or complete by now.
-- AI msg count 15+: phase MUST be cta2/sell/send_content. PPV is ready to ship.
-- AI msg count 18+: PPV must have shipped or strategy must justify why not.
+The flow is signal-gated, not clock-gated. Phases complete on signals, not message counts. This protects the frame from aggressive customers who try to skip rapport and turn the creator into a vending machine.
 
-**HARD WALL EXCEPTIONS (these block force-pitch escalation):**
+**The gates, in order:**
+
+1. **RAPPORT phase** — completes when ALL of:
+   - At least 4 AI messages exchanged (soft floor — he needs time to settle)
+   - investment_signal_count >= 2 (he has shown interest in HER, not just content)
+   - Posture is WARM_BUILD or PROBE (PRESSURE means rapport already failed)
+
+2. **BREADCRUMB phase** — completes when:
+   - At least 2 breadcrumbs dropped by AI (scene cues, daily triggers)
+   - He reacted to at least one breadcrumb (not just "haha" or "nice")
+
+3. **PROMISE RITUAL** — UNSKIPPABLE GATE. No content ships before this completes. This is the structural floor that prevents the system from becoming a vending machine. Even a fast-mover gets the promise ritual; it just runs faster on him.
+
+4. **LADDER OPENS** — climb tiers until a wall hits (miss / objection unsolved / soft-no after the second try). Keep climbing on green-light signals; pause-pitch on devotion/vulnerability framing.
+
+**FRAME PROTECTION (CRITICAL — prevents vending-machine drift):**
+
+Sexual heat alone is NOT a green light to ladder. Heat + investment signals = green light. If a customer is sexually aggressive with zero investment ("send tits", "how much", "show me", before any rapport or qualifying), this is a vending_machine_attempt fork. The correct response is FRAME-HOLD, not pitch:
+
+- Playful tease that makes him work: "slow down babyyy 😂 i don't even know your name yet"
+- Redirect to qualification: "lol you don't even ask how my day is and want the goods? work for it"
+- Mild gatekeeping in persona voice: "tell me something about you first, i don't send to strangers"
+
+This IS the seductive move. Making him chase = making him spend more later. It's also doctrine: "Let him chase, you steer. Never beg."
+
+**INVESTMENT SIGNAL TYPES (rule-detected, fed to you in PASS B state):**
+- personal_question: he asked her something about herself
+- used_her_name: he used her name in conversation
+- self_disclosure: he shared something about himself unprompted
+- compliment_beyond_body: complimented her vibe/energy/personality, not just body
+- breadcrumb_reaction: he reacted to a content cue she dropped
+
+You receive investment_signal_count and investment_signals[] in the PASS B block. You also assess investment_quality in your output (genuine / performative / absent) — sometimes he says the right words but it's hollow. When your read disagrees with the rule count, hold frame one more turn.
+
+**SOFT LADDER WINDOWS (when posture supports earlier pitch):**
+- If posture = PROBE/PRESSURE AND investment_signal_count >= 2 AND promise_status >= in_progress: ladder is open, pitch is correct
+- If he's giving sexual signals AND investment_signal_count >= 2: pitch window is HOT, do not over-warm
+- If he's qualifying himself (asking about content, asking what she does): pitch window opens early — promise ritual can start sooner
+
+**HARD WALL EXCEPTIONS (these always block laddering):**
 - Aftercare mode active (manual toggle)
 - ppv_missed lockout active
 - Active objection being solved (wall_subtype is set)
 - Posture = TIMEWASTER (he's not converting, force-pitch wastes effort)
+- frame_hold_active = true (vending_machine_attempt fork is firing)
 
-If NONE of those exceptions are active and the AI message count has crossed the threshold, you MUST escalate. "He seems warm, let me build more rapport" is NOT a valid reason to delay — that's the polite-assistant failure mode.
-
-**EARLIER PITCHING ALLOWED:**
-If you see a clear opening before msg 10 (he's giving sexual signals, qualifying himself, asking what you do), you can pitch earlier — provided promise ritual is started or in progress. Earlier pitch is rewarded, late pitch is penalized.
+**ANTI-DRIFT BACKSTOP:**
+The polite-assistant failure mode is real — "he seems warm, let me build more rapport forever" drains sessions. The backstop now lives in posture: if 20+ AI msgs pass with zero investment and zero spend, posture force-escalates to TIMEWASTER (creator energy drops, replies shorten, no fresh hooks). This is automatic. Do NOT manually drift past PROBE without either (a) climbing investment signals, (b) a CTA attempt, or (c) frame_hold for a vending-machine attempt.
 
 **PROMISE RITUAL vs REINFORCEMENT (CRITICAL DISTINCTION):**
 - Before PPV1: full multi-beat promise ritual (opener → trust declaration → reinforcement → confirmation → ship). Sets the exclusivity frame.
@@ -5457,6 +5303,10 @@ Return this exact JSON — every field required:
   "next_move_after_wall": "continue_climb (no wall — default post-purchase or normal flow) OR run_objection_solve (objection detected, run the solve script for wall_subtype) OR percival_aftercare_ladder_stop (soft-no from proven spender, run ladder-stop aftercare) OR percival_aftercare_aftersex (post-climax aftercare, rare — usually only when aftercare_mode is already ON with aftersex context) OR goodbye_script (never-spent soft-no twice — short Phase 1-2-3 exit) OR exclusive_custom_framing (ppv missed and he wants more — never-done-before + tip-what-you-can) OR manager_flag (objection not solved after 3-4 redirections — SSAI should go silent) OR run_story_framework (Case 5 stuck lurker — drag him through a life story, multi-message burst, no pitch) OR run_promise_ritual (about to pitch Tier 2+ AND promise_status is not_started or in_progress — run full multi-beat ritual before PPV1 ships) OR run_promise_reinforcement (about to pitch PPV2+ AND promise_status is reinforcement — single callback beat that references the existing promise without re-running ritual, then ship). Pick exactly one.",
   "next_planned_move": "MANDATORY — what move you intend to recommend NEXT turn (binding plan unless wall fires). One of: rapport_beat / qualifying_question / seed_cta / cta1 / cta2 / send_ppv / tier_jump_test / aftercare / exclusive_custom / goodbye_script / manager_flag. This is anti-drift: it commits you to a forward plan so the next turn doesn't reset to scratch on whatever the customer says next.",
   "next_planned_move_reason": "one sentence — why this is the plan. Reference the ladder state (drift signal, last pitch tier, pitches sent so far).",
+  "investment_quality": "genuine OR performative OR absent — your read on whether his investment in HER (not just content) is real. Genuine: he's actually curious about her, asks personal questions, shares about himself, references things she said. Performative: says the right words but it's hollow / generic / transactional underneath. Absent: zero investment in her as a person, treats her as a vending machine. The rule layer counts signals; you assess quality. If rule count says 2+ but you read it as performative, hold frame one more turn.",
+  "investment_quality_reason": "one sentence — why genuine/performative/absent. Reference specific things he said.",
+  "frame_hold_active": true or false,
+  "frame_hold_reason": "if frame_hold_active is true, one sentence on what vending-machine behavior triggered it (e.g. 'asked price on msg 2 with zero rapport, no questions about her, transactional tone'). If false, 'n/a'.",
   "trust_level": 1,
   "trust_reason": "one sentence — why this trust level (1-5) based on convo + spend",
   "archetype": "the customer archetype label (e.g. Whale-In-Training, Lurker, Devotion, etc.)",
@@ -5514,7 +5364,7 @@ Return this exact JSON — every field required:
       }
 
       // ── PASS A: validate → retry once → clamp ─────────────────
-      let violations=validateStrategy(strategyJson,s);
+      let violations=validateStrategy(strategyJson,s,ladderState);
       if(violations.length&&!s._strategyRetried){
         s._strategyRetried=true;
         const retryPrompt=strategyPrompt+'\n\n=== YOUR PREVIOUS OUTPUT HAD VIOLATIONS — FIX THEM ===\n'+violations.map(v=>'- '+v).join('\n')+'\n\nReturn corrected JSON. Same schema, same rules.';
@@ -5524,7 +5374,7 @@ Return this exact JSON — every field required:
           const retryJson=safeParseStrategy(retryClean);
           if(retryJson) strategyJson=retryJson;
         }catch(e){/* keep original on retry failure */}
-        violations=validateStrategy(strategyJson,s);
+        violations=validateStrategy(strategyJson,s,ladderState);
       }
       s._strategyRetried=false;
       s._strategyViolations=violations.length?violations:null;
@@ -5539,7 +5389,7 @@ Return this exact JSON — every field required:
       // some of the violations the LLM couldn't self-correct, so the user-facing
       // warning should reflect post-clamp state. If violations are now empty,
       // clear the warning so we don't mislead the agent.
-      const postClampViolations=validateStrategy(strategyJson,s);
+      const postClampViolations=validateStrategy(strategyJson,s,ladderState);
       s._strategyViolations=postClampViolations.length?postClampViolations:null;
 
       sessions[sessionId]._lastStrategy=strategyJson;
@@ -6214,328 +6064,6 @@ QUESTION: ${q}`;
   }catch(e){
     const t=document.getElementById('qaThink');if(t) t.textContent='Error: '+e.message;
   }
-}
-
-// ── API CALL — Claude only (Gemini removed) ───────────────────
-// callApi is always Claude. Message generation may route to Mistral via callMistral().
-// Analysis, strategy, memory, intel, coach Q&A — all Claude, always.
-
-async function callApi(system,user,maxTokens,forceModel,callType){
-  // v0.3.0.38: route through Edge Function proxy unless explicitly disabled.
-  // Proxy mode: only the proxy token leaves the browser; real Anthropic key lives server-side.
-  const proxy=useProxy();
-  let endpoint, headers;
-  if(proxy){
-    const tk=getProxyToken();
-    if(!tk) throw new Error('Proxy token missing — contact your manager');
-    endpoint=PROXY_URL;
-    headers={
-      'Content-Type':'application/json',
-      'x-ssai-token':tk,
-    };
-  } else {
-    const ck=localStorage.getItem('ss_claude')||CK_DEFAULT;
-    if(!ck) throw new Error('Claude API key not configured — contact your manager');
-    endpoint='https://api.anthropic.com/v1/messages';
-    headers={
-      'Content-Type':'application/json',
-      'x-api-key':ck,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true',
-      'anthropic-beta':'extended-cache-ttl-2025-04-11'
-    };
-  }
-  // v0.3.0.27_2: Sonnet 4.6 only. Haiku removed — was producing false-positive
-  // fork classifications that cascaded into wrong whale signals + archetype labels.
-  const modelId='claude-sonnet-4-6';
-  const body={model:modelId,max_tokens:maxTokens,system,messages:[{role:'user',content:user}]};
-  // v0.3.0.24: pre-compute size of system blocks for diagnostic
-  let sysBlocks=[];
-  if(Array.isArray(system)){
-    sysBlocks=system.map((b,i)=>({
-      idx:i,
-      hasCacheControl:!!b.cache_control,
-      chars:(b.text||'').length,
-      // estimate tokens at ~4 chars/token (rough but useful for spotting <1024 token blocks)
-      estTokens:Math.round((b.text||'').length/4)
-    }));
-  } else if(typeof system==='string'){
-    sysBlocks=[{idx:0,hasCacheControl:false,chars:system.length,estTokens:Math.round(system.length/4)}];
-  }
-  const userChars=typeof user==='string'?user.length:JSON.stringify(user).length;
-  const r=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(body)});
-  const d=await r.json();
-  if(d.error) throw new Error(d.error.message);
-  // Cache diagnostic — log hit/miss + token costs to a window-level array we can inspect
-  if(d.usage){
-    const u=d.usage;
-    const cacheReadTokens=u.cache_read_input_tokens||0;
-    const cacheCreateTokens=u.cache_creation_input_tokens||0;
-    const regularInputTokens=u.input_tokens||0;
-    const outputTokens=u.output_tokens||0;
-    // v0.3.0.27_2: Sonnet 4.6 only — $3 in / $15 out per M
-    // Cached read = 0.1x base input; 1h cache write = 2x base input
-    const inRate=3;
-    const outRate=15;
-    const cacheReadRate=inRate*0.1; // $0.30 Sonnet
-    const cacheWriteRate=inRate*2;  // $6.00 Sonnet (1h TTL)
-    const inputCost=(regularInputTokens*inRate+cacheReadTokens*cacheReadRate+cacheCreateTokens*cacheWriteRate)/1000000;
-    const outputCost=(outputTokens*outRate)/1000000;
-    const totalCost=inputCost+outputCost;
-    const entry={
-      ts:new Date().toISOString(),
-      callType:callType||'unknown',
-      modelUsed:modelId,
-      sysBlocks,
-      userChars,
-      input:regularInputTokens,
-      cacheRead:cacheReadTokens,
-      cacheCreate:cacheCreateTokens,
-      output:outputTokens,
-      cost:totalCost,
-      cached:cacheReadTokens>0
-    };
-    if(!window._ssaiCostLog) window._ssaiCostLog=[];
-    window._ssaiCostLog.push(entry);
-    if(window._ssaiCostLog.length>200) window._ssaiCostLog.shift();
-    // Also expose cumulative totals
-    window._ssaiCostTotal=window._ssaiCostLog.reduce((a,e)=>a+e.cost,0);
-    window._ssaiCacheHitRate=window._ssaiCostLog.filter(e=>e.cached).length/window._ssaiCostLog.length;
-    // v0.3.0.22: surface in dashboard so we don't need DevTools
-    // v0.3.0.23: show cost-per-response — the actual money-per-message metric.
-    // Total cost since reload is unhelpful; what you want to know is "how much
-    // does each message I generate cost me right now". Read respCount from the
-    // dashboard counter (sResp) — it's the agent's count of generated msgs.
-    try{
-      const el=document.getElementById('sApiCost');
-      if(el){
-        const respEl=document.getElementById('sResp');
-        const respCount=respEl?parseInt(respEl.textContent)||0:0;
-        const total=window._ssaiCostTotal;
-        const perMsg=respCount>0?(total/respCount):0;
-        const hitPct=Math.round(window._ssaiCacheHitRate*100);
-        const hitLabel=window._ssaiCostLog.length<3?'—':(hitPct+'%');
-        const color=window._ssaiCostLog.length<3?'var(--text)':(hitPct>=70?'var(--green)':hitPct>=40?'var(--text)':'var(--red)');
-        // Display: per-message cost (primary) · total · cache%
-        const perMsgStr=respCount>0?'$'+perMsg.toFixed(3)+'/msg':'$'+total.toFixed(3);
-        el.innerHTML=`${perMsgStr} · <span style="color:${color}">${hitLabel}</span>`;
-        el.title=respCount>0
-          ?`Per-message cost since page load: $${perMsg.toFixed(4)}\nTotal: $${total.toFixed(3)} across ${respCount} response${respCount===1?'':'s'} (${window._ssaiCostLog.length} API calls)\nCache hit: ${hitPct}% — green ≥70%, red <40%`
-          :`Total since page load: $${total.toFixed(3)} (${window._ssaiCostLog.length} API calls — generate a response to see per-msg cost)`;
-      }
-    }catch(e){}
-  }
-  return d.content?.[0]?.text||'';
-}
-
-// ── v0.3.0.24: COST DIAGNOSTIC MODAL ───────────────────────────
-// Click the "$/msg · Cache" card to see the last 10 API calls broken down by:
-//   - call type (strategy / generator / intel / etc)
-//   - tokens charged at each tier (regular, cache_read, cache_create)
-//   - system block sizes (to spot blocks under 1024-token cache minimum)
-//   - cost per call
-// "Copy diagnostic" button copies a clean JSON dump for pasting into chat.
-window.openCostDiagnostic=function(){
-  const log=window._ssaiCostLog||[];
-  const total=window._ssaiCostTotal||0;
-  const hitPct=Math.round((window._ssaiCacheHitRate||0)*100);
-  let body;
-  if(!log.length){
-    body='<div style="padding:20px;color:var(--text3)">No API calls logged yet. Generate a message first.</div>';
-  } else {
-    const recent=log.slice(-10).reverse();
-    const rows=recent.map((e,i)=>{
-      const totalIn=e.input+e.cacheRead+e.cacheCreate;
-      const cacheMark=e.cacheRead>0?'<span style="color:var(--green)">HIT</span>':e.cacheCreate>0?'<span style="color:var(--amber)">MISS (wrote cache)</span>':'<span style="color:var(--red)">NO CACHE</span>';
-      const sysBreakdown=(e.sysBlocks||[]).map((b,bi)=>`#${bi}:${b.estTokens}t${b.hasCacheControl?'✓':''}${b.estTokens<1024&&b.hasCacheControl?'<span style="color:var(--red)">⚠</span>':''}`).join(' · ');
-      const modelTag='<span style="opacity:0.6">sonnet</span>';
-      return `<tr style="border-top:1px solid var(--border)">
-        <td style="padding:6px 8px;font-family:monospace;font-size:11px">${i===0?'<b style="color:var(--blue2)">latest</b>':'#'+(log.length-i)}</td>
-        <td style="padding:6px 8px;font-size:11px">${e.callType||'?'}</td>
-        <td style="padding:6px 8px;font-size:11px">${modelTag}</td>
-        <td style="padding:6px 8px;font-size:11px">${cacheMark}</td>
-        <td style="padding:6px 8px;font-family:monospace;font-size:11px">in:${totalIn} · out:${e.output}</td>
-        <td style="padding:6px 8px;font-family:monospace;font-size:11px">r:${e.input} · cR:${e.cacheRead} · cW:${e.cacheCreate}</td>
-        <td style="padding:6px 8px;font-family:monospace;font-size:11px">$${e.cost.toFixed(4)}</td>
-        <td style="padding:6px 8px;font-size:10px;color:var(--text3)">${sysBreakdown||'(string sys)'}</td>
-      </tr>`;
-    }).join('');
-    body=`
-      <div style="padding:14px 18px">
-        <div style="display:flex;gap:24px;margin-bottom:14px;font-size:13px">
-          <div><b>Total:</b> $${total.toFixed(3)}</div>
-          <div><b>Calls:</b> ${log.length}</div>
-          <div><b>Cache hit:</b> <span style="color:${hitPct>=70?'var(--green)':hitPct>=40?'var(--amber)':'var(--red)'}">${hitPct}%</span></div>
-        </div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">
-          <b>Legend:</b> r = regular input · cR = cache_read · cW = cache_create · sys block ✓ = has cache_control · ⚠ = under 1024-token cache minimum (won't cache).
-        </div>
-        <div style="overflow:auto;max-height:50vh;border:1px solid var(--border);border-radius:4px">
-          <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead style="background:var(--bg2);position:sticky;top:0">
-              <tr>
-                <th style="text-align:left;padding:6px 8px">#</th>
-                <th style="text-align:left;padding:6px 8px">Type</th>
-                <th style="text-align:left;padding:6px 8px">Model</th>
-                <th style="text-align:left;padding:6px 8px">Cache</th>
-                <th style="text-align:left;padding:6px 8px">Tokens</th>
-                <th style="text-align:left;padding:6px 8px">Breakdown</th>
-                <th style="text-align:left;padding:6px 8px">Cost</th>
-                <th style="text-align:left;padding:6px 8px">Sys blocks</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn" onclick="copyCostDiagnostic()">Copy diagnostic JSON</button>
-          <button class="btn" onclick="document.getElementById('costDiagModal').remove()">Close</button>
-        </div>
-      </div>`;
-  }
-  // Remove existing modal if any
-  const existing=document.getElementById('costDiagModal');
-  if(existing) existing.remove();
-  // Build modal
-  const modal=document.createElement('div');
-  modal.id='costDiagModal';
-  modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding-top:60px';
-  modal.innerHTML=`<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;width:min(960px,94vw);max-height:80vh;overflow:hidden">
-    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <div style="font-weight:600">API Cost Diagnostic — last ${Math.min(log.length,10)} calls</div>
-      <div style="cursor:pointer;font-size:18px;color:var(--text3)" onclick="document.getElementById('costDiagModal').remove()">×</div>
-    </div>
-    ${body}
-  </div>`;
-  // Click outside to close
-  modal.addEventListener('click',(e)=>{if(e.target===modal) modal.remove();});
-  document.body.appendChild(modal);
-};
-
-window.copyCostDiagnostic=function(){
-  const log=window._ssaiCostLog||[];
-  const recent=log.slice(-10);
-  const dump={
-    version:'v0.3.0.24',
-    totalCost:window._ssaiCostTotal||0,
-    totalCalls:log.length,
-    cacheHitRate:window._ssaiCacheHitRate||0,
-    recentCalls:recent.map(e=>({
-      callType:e.callType,
-      modelUsed:e.modelUsed,
-      cached:e.cached,
-      tokens:{regular:e.input,cacheRead:e.cacheRead,cacheCreate:e.cacheCreate,output:e.output},
-      cost:Number(e.cost.toFixed(5)),
-      sysBlocks:e.sysBlocks,
-      userChars:e.userChars
-    }))
-  };
-  navigator.clipboard.writeText(JSON.stringify(dump,null,2)).then(()=>{
-    if(window.toast) toast('Diagnostic copied to clipboard','s');
-  }).catch(()=>{
-    if(window.toast) toast('Copy failed — see console','e');
-    console.log(JSON.stringify(dump,null,2));
-  });
-};
-
-// ── MISTRAL GENERATION via OpenRouter ──────────────────────────
-// Called only for message generation when api==='mistral'
-// Model used: mistralai/mistral-nemo
-// Receives Claude's strategy JSON + creator persona + conversation
-async function callMistral(creatorPersona,strategyJson,conversation,creatorName,maxTokens,contentLibrary,wallEnforcementBlock){
-  // v0.3.0.38: route through Edge Function proxy unless explicitly disabled.
-  // Proxy mode: only the proxy token leaves the browser; real OpenRouter key lives server-side.
-  const proxy=useProxy();
-  let endpoint, headers;
-  if(proxy){
-    const tk=getProxyToken();
-    if(!tk) throw new Error('Proxy token missing — contact your manager');
-    endpoint=MISTRAL_PROXY_URL;
-    headers={
-      'Content-Type':'application/json',
-      'x-ssai-token':tk,
-    };
-  } else {
-    const ok=localStorage.getItem('ss_openrouter')||'';
-    if(!ok) throw new Error('OpenRouter (Mistral) key not configured — contact your manager');
-    endpoint='https://openrouter.ai/api/v1/chat/completions';
-    headers={
-      'Content-Type':'application/json',
-      'Authorization':'Bearer '+ok,
-      'HTTP-Referer':'https://smartstarsai.local',
-      'X-Title':'SmartStarsAI'
-    };
-  }
-
-  // Build a clean, explicit system prompt for Mistral
-  // Claude's strategy JSON tells it exactly what to do — it just executes
-  const fb=(v,d='n/a')=>(v===undefined||v===null||v==='')?d:v;
-  const bool=v=>v===true||v==='true';
-
-  const systemPrompt=`You are ${creatorName}, an OnlyFans creator chatting with a fan right now.
-
-PERSONA — you must stay in character as this person at all times:
-${creatorPersona}
-${contentLibrary?`\n═══ CONTENT LIBRARY — HARD SOURCE OF TRUTH ═══\nThis is exactly what ${creatorName} sells. Never offer, imply, or reference content not listed here. If the customer asks for something not in this list, DO NOT say no — pivot with curiosity toward what exists.\n\n${contentLibrary}\n`:''}
-
-═══ CURRENT MESSAGE STRATEGY ═══
-Claude has analyzed the full conversation and training framework. You must execute this exactly. Every rule below is non-negotiable.
-
-CUSTOMER STATE:
-- What his last message means in conversational flow: ${fb(strategyJson.last_message_read,'responding to his last message')}
-- What he wants right now: ${fb(strategyJson.customer_intent,'continue conversation')}
-- What language he is writing in: ${fb(strategyJson.customer_language,'english')}
-- Tone YOU must use: ${fb(strategyJson.tone,'warm, flirty')}
-
-CONVERSATION POSITION:
-- Current phase: ${fb(strategyJson.phase,'rapport')}
-- Exact ritual step to execute: ${fb(strategyJson.ritual_step,'engage naturally based on his last message')}
-- Promise status for content cycle: ${fb(strategyJson.promise_status,'not_started')}
-- Content tier unlocked: ${fb(strategyJson.unlocked_tier,'standard')}
-
-WHAT THIS MESSAGE MUST ACHIEVE:
-${fb(strategyJson.strategy,'build rapport')}
-
-SPECIFIC NEXT MOVE:
-${fb(strategyJson.next_move,'engage naturally')}
-
-═══ MANDATORY RULES FOR THIS MESSAGE ═══
-!! DEFLECTION CHECK: Read "${fb(strategyJson.last_message_read,'responding to his last message')}". If this mentions deflection, tease, flip-back, redirect, "flipping the question back", or similar — you MUST NOT answer her original question. Flip the energy back with playful curiosity in ONE short line. No explanation, no mini-speech, no justification. Match his length exactly.
-${bool(strategyJson.caption_required)?`!! CAPTION REQUIRED: You are sending/about to send content. Caption guidance: ${fb(strategyJson.caption_guidance,'curiosity only, never reveal what is inside, never describe body parts, create anticipation not specification')}`:''}
-${strategyJson.price_rule&&strategyJson.price_rule!=='n/a'?`!! PRICE RULE: ${strategyJson.price_rule}`:''}
-${strategyJson.pricing_anchor&&strategyJson.pricing_anchor!=='n/a'?`!! PRICING ANCHOR: ${strategyJson.pricing_anchor} — if price is unavoidable, use tier-minimum from library, never below`:''}
-${strategyJson.reason_to_buy&&strategyJson.reason_to_buy!=='n/a'?`!! REASON TO BUY (required framing): ${strategyJson.reason_to_buy}`:''}
-${strategyJson.language_rule&&strategyJson.language_rule!=='n/a'?`!! LANGUAGE RULE: ${strategyJson.language_rule}`:''}
-${strategyJson.content_safety_check&&strategyJson.content_safety_check!=='n/a'?`!! CONTENT SAFETY: ${strategyJson.content_safety_check}`:''}
-${strategyJson.forbidden_in_this_message?`!! DO NOT DO THESE THINGS IN THIS MESSAGE:\n${strategyJson.forbidden_in_this_message}`:''}
-${strategyJson.key_points?`!! KEY POINTS TO WEAVE IN: ${strategyJson.key_points}`:''}
-${strategyJson.warnings?`!! WARNING: ${strategyJson.warnings}`:''}
-${wallEnforcementBlock?wallEnforcementBlock:''}
-
-═══ OUTPUT ═══
-- Write ONE message only as ${creatorName}. Nothing else.
-- No labels, no explanations, no quotes around the message.
-- ${strategyJson.message_length==='long'?'Write a longer message':strategyJson.message_length==='medium'?'Write a medium message':'Match the customer message length — short if his was short, one sentence reply if his was one sentence'}.
-- Stay fully in character. Never mention being AI, a bot, or a chatter.
-- Never sound like a store. No "here's the link," no listing prices, no transactional language.`;
-
-  const r=await fetch(endpoint,{
-    method:'POST',
-    headers,
-    body:JSON.stringify({
-      model:'mistralai/mistral-nemo',
-      max_tokens:maxTokens,
-      messages:[
-        {role:'system',content:systemPrompt},
-        {role:'user',content:conversation}
-      ],
-      temperature:0.85,
-      top_p:0.9
-    })
-  });
-  const d=await r.json();
-  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
-  return d.choices?.[0]?.message?.content||'';
 }
 
 let coachCollapsed=false;
@@ -7511,678 +7039,3 @@ async function refreshFeedbackQueueBadge(){
   }catch(e){/* silent — table may not exist yet */}
 }
 
-function toast(msg,type='i'){
-  const c=document.getElementById('toasts');
-  const t=document.createElement('div');
-  t.className=`toast ${type}`;
-  // Truncate very long messages so toasts don't blanket the UI
-  const text=String(msg||'');
-  t.textContent=text.length>180?text.slice(0,180)+'…':text;
-  t.title=text; // full message on hover
-  c.appendChild(t);setTimeout(()=>t.remove(),3500);
-}
-
-// v0.3.0.34: in-page confirm modal (replaces window.confirm).
-// Native confirm() popups are invisible to the Claude-in-Chrome browser-automation
-// tools (they're rendered outside the page DOM). This in-page version lives in
-// the page itself so automation can find the buttons by data-attr and click them.
-// Returns a Promise<boolean>.
-function confirmInPage(message){
-  return new Promise(resolve=>{
-    // Strip any existing instance
-    document.querySelectorAll('.cip-overlay').forEach(n=>n.remove());
-    const overlay=document.createElement('div');
-    overlay.className='cip-overlay';
-    overlay.setAttribute('data-cip','overlay');
-    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)';
-    overlay.innerHTML=`
-      <div class="cip-box" style="background:var(--bg2,#1a1a1a);color:var(--text,#fff);border:1px solid var(--border,#333);border-radius:8px;padding:24px;min-width:400px;max-width:560px;box-shadow:0 10px 40px rgba(0,0,0,0.5)">
-        <div class="cip-msg" style="font-size:14px;line-height:1.5;margin-bottom:20px;white-space:pre-wrap;word-wrap:break-word">${esc(message)}</div>
-        <div style="display:flex;gap:10px;justify-content:flex-end">
-          <button data-cip="cancel" class="btn" style="padding:8px 18px;background:transparent;color:var(--text,#fff);border:1px solid var(--border,#444);border-radius:6px;cursor:pointer;font-size:13px">Cancel</button>
-          <button data-cip="ok" class="btn primary" style="padding:8px 18px;background:var(--blue,#3b82f6);color:#fff;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500">OK</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const close=v=>{overlay.remove();resolve(v);};
-    overlay.querySelector('[data-cip="ok"]').onclick=()=>close(true);
-    overlay.querySelector('[data-cip="cancel"]').onclick=()=>close(false);
-    overlay.onclick=e=>{if(e.target===overlay) close(false);};
-    // Focus OK so Enter confirms, Escape cancels
-    overlay.querySelector('[data-cip="ok"]').focus();
-    document.addEventListener('keydown',function onk(e){
-      if(e.key==='Enter'){close(true);document.removeEventListener('keydown',onk);}
-      if(e.key==='Escape'){close(false);document.removeEventListener('keydown',onk);}
-    });
-  });
-}
-
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
-// Format a single message for AI prompt consumption.
-// PPV bubbles become explicit tagged lines so the AI knows what was sent/purchased.
-// opts.modelName required. opts.withTs toggles [HH:MM] prefix. opts.customerLabel defaults 'CUSTOMER'.
-// ── REPLY-GAP HELPERS ─────────────────────────────────────────
-// Forward-only: only messages added after ts_iso shipped have real timestamps.
-// Historical messages without ts_iso get no gap prefix (graceful fallback).
-function gapPhrase(prevIso,curIso){
-  if(!prevIso||!curIso) return null;
-  const ms=new Date(curIso).getTime()-new Date(prevIso).getTime();
-  if(!isFinite(ms)||ms<0) return null;
-  const sec=Math.floor(ms/1000);
-  if(sec<120) return 'just now';
-  const min=Math.floor(sec/60);
-  if(min<60) return min+' min later';
-  const hr=Math.floor(min/60);
-  if(hr<24) return hr+(hr===1?' hr later':' hrs later');
-  const day=Math.floor(hr/24);
-  if(day<14) return day+(day===1?' day later':' days later');
-  const wk=Math.floor(day/7);
-  if(wk<8) return wk+(wk===1?' wk later':' wks later');
-  const mo=Math.floor(day/30);
-  return mo+(mo===1?' mo later':' mos later');
-}
-// Compute the reply-gap context for the LAST customer→creator turn.
-// Used to inject a strategy block telling the AI: instant continuation /
-// minutes-warm / hours-cooling / days-cold / weeks-reopen.
-function lastReplyGapContext(msgs){
-  if(!msgs||msgs.length<2) return null;
-  // Find the last customer message and the message immediately before it
-  // from the model side (that's the gap that matters: how long did he take
-  // to come back to her last reach-out, OR how long has it been since his
-  // last message if we're about to reply to him).
-  let lastCustIdx=-1;
-  for(let i=msgs.length-1;i>=0;i--){
-    if(msgs[i].sender==='customer'){lastCustIdx=i;break;}
-  }
-  if(lastCustIdx<0) return null;
-  const lastCust=msgs[lastCustIdx];
-  if(!lastCust.ts_iso) return null;
-  // Gap from his last message to NOW (i.e. how stale is his message we're
-  // about to reply to). This is the more useful number for posture.
-  const ms=Date.now()-new Date(lastCust.ts_iso).getTime();
-  if(!isFinite(ms)||ms<0) return null;
-  const min=Math.floor(ms/60000);
-  let bucket,scenario,guidance;
-  if(min<5){bucket='just now';scenario='instant_continuation';
-    guidance='He just replied. This is live back-and-forth. Match the tempo — don\'t pad, don\'t reset, don\'t reintroduce energy. Continue the thread directly.';}
-  else if(min<60){bucket=min+' min ago';scenario='warm_window';
-    guidance='He replied within the hour. Still warm. Pick up where it left off, no reopener needed.';}
-  else if(min<6*60){bucket=Math.floor(min/60)+' hrs ago';scenario='same_session_cooling';
-    guidance='Same-day but cooling. Gentle re-engagement allowed — don\'t pretend it\'s instant, but don\'t over-reset either.';}
-  else if(min<36*60){bucket=Math.floor(min/60)+' hrs ago';scenario='overnight_or_next_day';
-    guidance='Likely overnight or next-day. Soft reopen. Reference yesterday/last night naturally if relevant. Don\'t restart from cold — pick up the thread.';}
-  else if(min<7*24*60){bucket=Math.floor(min/(60*24))+' days ago';scenario='cold_reopen';
-    guidance='Days-cold. He may have moved on mentally. Reopen with curiosity or a callback to something specific from before — not a generic "hey." Acknowledge the gap only if it\'s natural; never apologize for distance.';}
-  else {bucket=Math.floor(min/(60*24))+' days ago';scenario='reengagement';
-    guidance='Long gap. This is a re-engagement, not a continuation. Lead with something fresh — don\'t reference prior pitches. Treat this as a soft restart of the relationship arc, but do not lose the existing trust banked.';}
-  return {bucket,scenario,guidance,minutesAgo:min};
-}
-function fmtMsgForAI(m,opts){
-  const modelName=opts.modelName;
-  const customerLabel=opts.customerLabel||'CUSTOMER';
-  const ts=(opts.withTs&&m.ts)?'['+m.ts+'] ':'';
-  if(m.sender==='ppv'){
-    const price=(typeof m.price==='number')?'$'+m.price:'$?';
-    const caption=(m.text||'').trim();
-    const capPart=caption?' caption: "'+caption.replace(/"/g,'\\"')+'"':'';
-    if(m.opened===true){
-      return ts+'[PPV PURCHASED '+price+capPart+']';
-    }
-    return ts+'[PPV SENT '+price+' — unopened'+capPart+']';
-  }
-  const label=m.sender==='customer'?customerLabel:modelName.toUpperCase();
-  return ts+label+': '+m.text;
-}
-
-// Array-level formatter: computes inline gap prefix between consecutive
-// messages when ts_iso is present. Forward-only — historical messages
-// without ts_iso just render without gap prefix.
-function fmtMsgsForAI(msgs,opts){
-  if(!msgs||!msgs.length) return '';
-  const out=[];
-  for(let i=0;i<msgs.length;i++){
-    const m=msgs[i];
-    const prev=i>0?msgs[i-1]:null;
-    const gap=prev?gapPhrase(prev.ts_iso,m.ts_iso):null;
-    if(gap&&i>0) out.push('  ··· '+gap+' ···');
-    out.push(fmtMsgForAI(m,opts));
-  }
-  return out.join('\n');
-}
-
-// Global error net: surfaces script-level errors in the DB status indicator
-// so a syntax error never silently leaves the app stuck on amber again.
-window.addEventListener('error',function(ev){
-  try{
-    const dot=document.getElementById('dbDot');
-    const lbl=document.getElementById('dbLabel');
-    if(dot){dot.style.cssText='background:var(--red);box-shadow:0 0 5px var(--red)';}
-    if(lbl){lbl.textContent='script error — '+(ev.message||'unknown')+(ev.lineno?' (line '+ev.lineno+')':'');}
-  }catch(_){}
-});
-window.addEventListener('unhandledrejection',function(ev){
-  try{
-    const lbl=document.getElementById('dbLabel');
-    if(lbl&&lbl.textContent==='connecting'){
-      const dot=document.getElementById('dbDot');
-      if(dot){dot.style.cssText='background:var(--red);box-shadow:0 0 5px var(--red)';}
-      lbl.textContent='unhandled rejection — '+(ev.reason?.message||ev.reason||'unknown');
-    }
-  }catch(_){}
-});
-// v0.4.0: TEAM MANAGEMENT (manager only) — calls chatter-admin Edge Function
-async function callChatterAdmin(action, body){
-  const session = (await sb.auth.getSession()).data.session;
-  if(!session) throw new Error('Not authenticated');
-  const r = await fetch(CHATTER_ADMIN_URL, {
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'Authorization':'Bearer '+session.access_token,
-    },
-    body: JSON.stringify({ action, ...body }),
-  });
-  const data = await r.json();
-  if(!r.ok) throw new Error(data?.error || ('HTTP '+r.status));
-  return data;
-}
-
-function renderModelCheckboxes(boxId, selected){
-  const box = document.getElementById(boxId);
-  if(!box) return;
-  selected = selected || [];
-  // v0.4.0 fix: top-level `let models` isn't on window, read via globalThis-eval
-  const allModels = (typeof models !== 'undefined' ? models : []).map(m => m.name);
-  box.innerHTML = allModels.map(name => {
-    const checked = selected.includes(name) ? 'checked' : '';
-    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px;background:rgba(255,255,255,0.04);border-radius:4px;font-size:11px;cursor:pointer">
-      <input type="checkbox" value="${name}" ${checked} style="margin:0;cursor:pointer"> ${name}
-    </label>`;
-  }).join('');
-}
-
-function getCheckedModels(boxId){
-  const box = document.getElementById(boxId);
-  if(!box) return [];
-  return Array.from(box.querySelectorAll('input[type=checkbox]:checked')).map(c => c.value);
-}
-
-async function inviteChatter(){
-  const status = document.getElementById('ti_status');
-  const email = document.getElementById('ti_email').value.trim();
-  const password = document.getElementById('ti_password').value;
-  const full_name = document.getElementById('ti_name').value.trim();
-  const role = document.getElementById('ti_role').value;
-  const models = getCheckedModels('ti_models_box');
-  if(!email || !password){
-    status.innerHTML='<span style="color:var(--red)">Email + password required</span>';
-    return;
-  }
-  status.innerHTML='<span style="color:var(--text3)">Creating chatter...</span>';
-  try{
-    const res = await callChatterAdmin('create', { email, password, full_name, role, models });
-    status.innerHTML=`<span style="color:#4ade80">✓ Invited ${email} — proxy token: <code style="background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;font-size:10px">${res.proxy_token}</code></span>`;
-    document.getElementById('ti_email').value='';
-    document.getElementById('ti_password').value='';
-    document.getElementById('ti_name').value='';
-    renderModelCheckboxes('ti_models_box', []);
-    await loadTeamList();
-  }catch(e){
-    status.innerHTML='<span style="color:var(--red)">Error: '+(e.message||e)+'</span>';
-  }
-}
-
-async function loadTeamList(){
-  // Render the model checkboxes for the invite form
-  renderModelCheckboxes('ti_models_box', []);
-  const list = document.getElementById('teamList');
-  if(!list) return;
-  list.innerHTML='<div style="color:var(--text3);font-size:11px;padding:10px">Loading team...</div>';
-  try{
-    const { chatters, assignments } = await callChatterAdmin('list', {});
-    const byCh = {};
-    (assignments || []).forEach(a => {
-      (byCh[a.chatter_id] = byCh[a.chatter_id] || []).push(a.creator_model);
-    });
-    if(!chatters.length){
-      list.innerHTML='<div style="color:var(--text3);font-size:11px;padding:10px">No chatters yet.</div>';
-      return;
-    }
-    list.innerHTML = chatters.map(c => {
-      const isYou = c.id === window.currentChatter?.id;
-      const isManagerCard = c.role === 'manager';
-      // v0.4.1.0: managers have access to all models regardless of assignments,
-      // so showing the per-row assignment list is misleading. Display "all (manager)".
-      const models = isManagerCard
-        ? '<span style="color:var(--text2)">all <span style="color:var(--text3)">(manager)</span></span>'
-        : ((byCh[c.id] || []).join(', ') || '<em style="color:var(--text3)">none</em>');
-      const lastSeen = c.last_seen_at ? new Date(c.last_seen_at).toLocaleString() : 'never';
-      const roleColor = c.role==='manager' ? '#c084fc' : '#60a5fa';
-      const roleBg = c.role==='manager' ? 'rgba(168,85,247,0.15)' : 'rgba(59,130,246,0.15)';
-      const activeBadge = c.is_active
-        ? '<span style="color:#4ade80;font-size:10px;background:rgba(74,222,128,0.1);padding:2px 6px;border-radius:3px">active</span>'
-        : '<span style="color:#f87171;font-size:10px;background:rgba(248,113,113,0.1);padding:2px 6px;border-radius:3px">disabled</span>';
-      return `<div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-          <span style="font-weight:600;font-size:12px">${c.full_name || c.email.split('@')[0]}</span>
-          <span style="background:${roleBg};color:${roleColor};font-size:9px;padding:2px 6px;border-radius:3px;text-transform:uppercase">${c.role}</span>
-          ${activeBadge}
-          ${isYou ? '<span style="color:var(--text3);font-size:10px">(you)</span>' : ''}
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">${c.email}</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Models: ${models}</div>
-        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Last seen: ${lastSeen}</div>
-        ${isYou ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn sm" onclick="toggleChatterActive('${c.id}', ${!c.is_active})">${c.is_active?'Disable':'Enable'}</button>
-          <button class="btn sm" onclick="changeChatterRole('${c.id}', '${c.role==='manager'?'chatter':'manager'}')">Make ${c.role==='manager'?'chatter':'manager'}</button>
-          ${isManagerCard ? '' : `<button class="btn sm" onclick="editChatterModels('${c.id}', ${JSON.stringify(byCh[c.id]||[]).replace(/"/g,'&quot;')})">Edit models</button>`}
-          <button class="btn sm" onclick="rotateChatterToken('${c.id}', '${c.email}')">Rotate token</button>
-          <button class="btn sm" onclick="deleteChatter('${c.id}', '${c.email}')" style="color:var(--red)">Delete</button>
-        </div>`}
-      </div>`;
-    }).join('');
-  }catch(e){
-    list.innerHTML='<div style="color:var(--red);font-size:11px;padding:10px">Error: '+(e.message||e)+'</div>';
-  }
-}
-
-async function toggleChatterActive(id, makeActive){
-  try{
-    await callChatterAdmin('update', { chatter_id: id, is_active: makeActive });
-    await loadTeamList();
-    toast(makeActive?'Chatter enabled':'Chatter disabled', 's');
-  }catch(e){ toast('Error: '+(e.message||e), 'e'); }
-}
-
-async function changeChatterRole(id, newRole){
-  // v0.4.1.0: Self-demotion guard. Block demoting the LAST active manager.
-  if(newRole==='chatter'){
-    try{
-      const{chatters}=await callChatterAdmin('list',{});
-      const activeManagers=(chatters||[]).filter(x=>x.role==='manager'&&x.is_active);
-      if(activeManagers.length<=1 && activeManagers.some(x=>x.id===id)){
-        toast('Cannot demote — would leave the agency with zero managers. Promote someone else first.','e');
-        return;
-      }
-    }catch(e){console.warn('Manager-count check failed:',e.message);}
-  }
-  if(!await confirmInPage(`Change role to ${newRole}?`)) return;
-  try{
-    await callChatterAdmin('update', { chatter_id: id, role: newRole });
-    await loadTeamList();
-    toast('Role updated', 's');
-  }catch(e){ toast('Error: '+(e.message||e), 'e'); }
-}
-
-// v0.4.1.0: replaces ugly browser prompt() with a proper checkbox modal —
-// matches the invite form's UI for consistency.
-function editChatterModels(id, current){
-  const arr = Array.isArray(current) ? current : [];
-  const allModels = (typeof models !== 'undefined' ? models : []).map(m => m.name);
-  // Build modal markup
-  const overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  overlay.style.display = 'flex';
-  overlay.style.zIndex = '10001';
-  overlay.onclick = (e)=>{ if(e.target===overlay) overlay.remove(); };
-  const modal = document.createElement('div');
-  modal.className = 'modal';
-  modal.style.cssText = 'background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:22px;width:480px;max-height:88vh;overflow-y:auto';
-  modal.innerHTML = `
-    <div class="m-title">Edit assigned models</div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.6">Check the models this chatter should have access to. Managers see all models regardless of assignment.</div>
-    <div id="ecm_box" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
-    <div class="m-acts" style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn" id="ecm_cancel">Cancel</button>
-      <button class="btn primary" id="ecm_save">Save</button>
-    </div>
-  `;
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-  // Populate checkboxes
-  const box = modal.querySelector('#ecm_box');
-  box.innerHTML = allModels.map(name => {
-    const checked = arr.includes(name) ? 'checked' : '';
-    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:4px;font-size:11px;cursor:pointer">
-      <input type="checkbox" value="${name}" ${checked} style="margin:0;cursor:pointer"> ${name}
-    </label>`;
-  }).join('');
-  // Wire buttons
-  modal.querySelector('#ecm_cancel').onclick = () => overlay.remove();
-  modal.querySelector('#ecm_save').onclick = async () => {
-    const picks = Array.from(box.querySelectorAll('input[type=checkbox]:checked')).map(c => c.value);
-    overlay.remove();
-    try{
-      await callChatterAdmin('update', { chatter_id: id, models: picks });
-      await loadTeamList();
-      toast('Models updated', 's');
-    }catch(e){ toast('Error: '+(e.message||e), 'e'); }
-  };
-}
-
-async function rotateChatterToken(id, email){
-  if(!await confirmInPage(`Rotate proxy token for ${email}? Old token will stop working immediately.`)) return;
-  try{
-    const res = await callChatterAdmin('rotate_token', { chatter_id: id });
-    alert(`New proxy token for ${email}:\n\n${res.proxy_token}\n\nGive this to the chatter — the old one is now invalid.`);
-    await loadTeamList();
-  }catch(e){ toast('Error: '+(e.message||e), 'e'); }
-}
-
-async function deleteChatter(id, email){
-  if(!await confirmInPage(`Permanently delete ${email}? This removes their auth account, sessions stay attributed.`)) return;
-  try{
-    await callChatterAdmin('delete', { chatter_id: id });
-    await loadTeamList();
-    toast('Chatter deleted', 's');
-  }catch(e){ toast('Error: '+(e.message||e), 'e'); }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// v0.4.0: AUTH BOOTSTRAP — invite-only, replaces direct init() call
-// ═══════════════════════════════════════════════════════════════
-window.currentChatter = null; // {id, email, full_name, role, proxy_token, assignments:[]}
-
-const CHATTER_ADMIN_URL = SB_URL + '/functions/v1/chatter-admin';
-
-function renderChatterBadge(){
-  const c = window.currentChatter;
-  if(!c) return;
-  const nameEl = document.getElementById('chatterName');
-  const roleEl = document.getElementById('chatterRoleBadge');
-  if(nameEl) nameEl.textContent = c.full_name || c.email.split('@')[0];
-  if(roleEl){
-    roleEl.textContent = c.role;
-    if(c.role === 'manager'){
-      roleEl.style.background = 'rgba(168,85,247,0.15)';
-      roleEl.style.color = '#c084fc';
-    } else {
-      roleEl.style.background = 'rgba(59,130,246,0.15)';
-      roleEl.style.color = '#60a5fa';
-    }
-  }
-  applyRoleGating();
-}
-
-// v0.4.1.0: centralised role gating. Manager-only UI is hidden for chatters.
-// Called from renderChatterBadge (post-auth) and after any role change.
-function applyRoleGating(){
-  const c = window.currentChatter;
-  const isManager = c && c.role === 'manager';
-  // Top bar: API toggle + Settings button are manager-only
-  const apiSw = document.getElementById('apiSwitcher');
-  const settingsBtn = document.getElementById('settingsBtn');
-  const settingsSep = document.getElementById('settingsSep');
-  if(apiSw) apiSw.style.display = isManager ? 'flex' : 'none';
-  if(settingsBtn) settingsBtn.style.display = isManager ? 'inline-flex' : 'none';
-  if(settingsSep) settingsSep.style.display = isManager ? 'block' : 'none';
-  // Manager-only dashboard widgets
-  const chatterFilter = document.getElementById('dashChatterWrap');
-  if(chatterFilter) chatterFilter.style.display = isManager ? 'inline-flex' : 'none';
-  // v0.4.1.0: leaderboard is shown to BOTH roles. Chatters see it in anonymized rank-only
-  // mode (their own row by name + everyone else as "Chatter #N"). Managers see full table.
-  const leaderboard = document.getElementById('chatterLeaderboardWrap');
-  if(leaderboard) leaderboard.style.display = 'block';
-  // CSV export is manager-only — chatters shouldn't be able to download the full table.
-  const exportBtn = document.getElementById('leaderboardExportBtn');
-  if(exportBtn) exportBtn.style.display = isManager ? 'inline-flex' : 'none';
-  // v0.4.1.0: chatters don't see Active API card or $/msg cost card.
-  // Re-flow the top stat row from 5 cols to 3 when those are hidden.
-  const apiCard = document.getElementById('sApiCard');
-  const costCard = document.getElementById('sApiCostCard');
-  const topRow = document.getElementById('topStatsRow');
-  if(apiCard) apiCard.style.display = isManager ? 'block' : 'none';
-  if(costCard) costCard.style.display = isManager ? 'block' : 'none';
-  if(topRow) topRow.style.gridTemplateColumns = isManager ? 'repeat(5,1fr)' : 'repeat(3,1fr)';
-}
-
-function showLogin(errMsg){
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('authOverlay').style.display = 'flex';
-  const errEl = document.getElementById('authError');
-  if(errMsg){
-    errEl.textContent = errMsg;
-    errEl.style.display = 'block';
-  } else {
-    errEl.style.display = 'none';
-  }
-}
-
-function hideLogin(){
-  document.getElementById('authOverlay').style.display = 'none';
-  document.getElementById('appShell').style.display = 'flex';
-}
-
-async function loadCurrentChatterContext(){
-  // Loads chatter row + assignments after a successful auth.
-  const { data: { user } } = await sb.auth.getUser();
-  if(!user) return null;
-  const { data: chatter, error: chErr } = await sb.from('chatters').select('*').eq('id', user.id).maybeSingle();
-  if(chErr || !chatter){
-    console.warn('chatter row missing or RLS-blocked', chErr);
-    return null;
-  }
-  if(!chatter.is_active){
-    return { _disabled: true };
-  }
-  const { data: assignments } = await sb.from('model_assignments').select('creator_model').eq('chatter_id', user.id);
-  chatter.assignments = (assignments || []).map(a => a.creator_model);
-  return chatter;
-}
-
-// v0.4.0: auto-inject chatter_id on inserts to user-attributable tables.
-// Wraps sb.from(table).insert(payload) so any existing code that doesn't
-// know about chatter_id still produces correctly-attributed rows.
-function installChatterIdAutoInject(){
-  if(!sb || sb._chatterIdPatched) return;
-  const tables = ['aich_sessions','aich_messages','aich_vn_used','aich_events'];
-  const origFrom = sb.from.bind(sb);
-  sb.from = function(name){
-    const builder = origFrom(name);
-    if(!tables.includes(name)) return builder;
-    const origInsert = builder.insert?.bind(builder);
-    if(origInsert){
-      builder.insert = function(payload, opts){
-        const cid = window.currentChatter?.id || null;
-        if(cid){
-          if(Array.isArray(payload)){
-            payload = payload.map(r => ({chatter_id:cid, ...r}));
-          } else if(payload && typeof payload === 'object' && payload.chatter_id === undefined){
-            payload = {chatter_id:cid, ...payload};
-          }
-        }
-        return origInsert(payload, opts);
-      };
-    }
-    return builder;
-  };
-  sb._chatterIdPatched = true;
-}
-
-async function doLogin(){
-  const btn = document.getElementById('authBtn');
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
-  if(!email || !password){
-    showLogin('Email and password required');
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = 'Signing in...';
-  try {
-    if(!window.sb){
-      await getOrCreateSb();
-    }
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if(error){
-      showLogin(error.message || 'Sign in failed');
-      btn.disabled = false;
-      btn.textContent = 'Sign in';
-      return;
-    }
-    // Load chatter context
-    const chatter = await loadCurrentChatterContext();
-    if(!chatter){
-      showLogin('Account not provisioned. Contact your manager.');
-      await sb.auth.signOut();
-      btn.disabled = false;
-      btn.textContent = 'Sign in';
-      return;
-    }
-    if(chatter._disabled){
-      showLogin('Your account has been disabled. Contact your manager.');
-      await sb.auth.signOut();
-      btn.disabled = false;
-      btn.textContent = 'Sign in';
-      return;
-    }
-    // v0.4.1.1: force password change on first login after invite.
-    // Manager creates accounts with a temp password. The chatters row has
-    // must_change_password=true by default; the chatter must set their own
-    // password before they can use the app.
-    if(chatter.must_change_password){
-      window._pendingChatter = chatter;
-      document.getElementById('authPassword').value = '';
-      btn.disabled = false;
-      btn.textContent = 'Sign in';
-      showPasswordChange();
-      return;
-    }
-    window.currentChatter = chatter;
-    installChatterIdAutoInject();
-    hideLogin();
-    renderChatterBadge();
-    document.getElementById('authPassword').value = '';
-    await init();
-  } catch(e){
-    showLogin('Unexpected error: ' + (e?.message || e));
-    btn.disabled = false;
-    btn.textContent = 'Sign in';
-  }
-}
-
-async function doLogout(){
-  try { await sb.auth.signOut(); } catch(_){}
-  window.currentChatter = null;
-  // Reload to fully reset app state — simplest and safest
-  location.reload();
-}
-
-// Allow Enter key in password field to submit
-document.addEventListener('DOMContentLoaded', () => {
-  const pw = document.getElementById('authPassword');
-  const em = document.getElementById('authEmail');
-  if(pw) pw.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
-  if(em) em.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); pw?.focus(); } });
-});
-
-// Bootstrap: check existing session, otherwise show login
-(async () => {
-  try {
-    await getOrCreateSb();
-    const { data: { session } } = await sb.auth.getSession();
-    if(session){
-      const chatter = await loadCurrentChatterContext();
-      if(chatter && !chatter._disabled){
-        // v0.4.1.1: even on session-restore, force password change if flag still set
-        if(chatter.must_change_password){
-          window._pendingChatter = chatter;
-          showPasswordChange();
-          return;
-        }
-        window.currentChatter = chatter;
-        installChatterIdAutoInject();
-        hideLogin();
-        renderChatterBadge();
-        await init();
-        return;
-      }
-      // Stale or disabled session — clear it
-      await sb.auth.signOut();
-    }
-  } catch(e){
-    console.warn('Auth bootstrap failed:', e);
-  }
-  showLogin();
-})();
-
-// v0.4.1.1: PASSWORD CHANGE FLOW
-function showPasswordChange(){
-  document.getElementById('authOverlay').style.display = 'none';
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('pwChangeOverlay').style.display = 'flex';
-  document.getElementById('pwError').style.display = 'none';
-  document.getElementById('pwNew').value = '';
-  document.getElementById('pwConfirm').value = '';
-  setTimeout(()=>document.getElementById('pwNew').focus(), 100);
-}
-
-function showPwError(msg){
-  const el = document.getElementById('pwError');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-
-async function savePasswordChange(){
-  const btn = document.getElementById('pwSaveBtn');
-  const newPw = document.getElementById('pwNew').value;
-  const confirm = document.getElementById('pwConfirm').value;
-  if(!newPw || newPw.length < 8){
-    showPwError('Password must be at least 8 characters');
-    return;
-  }
-  if(newPw !== confirm){
-    showPwError('Passwords do not match');
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-  try {
-    // Update Supabase auth password
-    const { error: pwErr } = await sb.auth.updateUser({ password: newPw });
-    if(pwErr){
-      showPwError(pwErr.message || 'Failed to update password');
-      btn.disabled = false;
-      btn.textContent = 'Save & continue';
-      return;
-    }
-    // Flip must_change_password to false on the chatters row
-    const pending = window._pendingChatter;
-    if(!pending || !pending.id){
-      showPwError('Session lost — please reload and sign in again');
-      return;
-    }
-    const { error: rowErr } = await sb.from('chatters').update({ must_change_password: false }).eq('id', pending.id);
-    if(rowErr){
-      // Password DID save but flag didn't flip — they'd be prompted again next login.
-      // Surface the error but proceed; flag check is non-blocking after this point.
-      console.warn('must_change_password flip failed:', rowErr.message);
-    }
-    // Continue into the app
-    pending.must_change_password = false;
-    window.currentChatter = pending;
-    window._pendingChatter = null;
-    installChatterIdAutoInject();
-    document.getElementById('pwChangeOverlay').style.display = 'none';
-    hideLogin();
-    renderChatterBadge();
-    await init();
-  } catch(e){
-    showPwError('Unexpected error: ' + (e?.message || e));
-    btn.disabled = false;
-    btn.textContent = 'Save & continue';
-  }
-}
-
-// Allow Enter in password fields to submit
-document.addEventListener('DOMContentLoaded', () => {
-  const pw1 = document.getElementById('pwNew');
-  const pw2 = document.getElementById('pwConfirm');
-  if(pw1) pw1.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); pw2?.focus(); } });
-  if(pw2) pw2.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); savePasswordChange(); } });
-});
-</script>
-</div><!-- /appShell -->
-</body>
-</html>
