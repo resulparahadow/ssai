@@ -85,6 +85,13 @@ async function loadCurrentChatterContext(){
   if(!chatter.is_active){
     return { _disabled: true };
   }
+  // Auto-provision proxy token from the authoritative chatters row.
+  // Eliminates manual paste — every login refreshes localStorage from the DB,
+  // so manager-side token rotations are picked up automatically. RLS must
+  // allow a chatter to read their own row including proxy_token.
+  if(chatter.proxy_token){
+    localStorage.setItem('ss_proxy_token', chatter.proxy_token);
+  }
   const { data: assignments } = await sb.from('model_assignments').select('creator_model').eq('chatter_id', user.id);
   chatter.assignments = (assignments || []).map(a => a.creator_model);
   return chatter;
