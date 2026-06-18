@@ -29,8 +29,43 @@ async function callApi(system,user,maxTokens,forceModel,callType){
   }
   // v0.3.0.27_2: Sonnet 4.6 only. Haiku removed — was producing false-positive
   // fork classifications that cascaded into wrong whale signals + archetype labels.
-  const modelId='claude-sonnet-4-6';
+  // v0.4.4.5 dev hook (manager A/B only, not surfaced in UI): localStorage.ss_model_override
+  // holds JSON like {"all":"claude-opus-4-8"} or {"generator":"claude-opus-4-8"} — keys match
+  // the callType prefix ("strategy"|"generator"|"intel") or "all". Unset = production Sonnet.
+  // NOTE: caches are model-scoped — a split override pays a second hourly cache write.
+  // v0.4.4.6: GENERATOR runs on Opus 4.8 — the message text is the only customer-visible output,
+  // so the premium model lives where voice quality shows. STRATEGY stays Sonnet 4.6 (routing is
+  // identical on Sonnet per the A/Bs + 80-chat run, and it's the token-heavy call). Combined with
+  // the generator-cache split (generator reads a slim voice block, not the 33k doctrine), this lands
+  // ~5.9¢/msg warm — Opus voice, below the old 6.4¢ Sonnet-both. ss_model_override still wins for
+  // rollback/testing (e.g. {"generator":"claude-sonnet-4-6"} to revert, or {"all":"..."}).
+  let modelId='claude-sonnet-4-6';
+  // v0.4.4.7: cost is the priority — generator back on Sonnet (the gen-split made it cheap; the
+  // Opus voice was a ~0.9¢ premium we're dropping). Opus still available on demand via
+  // ss_model_override={"generator":"claude-opus-4-8"} if voice is ever wanted again.
+  try{
+    const _ov=JSON.parse(localStorage.getItem('ss_model_override')||'null');
+    if(_ov){
+      const _t=(callType||'').toLowerCase();
+      const _key=_t.indexOf('strategy')===0?'strategy':_t.indexOf('generator')===0?'generator':_t.indexOf('intel')===0?'intel':'other';
+      modelId=_ov[_key]||_ov.all||modelId;
+    }
+  }catch(e){}
   const body={model:modelId,max_tokens:maxTokens,system,messages:[{role:'user',content:user}]};
+  // v0.4.4.5 latency A/B (dev hook): localStorage.ss_effort holds JSON like
+  // {"strategy":"low","generator":"medium"} (key = callType prefix, value = low|medium|high|max).
+  // Sonnet 4.6 defaults to high; lowering effort cuts output verbosity + latency at no extra cost.
+  // The strategy call is ~92% of pipeline latency (output-bound), so strategy:low is the lever.
+  // Unset = production default (high). Measure durationMs/output in _ssaiCostLog before promoting.
+  try{
+    const _ef=JSON.parse(localStorage.getItem('ss_effort')||'null');
+    if(_ef){
+      const _t=(callType||'').toLowerCase();
+      const _k=_t.indexOf('strategy')===0?'strategy':_t.indexOf('generator')===0?'generator':_t.indexOf('intel')===0?'intel':'other';
+      const _lvl=_ef[_k]||_ef.all;
+      if(_lvl&&['low','medium','high','max'].includes(_lvl)) body.output_config={effort:_lvl};
+    }
+  }catch(e){}
   // v0.3.0.24: pre-compute size of system blocks for diagnostic
   let sysBlocks=[];
   if(Array.isArray(system)){
@@ -45,9 +80,53 @@ async function callApi(system,user,maxTokens,forceModel,callType){
     sysBlocks=[{idx:0,hasCacheControl:false,chars:system.length,estTokens:Math.round(system.length/4)}];
   }
   const userChars=typeof user==='string'?user.length:JSON.stringify(user).length;
-  const r=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(body)});
-  const d=await r.json();
-  if(d.error) throw new Error(d.error.message);
+  // v0.4.1.5: retry on transient overload/server errors. Anthropic 529 = overloaded,
+  // 502/503/504 = upstream blip. Up to 3 attempts with jittered backoff (1.2s, 3.5s).
+  // Cache-Control TTL is 1h+ so retried request still hits the same cache entry.
+  const transientStatuses=new Set([429,502,503,504,529]);
+  // v0.4.4.5: per-call latency instrumentation (cost-free) — the strategy call's large JSON
+  // output is the pipeline's dominant latency component; we need to measure it to tune.
+  const _t0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  let r,d,attempt=0,lastErr=null;
+  while(attempt<3){
+    attempt++;
+    try{
+      r=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(body)});
+      // Inspect status BEFORE parsing — non-JSON 5xx bodies will throw on .json()
+      if(transientStatuses.has(r.status) && attempt<3){
+        const retryAfterHdr=parseFloat(r.headers.get('retry-after')||'0');
+        const baseDelay=attempt===1?1200:3500;
+        const delayMs=retryAfterHdr>0?Math.min(retryAfterHdr*1000,8000):baseDelay+Math.floor(Math.random()*400);
+        console.warn(`[callApi] transient ${r.status} on attempt ${attempt} — retrying in ${delayMs}ms (callType=${callType||'?'})`);
+        await new Promise(res=>setTimeout(res,delayMs));
+        continue;
+      }
+      d=await r.json();
+      if(d.error){
+        // 529 sometimes arrives as 200-with-error in the proxy path. Treat overload error as transient.
+        const errMsg=String(d.error.message||d.error||'').toLowerCase();
+        if(attempt<3 && (errMsg.includes('overload')||errMsg.includes('rate limit')||errMsg.includes('temporarily unavailable'))){
+          const delayMs=(attempt===1?1200:3500)+Math.floor(Math.random()*400);
+          console.warn(`[callApi] transient error body on attempt ${attempt} — retrying in ${delayMs}ms (${errMsg.slice(0,80)})`);
+          await new Promise(res=>setTimeout(res,delayMs));
+          continue;
+        }
+        throw new Error(d.error.message||String(d.error));
+      }
+      break;
+    }catch(e){
+      lastErr=e;
+      // Network-level failures (no response) also worth retrying once.
+      if(attempt<3 && (e.name==='TypeError' || /network|fetch/i.test(e.message||''))){
+        const delayMs=1500+Math.floor(Math.random()*500);
+        console.warn(`[callApi] network error on attempt ${attempt} — retrying in ${delayMs}ms (${e.message})`);
+        await new Promise(res=>setTimeout(res,delayMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+  if(!d){ throw lastErr||new Error('Generation failed after retries — try again in a moment'); }
   // Cache diagnostic — log hit/miss + token costs to a window-level array we can inspect
   if(d.usage){
     const u=d.usage;
@@ -57,13 +136,16 @@ async function callApi(system,user,maxTokens,forceModel,callType){
     const outputTokens=u.output_tokens||0;
     // v0.3.0.27_2: Sonnet 4.6 only — $3 in / $15 out per M
     // Cached read = 0.1x base input; 1h cache write = 2x base input
-    const inRate=3;
-    const outRate=15;
-    const cacheReadRate=inRate*0.1; // $0.30 Sonnet
-    const cacheWriteRate=inRate*2;  // $6.00 Sonnet (1h TTL)
+    // v0.4.4.6: rates are model-aware (generator now runs on Opus 4.8 = $5/$25; strategy on Sonnet = $3/$15)
+    const _isOpus=/opus/i.test(modelId);
+    const inRate=_isOpus?5:3;
+    const outRate=_isOpus?25:15;
+    const cacheReadRate=inRate*0.1; // Opus $0.50 / Sonnet $0.30
+    const cacheWriteRate=inRate*2;  // Opus $10 / Sonnet $6 (1h TTL)
     const inputCost=(regularInputTokens*inRate+cacheReadTokens*cacheReadRate+cacheCreateTokens*cacheWriteRate)/1000000;
     const outputCost=(outputTokens*outRate)/1000000;
     const totalCost=inputCost+outputCost;
+    const _t1=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
     const entry={
       ts:new Date().toISOString(),
       callType:callType||'unknown',
@@ -75,7 +157,9 @@ async function callApi(system,user,maxTokens,forceModel,callType){
       cacheCreate:cacheCreateTokens,
       output:outputTokens,
       cost:totalCost,
-      cached:cacheReadTokens>0
+      cached:cacheReadTokens>0,
+      durationMs:Math.round(_t1-_t0),
+      tokPerSec:outputTokens>0?+(outputTokens/((_t1-_t0)/1000)).toFixed(1):null
     };
     if(!window._ssaiCostLog) window._ssaiCostLog=[];
     window._ssaiCostLog.push(entry);
@@ -129,7 +213,13 @@ window.openCostDiagnostic=function(){
     const rows=recent.map((e,i)=>{
       const totalIn=e.input+e.cacheRead+e.cacheCreate;
       const cacheMark=e.cacheRead>0?'<span style="color:var(--green)">HIT</span>':e.cacheCreate>0?'<span style="color:var(--amber)">MISS (wrote cache)</span>':'<span style="color:var(--red)">NO CACHE</span>';
-      const sysBreakdown=(e.sysBlocks||[]).map((b,bi)=>`#${bi}:${b.estTokens}t${b.hasCacheControl?'✓':''}${b.estTokens<1024&&b.hasCacheControl?'<span style="color:var(--red)">⚠</span>':''}`).join(' · ');
+      // ⚠ must reflect the CUMULATIVE prefix at this breakpoint, not the block alone: prompt
+      // caching caches the whole prefix up to a cache_control block, and the 1024-token minimum
+      // applies to that prefix. A small block riding on a big prefix (e.g. the generator's static
+      // TOS/voice block after the ~8k persona) DOES cache. Only warn when the cumulative prefix
+      // through this breakpoint is still under 1024.
+      let _cumTok=0;
+      const sysBreakdown=(e.sysBlocks||[]).map((b,bi)=>{_cumTok+=b.estTokens;return `#${bi}:${b.estTokens}t${b.hasCacheControl?'✓':''}${b.hasCacheControl&&_cumTok<1024?'<span style="color:var(--red)">⚠</span>':''}`;}).join(' · ');
       const modelTag='<span style="opacity:0.6">sonnet</span>';
       return `<tr style="border-top:1px solid var(--border)">
         <td style="padding:6px 8px;font-family:monospace;font-size:11px">${i===0?'<b style="color:var(--blue2)">latest</b>':'#'+(log.length-i)}</td>
@@ -150,7 +240,7 @@ window.openCostDiagnostic=function(){
           <div><b>Cache hit:</b> <span style="color:${hitPct>=70?'var(--green)':hitPct>=40?'var(--amber)':'var(--red)'}">${hitPct}%</span></div>
         </div>
         <div style="font-size:10px;color:var(--text3);margin-bottom:8px">
-          <b>Legend:</b> r = regular input · cR = cache_read · cW = cache_create · sys block ✓ = has cache_control · ⚠ = under 1024-token cache minimum (won't cache).
+          <b>Legend:</b> r = regular input · cR = cache_read · cW = cache_create · sys block ✓ = has cache_control · ⚠ = cumulative prefix through this breakpoint under the 1024-token cache minimum (this breakpoint won't cache).
         </div>
         <div style="overflow:auto;max-height:50vh;border:1px solid var(--border);border-radius:4px">
           <table style="width:100%;border-collapse:collapse;font-size:11px">

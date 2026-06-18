@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+**/.DS_Store
+# logs / scratch
+*.log
+
+# Claude Code local (per-user) settings — not project code
+.claude/settings.local.json

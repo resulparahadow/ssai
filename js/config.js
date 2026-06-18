@@ -2,7 +2,7 @@
 // HTML head is set to the same value at build time, but if it ever drifts
 // (e.g. sed-replace targets the wrong string), this auto-fixes it on load
 // so the tab title is always the actual code version.
-const SSAI_VERSION='0.4.3.1';
+const SSAI_VERSION='0.4.4.7';
 try{document.title='SmartStarsAI v'+SSAI_VERSION;}catch(e){}
 try{const bv=document.getElementById('brandVersion');if(bv)bv.textContent='v'+SSAI_VERSION;}catch(e){}
 // v0.3.0.38: also surface version in topbar so chatters can confirm which build they're on

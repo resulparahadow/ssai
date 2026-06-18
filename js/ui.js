@@ -142,7 +142,24 @@ function fmtMsgForAI(m,opts){
     return ts+'[PPV SENT '+price+' — unopened'+capPart+']';
   }
   const label=m.sender==='customer'?customerLabel:modelName.toUpperCase();
-  return ts+label+': '+m.text;
+  // v0.4.1.4: message-type tags (feedback items #1, #3, #4)
+  // Outgoing model tags: VN/Mass/FreeMedia — context for the brain about how previous
+  // messages were delivered. Incoming customer tags: tip — buying signal even without PPV.
+  let tagsSuffix='';
+  if(m.tags){
+    const tagBits=[];
+    if(m.tags.vn) tagBits.push('VN');
+    if(m.tags.mass) tagBits.push('MASS-MSG');
+    // v0.4.4.0 Finding #6: surface the media DESCRIPTION so the brain reacts to what was
+    // actually sent, not just that media exists. e.g. [FREE-MEDIA: topless mirror selfie].
+    if(m.tags.freeMedia) tagBits.push('FREE-MEDIA'+(m.tags.mediaDescription?': '+m.tags.mediaDescription:''));
+    if(m.tags.customerMedia) tagBits.push('CAME-WITH-MEDIA'+(m.tags.mediaDescription?': '+m.tags.mediaDescription:''));
+    if(m.tags.tip){
+      tagBits.push(typeof m.tags.tipAmount==='number'?('TIPPED $'+m.tags.tipAmount):'TIPPED');
+    }
+    if(tagBits.length>0) tagsSuffix=' ['+tagBits.join(' · ')+']';
+  }
+  return ts+label+tagsSuffix+': '+m.text;
 }
 
 // Array-level formatter: computes inline gap prefix between consecutive
