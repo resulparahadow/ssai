@@ -15,6 +15,8 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
+  if (!OF_KEY) return json({ error: "proxy misconfigured: ONLYFANS_API_KEY unset" }, 500);
+
   const token = req.headers.get("x-ssai-token") || "";
   if (!token.startsWith("ssai_")) return json({ error: "missing/invalid proxy token" }, 401);
 
@@ -46,6 +48,7 @@ Deno.serve(async (req) => {
     if (!message || typeof message.text !== "string" || !message.text.trim()) {
       return json({ error: "non-empty text required" }, 400);
     }
+    if (Number(message.price) > 0) return json({ error: "PPV/paid send is disabled in v1 (text only)" }, 400);
     url = `${OF_BASE}/${account_id}/chats/${chat_id}/messages`;
     method = "POST";
     fwdBody = JSON.stringify({ text: message.text });
