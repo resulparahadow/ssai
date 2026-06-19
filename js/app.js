@@ -2846,13 +2846,45 @@ function acceptDraft(){
       creator_model:s.creator_model,
       customer_username:s.customer_username,
       input_messages:JSON.stringify(s.messages),
+      sender:'model',
       agent_note:'ACCEPTED',
       response_text:acceptedDraft,
       api_used:api,
       was_sent:true
     }).then(()=>{}).catch(e=>console.warn('accepted msg log failed:',e.message));
   }
+  // OF auto-send (text only). Fire-and-forget; failures surface a toast + send_failed.
+  maybeSendToOnlyFans(s, acceptedDraft);
   toast('Accepted','s');
+}
+
+// Auto-send an accepted TEXT reply to OnlyFans. No-op unless the creator is
+// connected and the session has of_chat_id. Final ToS gate runs here.
+async function maybeSendToOnlyFans(s, acceptedText){
+  try{
+    const model=models.find(m=>m.name===s.creator_model);
+    if(!ofShouldAutoSend(s,model||{})) return;
+    if(!ofIsAuthorized(window.currentChatter,s.creator_model)) return;
+    // Final safety gate on the exact approved bytes — one banned term = ban.
+    if(!acceptedText||!acceptedText.trim()){return;}
+    const banned=(typeof scanForBanned==='function')?scanForBanned(acceptedText):{hit:false};
+    if(banned&&banned.hit){toast('Auto-send blocked: banned term in message — send manually after editing','e');return;}
+    const res=await ofSend(model.of_account_id,s.of_chat_id,acceptedText);
+    const ofId=res&&res.data&&res.data.id!=null?String(res.data.id):null;
+    if(sb&&ofId){
+      // Tag the just-inserted model row so the messages.sent echo dedupes.
+      await sb.from('aich_messages')
+        .update({of_message_id:ofId,send_state:'sent'})
+        .eq('session_id',s.id).eq('sender','model').is('of_message_id',null)
+        .order('created_at',{ascending:false}).limit(1);
+    }
+    toast('Sent to OnlyFans','s');
+  }catch(e){
+    if(sb){await sb.from('aich_messages').update({send_state:'send_failed'})
+      .eq('session_id',s.id).eq('sender','model').is('of_message_id',null)
+      .order('created_at',{ascending:false}).limit(1);}
+    toast('OnlyFans send failed — send manually. ('+e.message+')','e');
+  }
 }
 
 function rejectDraft(){
