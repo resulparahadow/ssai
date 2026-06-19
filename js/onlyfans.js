@@ -103,7 +103,7 @@ async function ofSyncCreator(accountId,creatorModel){
   const chats=(chatsRes&&chatsRes.data)||[];
   let inserted=0;
   for(const chat of chats){
-    const chatId=String(chat.id??chat.withUser?.id??'');
+    const chatId=String(chat.withUser?.id??chat.id??'');
     if(!chatId) continue;
     const sk=ofSessionKey(creatorModel,chatId);
     // find-or-create session
