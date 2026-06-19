@@ -34,7 +34,7 @@ const load=(f)=>{ try{ vm.runInContext(fs.readFileSync(`${ROOT}/js/${f}`,'utf8')
 // availability check
 const need=['computePosture','recomputePosture','computeCustomerTier','computeWallState','computeLadderState',
  'capTrustBySpend','parseMoney','effectiveSessionSpend','effectiveLifetimeSpend','detectContinuedInterest',
- 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked','ofHtmlStripToText','ofNormalizeMessage','ofResolveCreator','ofSessionKey'];
+ 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked','ofHtmlStripToText','ofNormalizeMessage','ofResolveCreator','ofSessionKey','ofBuildSendBody','ofShouldAutoSend','ofIsAuthorized'];
 const missing=need.filter(n=>typeof sandbox[n]!=='function');
 console.log('Functions loaded:',need.length-missing.length,'/',need.length, missing.length?('— MISSING: '+missing.join(', ')):'');
 const F={}; need.forEach(n=>F[n]=sandbox[n]);
@@ -514,6 +514,15 @@ T('resolveCreator finds match',F.ofResolveCreator([{name:'Cielo',of_account_id:'
 T('resolveCreator unmapped → null',F.ofResolveCreator([{name:'Cielo',of_account_id:'acct_A'}],'acct_ZZZ'),null);
 T('resolveCreator ignores null of_account_id',F.ofResolveCreator([{name:'X',of_account_id:null}],'acct_A'),null);
 T('sessionKey shape',F.ofSessionKey('Cielo',12345),x=>x.creator_model==='Cielo'&&x.of_chat_id==='12345');
+T('buildSendBody text only',F.ofBuildSendBody('hi there'),x=>x.text==='hi there'&&x.price===undefined);
+T('shouldAutoSend happy path',F.ofShouldAutoSend({of_chat_id:'123',_draftIsPpv:false},{of_account_id:'acct_A'}),true);
+T('shouldAutoSend no of_chat_id → false',F.ofShouldAutoSend({of_chat_id:null,_draftIsPpv:false},{of_account_id:'acct_A'}),false);
+T('shouldAutoSend creator not connected → false',F.ofShouldAutoSend({of_chat_id:'123',_draftIsPpv:false},{of_account_id:null}),false);
+T('shouldAutoSend PPV draft → false',F.ofShouldAutoSend({of_chat_id:'123',_draftIsPpv:true},{of_account_id:'acct_A'}),false);
+T('authz manager → true',F.ofIsAuthorized({role:'manager'},'Cielo'),true);
+T('authz assigned chatter → true',F.ofIsAuthorized({role:'chatter',assignments:['Cielo','Jammy']},'Cielo'),true);
+T('authz unassigned chatter → false',F.ofIsAuthorized({role:'chatter',assignments:['Jammy']},'Cielo'),false);
+T('authz null chatter → false',F.ofIsAuthorized(null,'Cielo'),false);
 
 console.log('\n════════ RESULT ════════');
 console.log(`PASS ${pass} / FAIL ${fail} (${pass+fail} assertions)`);
