@@ -34,7 +34,7 @@ const load=(f)=>{ try{ vm.runInContext(fs.readFileSync(`${ROOT}/js/${f}`,'utf8')
 // availability check
 const need=['computePosture','recomputePosture','computeCustomerTier','computeWallState','computeLadderState',
  'capTrustBySpend','parseMoney','effectiveSessionSpend','effectiveLifetimeSpend','detectContinuedInterest',
- 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked'];
+ 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked','ofHtmlStripToText','ofNormalizeMessage','ofResolveCreator','ofSessionKey'];
 const missing=need.filter(n=>typeof sandbox[n]!=='function');
 console.log('Functions loaded:',need.length-missing.length,'/',need.length, missing.length?('— MISSING: '+missing.join(', ')):'');
 const F={}; need.forEach(n=>F[n]=sandbox[n]);
@@ -501,6 +501,19 @@ console.log('══ V. EMOJI NO-REPEAT BACKSTOP (v0.4.4.5 — live audit fix) �
   T('only looks back 2 msgs (😏 3 ago is allowed)',de("hi 😏",["a 😏","b 😌","c 🥰"]),"hi 😏");
   T('no space-before-punct artifact after strip',de("really 😏?",["hm 😏"]),"really?");
   T('empty stays empty',de("",["😏"]),""); }
+
+console.log('══ W. ONLYFANS INTEGRATION ══');
+T('htmlStrip removes <p>',F.ofHtmlStripToText('<p>hello babe</p>'),'hello babe');
+T('htmlStrip decodes entities',F.ofHtmlStripToText('<p>you &amp; me &lt;3</p>'),'you & me <3');
+T('htmlStrip neutralizes script',F.ofHtmlStripToText('<script>alert(1)</script>hi'),'alert(1)hi');
+T('htmlStrip collapses whitespace',F.ofHtmlStripToText('<p>a</p>\n  <p>b</p>'),'a b');
+T('htmlStrip empty',F.ofHtmlStripToText(''),'');
+T('normalize maps fields',F.ofNormalizeMessage({id:'of_99',text:'<p>hey</p>',createdAt:'2025-05-16T00:27:25+00:00'},'customer'),
+  x=>x.sender==='customer'&&x.text==='hey'&&x.of_message_id==='of_99'&&x.ts_iso==='2025-05-16T00:27:25+00:00');
+T('resolveCreator finds match',F.ofResolveCreator([{name:'Cielo',of_account_id:'acct_A'},{name:'Jammy',of_account_id:'acct_B'}],'acct_B'),'Jammy');
+T('resolveCreator unmapped → null',F.ofResolveCreator([{name:'Cielo',of_account_id:'acct_A'}],'acct_ZZZ'),null);
+T('resolveCreator ignores null of_account_id',F.ofResolveCreator([{name:'X',of_account_id:null}],'acct_A'),null);
+T('sessionKey shape',F.ofSessionKey('Cielo',12345),x=>x.creator_model==='Cielo'&&x.of_chat_id==='12345');
 
 console.log('\n════════ RESULT ════════');
 console.log(`PASS ${pass} / FAIL ${fail} (${pass+fail} assertions)`);
