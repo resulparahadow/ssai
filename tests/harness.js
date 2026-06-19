@@ -29,12 +29,12 @@ vm.createContext(sandbox);
 
 const load=(f)=>{ try{ vm.runInContext(fs.readFileSync(`${ROOT}/js/${f}`,'utf8'),sandbox,{filename:f}); return true; }
   catch(e){ console.log(`  [load ${f}] threw at top level: ${e.message} (functions defined before the throw still usable)`); return false; } };
-['config.js','doctrine.js','ui.js','app.js'].forEach(f=>load(f));
+['config.js','doctrine.js','ui.js','app.js','onlyfans.js'].forEach(f=>load(f));
 
 // availability check
 const need=['computePosture','recomputePosture','computeCustomerTier','computeWallState','computeLadderState',
  'capTrustBySpend','parseMoney','effectiveSessionSpend','effectiveLifetimeSpend','detectContinuedInterest',
- 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji'];
+ 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked'];
 const missing=need.filter(n=>typeof sandbox[n]!=='function');
 console.log('Functions loaded:',need.length-missing.length,'/',need.length, missing.length?('— MISSING: '+missing.join(', ')):'');
 const F={}; need.forEach(n=>F[n]=sandbox[n]);
