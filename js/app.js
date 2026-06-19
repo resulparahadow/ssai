@@ -2859,7 +2859,8 @@ function acceptDraft(){
       })
       .catch(e=>console.warn('accept insert failed:',e.message));
   } else {
-    // No sb — still attempt OF send (fire-and-forget, no DB write-back possible)
+    // No sb — rowId will be null; maybeSendToOnlyFans guards on rowId and will
+    // toast the chatter to send manually rather than firing an untrackable send.
     maybeSendToOnlyFans(s, acceptedDraft, null);
   }
   toast('Accepted','s');
@@ -2869,6 +2870,12 @@ function acceptDraft(){
 // connected and the session has of_chat_id. Final ToS gate runs here.
 async function maybeSendToOnlyFans(s, acceptedText, rowId){
   try{
+    // Finding 1 guard: if the local aich_messages row was never inserted (no sb, or
+    // insert error), rowId is null. Sending without a row means we cannot write the
+    // of_message_id back, so the next sync would re-import the message as a duplicate
+    // (the NULL of_message_id row has no unique-conflict to block it). Fail toward
+    // manual rather than silent duplicate.
+    if(!rowId){toast('Could not record message locally — send this one manually on OnlyFans','e');return;}
     const model=models.find(m=>m.name===s.creator_model);
     if(!ofShouldAutoSend(s,model||{})) return;
     if(!ofIsAuthorized(window.currentChatter,s.creator_model)) return;
@@ -8665,6 +8672,12 @@ function installOfRealtime(){
             const cm=document.getElementById('chatMsgs');
             if(cm) cm.innerHTML=renderBubbles();
             scrollChat();
+            // Finding 2 fix: the session loader hydrates s.messages ONLY from messages_input
+            // (aich_sessions blob, line ~1714). Without persisting here the new inbound message
+            // is lost on any reload, and posture never sees the new customer reply.
+            if(sb) sb.from('aich_sessions').update({messages_input:JSON.stringify(s.messages)}).eq('id',s.id).then(()=>{});
+            if(typeof recomputePosture==='function') recomputePosture(s);
+            if(typeof updatePostureChip==='function') updatePostureChip();
           }
         }
       }catch(e){console.warn('of realtime render failed:',e.message);}

@@ -20,3 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_aich_models_of_account_id
 -- Session routing lookup (acct + fan -> session) for the webhook find-or-create.
 CREATE INDEX IF NOT EXISTS idx_aich_sessions_of_chat_id
   ON aich_sessions (creator_model, of_chat_id) WHERE of_chat_id IS NOT NULL;
+
+-- Prevent duplicate sessions for the same fan under concurrent webhook deliveries (TOCTOU).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_aich_sessions_creator_of_chat
+  ON aich_sessions (creator_model, of_chat_id) WHERE of_chat_id IS NOT NULL;
