@@ -7676,6 +7676,11 @@ function renderModelCards(){
         <textarea class="mc-textarea mc-library" id="ml_${i}" placeholder="Tier 1 ($10-15): lingerie tease, shower tease, light topless&#10;Tier 2 ($20-40): topless variety, ass, dance&#10;Tier 3 ($50-150): fully nude&#10;Tier 4 ($200+): masturbation&#10;&#10;NOT AVAILABLE: squirt, anal, feet focus, BG, group">${esc(m.content_library||'')}</textarea>
       </div>
 
+      <div class="mc-section">
+        <label class="mc-label">OnlyFans Account ID <span class="mc-hint">(acct_… from OnlyFansAPI; leave blank to keep this creator fully manual)</span></label>
+        <input class="fi" id="mofa_${i}" value="${esc(m.of_account_id||'')}" placeholder="acct_XXXXXXXXXXXXXXX">
+      </div>
+
       ${m.feedback_rules?`<div class="mc-section mc-learned">
         <label class="mc-label mc-label-green">Learned Rules <span class="mc-hint">accumulated from approved rejections — edit to resolve contradictions, one rule per line</span></label>
         <textarea class="mc-textarea" id="mfr_${i}" rows="6" style="font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5">${esc(m.feedback_rules)}</textarea>
@@ -7691,14 +7696,15 @@ async function saveModel(i){
   models[i].tier=document.getElementById(`mt_${i}`).value;
   models[i].prompt=document.getElementById(`mp_${i}`).value;
   models[i].content_library=document.getElementById(`ml_${i}`).value;
+  models[i].of_account_id=(document.getElementById(`mofa_${i}`)?.value||'').trim()||null;
   // v0.3.0.27_2: Haiku A/B removed. Clear any leftover strategy_model preference.
   delete models[i].strategy_model;
   try{ localStorage.removeItem('ss_strategy_model_map'); }catch(e){}
   if(sb){
     if(models[i].id&&!String(models[i].id).startsWith('new_')){
-      await sb.from('aich_models').update({tier:models[i].tier,prompt:models[i].prompt,content_library:models[i].content_library}).eq('id',models[i].id);
+      await sb.from('aich_models').update({tier:models[i].tier,prompt:models[i].prompt,content_library:models[i].content_library,of_account_id:models[i].of_account_id}).eq('id',models[i].id);
     } else {
-      const{data}=await sb.from('aich_models').upsert({name:models[i].name,tier:models[i].tier,prompt:models[i].prompt,content_library:models[i].content_library},{onConflict:'name'}).select().single();
+      const{data}=await sb.from('aich_models').upsert({name:models[i].name,tier:models[i].tier,prompt:models[i].prompt,content_library:models[i].content_library,of_account_id:models[i].of_account_id},{onConflict:'name'}).select().single();
       if(data) models[i].id=data.id;
     }
   }
