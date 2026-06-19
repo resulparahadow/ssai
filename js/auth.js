@@ -177,6 +177,7 @@ async function doLogin(){
     }
     window.currentChatter = chatter;
     installChatterIdAutoInject();
+    if(typeof installOfRealtime==='function') installOfRealtime();
     hideLogin();
     renderChatterBadge();
     document.getElementById('authPassword').value = '';
@@ -219,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         window.currentChatter = chatter;
         installChatterIdAutoInject();
+        if(typeof installOfRealtime==='function') installOfRealtime();
         hideLogin();
         renderChatterBadge();
         await init();
@@ -290,6 +292,7 @@ async function savePasswordChange(){
     window.currentChatter = pending;
     window._pendingChatter = null;
     installChatterIdAutoInject();
+    if(typeof installOfRealtime==='function') installOfRealtime();
     document.getElementById('pwChangeOverlay').style.display = 'none';
     hideLogin();
     renderChatterBadge();

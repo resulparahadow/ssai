@@ -2206,7 +2206,8 @@ function renderSession(){
         ${ro?'<span style="font-size:10px;color:var(--text3);font-style:italic">archived · read-only</span>':`
         <button class="btn sm" onclick="clearMsgs()" style="color:var(--text3)">Clear</button>
         <button class="btn sm" onclick="toggleFlag()" id="flagBtn" style="color:${s.is_flagged?'var(--red)':'var(--text3)'}">${s.is_flagged?'Unflag':'Flag'}</button>
-        <button class="btn sm ${s._customerTier==='flagged_tw'?'success':'danger'}" onclick="toggleTimewasterFlag()" id="twToggleBtn" title="${s._customerTier==='flagged_tw'?'Customer is currently flagged TW · click to unmark':'Mark as timewaster · future sessions start on tight thresholds'}">${s._customerTier==='flagged_tw'?'✅ Unmark TW':'🚩 Mark TW'}</button>`}
+        <button class="btn sm ${s._customerTier==='flagged_tw'?'success':'danger'}" onclick="toggleTimewasterFlag()" id="twToggleBtn" title="${s._customerTier==='flagged_tw'?'Customer is currently flagged TW · click to unmark':'Mark as timewaster · future sessions start on tight thresholds'}">${s._customerTier==='flagged_tw'?'✅ Unmark TW':'🚩 Mark TW'}</button>
+        ${(()=>{const _m=(typeof models!=='undefined')&&models.find(m=>m.name===s.creator_model);return _m&&_m.of_account_id?'<button class="btn sm" id="ofSyncBtn" onclick="onOfSyncClick()" title="Pull messages from OnlyFans for this creator">Sync from OnlyFans</button>':'';})()} `}
       </div>
       ${ro?'':`<div class="mode-tabs">
         <div class="mode-tab on" id="tab_chat" onclick="setMode('chat')">Chat Builder</div>
@@ -7328,7 +7329,7 @@ async function createSession(){
   // v0.3.0.38: spend fields must coerce to numeric (DB column is numeric, not text).
   // Strips $, commas, whitespace; non-numeric input becomes 0.
   const parseSpend=(v)=>{const n=parseFloat((v||'').toString().replace(/[$,\s]/g,''));return isNaN(n)?0:n;};
-  const d={creator_model:model,customer_name:displayName,customer_username:profileKey,crm_notes:document.getElementById('ns_notes').value.trim(),total_spend:parseSpend(document.getElementById('ns_spend').value),tips_spend:parseSpend(document.getElementById('ns_tips').value),time_on_page:document.getElementById('ns_time').value.trim(),subscription_status:document.getElementById('ns_status').value,agent_note:'',status:'active',is_flagged:false,last_active_at:new Date().toISOString(),messages_input:'[]',free_msg_count:0,unpaid_cta_count:0,current_posture:'WARM_BUILD',story_framework_step:0,promise_status:'not_started',chatter_id:window.currentChatter?.id||null};
+  const d={creator_model:model,customer_name:displayName,customer_username:profileKey,crm_notes:document.getElementById('ns_notes').value.trim(),total_spend:parseSpend(document.getElementById('ns_spend').value),tips_spend:parseSpend(document.getElementById('ns_tips').value),time_on_page:document.getElementById('ns_time').value.trim(),subscription_status:document.getElementById('ns_status').value,of_chat_id:(document.getElementById('ns_of_chat_id')?.value||'').trim()||null,agent_note:'',status:'active',is_flagged:false,last_active_at:new Date().toISOString(),messages_input:'[]',free_msg_count:0,unpaid_cta_count:0,current_posture:'WARM_BUILD',story_framework_step:0,promise_status:'not_started',chatter_id:window.currentChatter?.id||null};
   let id='local_'+Date.now();
   if(sb){const{data,error}=await sb.from('aich_sessions').insert(d).select().single();if(!error&&data) id=data.id;}
   sessions[id]={...d,id,messages:[],draft:null,vn_used:[],inputMode:'chat',_freeMsgCount:0,_unpaidCtaCount:0,_posture:'WARM_BUILD',_customerTier:'new',_pendingCtaCheck:null,_sessionLength:0,_storyFrameworkStep:0,_promiseStatus:'not_started',_sessionClosedAt:null,_sessionClosedAtMsgCount:null,_nextPlannedMove:null,_nextPlannedMoveAtMsg:null};
@@ -8579,6 +8580,49 @@ function closeOcrPreviewModal(){
   const bg=document.getElementById('ocrPreviewBg');
   if(bg) bg.remove();
   window._pendingOcrMessages=null;
+}
+
+// ── ONLYFANS SYNC + REALTIME ──────────────────────────────────
+async function onOfSyncClick(){
+  const s=sessions[activeId]; if(!s) return;
+  const model=models.find(m=>m.name===s.creator_model);
+  if(!model||!model.of_account_id){toast('Creator has no OnlyFans account connected','e');return;}
+  if(!ofIsAuthorized(window.currentChatter,s.creator_model)){toast('Not authorized for this creator','e');return;}
+  toast('Syncing from OnlyFans…','i');
+  try{
+    const r=await ofSyncCreator(model.of_account_id,s.creator_model);
+    toast(`Synced ${r.chats} chats, ${r.inserted} new messages`,'s');
+    // Reload messages for active session from DB and re-render
+    if(sb&&activeId){
+      const{data:rows}=await sb.from('aich_messages').select('*').eq('session_id',activeId).order('created_at',{ascending:true});
+      if(rows&&s){
+        s.messages=(rows||[]).map(r=>({sender:r.sender,text:r.text,of_message_id:r.of_message_id,ts_iso:r.created_at}));
+        const cm=document.getElementById('chatMsgs');
+        if(cm) cm.innerHTML=renderBubbles();
+        scrollChat();
+      }
+    }
+  }catch(e){ toast('Sync failed: '+e.message,'e'); }
+}
+
+function installOfRealtime(){
+  if(!sb||window._ofRealtime) return;
+  window._ofRealtime=sb.channel('of_inbound')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'aich_messages'},(payload)=>{
+      try{
+        const row=payload.new; if(!row||row.sender!=='customer') return;
+        const s=Object.values(sessions).find(x=>x.id===row.session_id);
+        if(s&&activeId===s.id){
+          if(!(s.messages||[]).some(m=>m.of_message_id&&m.of_message_id===row.of_message_id)){
+            s.messages=s.messages||[];
+            s.messages.push({sender:'customer',text:row.text,ts_iso:row.created_at,of_message_id:row.of_message_id});
+            const cm=document.getElementById('chatMsgs');
+            if(cm) cm.innerHTML=renderBubbles();
+            scrollChat();
+          }
+        }
+      }catch(e){console.warn('of realtime render failed:',e.message);}
+    }).subscribe();
 }
 
 function confirmOcrImport(){

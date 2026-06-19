@@ -95,3 +95,43 @@ async function ofPull(accountId,op,chatId){
 async function ofSend(accountId,chatId,text){
   return _ofProxy({op:'send',account_id:accountId,chat_id:chatId,message:ofBuildSendBody(text)});
 }
+
+// Pull a creator's chats + messages and upsert them into aich_messages.
+// Returns {chats, inserted}. Server-side webhook handles live; this is backfill/recovery.
+async function ofSyncCreator(accountId,creatorModel){
+  const chatsRes=await ofPull(accountId,'list_chats');
+  const chats=(chatsRes&&chatsRes.data)||[];
+  let inserted=0;
+  for(const chat of chats){
+    const chatId=String(chat.id??chat.withUser?.id??'');
+    if(!chatId) continue;
+    const sk=ofSessionKey(creatorModel,chatId);
+    // find-or-create session
+    let{data:sess}=await sb.from('aich_sessions').select('id')
+      .eq('creator_model',creatorModel).eq('of_chat_id',sk.of_chat_id).maybeSingle();
+    if(!sess){
+      const{data:created}=await sb.from('aich_sessions').insert({
+        creator_model:creatorModel,
+        customer_name:chat.withUser?.name||chat.withUser?.username||chatId,
+        customer_username:chat.withUser?.username||('of_'+chatId),
+        of_chat_id:sk.of_chat_id,status:'active',current_posture:'WARM_BUILD',
+        last_active_at:new Date().toISOString()
+      }).select('id').single();
+      sess=created;
+    }
+    if(!sess) continue;
+    const msgsRes=await ofPull(accountId,'list_messages',chatId);
+    const msgs=(msgsRes&&msgsRes.data)||[];
+    for(const raw of msgs){
+      const sender=raw.fromUser&&String(raw.fromUser.id)===chatId?'customer':'model';
+      const n=ofNormalizeMessage(raw,sender);
+      if(!n.of_message_id) continue;
+      const{error}=await sb.from('aich_messages').upsert({
+        session_id:sess.id,sender:n.sender,text:n.text,
+        of_message_id:n.of_message_id,created_at:n.ts_iso
+      },{onConflict:'of_message_id',ignoreDuplicates:true});
+      if(!error) inserted++;
+    }
+  }
+  return {chats:chats.length,inserted};
+}
