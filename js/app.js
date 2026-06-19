@@ -2841,6 +2841,7 @@ function acceptDraft(){
       current_posture:s._posture||'WARM_BUILD'
     }).eq('id',activeId).then(()=>{});
     // v0.4.1.4: log accepted draft to aich_messages so leaderboard math is correct
+    // v0.4.4.8: capture inserted row id so OF write-back targets the exact row
     sb.from('aich_messages').insert({
       session_id:activeId,
       creator_model:s.creator_model,
@@ -2851,16 +2852,22 @@ function acceptDraft(){
       response_text:acceptedDraft,
       api_used:api,
       was_sent:true
-    }).then(()=>{}).catch(e=>console.warn('accepted msg log failed:',e.message));
+    }).select('id').single()
+      .then(({data,error})=>{
+        if(error) console.warn('accepted msg log failed:',error.message);
+        maybeSendToOnlyFans(s, acceptedDraft, data&&!error?data.id:null);
+      })
+      .catch(e=>console.warn('accept insert failed:',e.message));
+  } else {
+    // No sb — still attempt OF send (fire-and-forget, no DB write-back possible)
+    maybeSendToOnlyFans(s, acceptedDraft, null);
   }
-  // OF auto-send (text only). Fire-and-forget; failures surface a toast + send_failed.
-  maybeSendToOnlyFans(s, acceptedDraft);
   toast('Accepted','s');
 }
 
 // Auto-send an accepted TEXT reply to OnlyFans. No-op unless the creator is
 // connected and the session has of_chat_id. Final ToS gate runs here.
-async function maybeSendToOnlyFans(s, acceptedText){
+async function maybeSendToOnlyFans(s, acceptedText, rowId){
   try{
     const model=models.find(m=>m.name===s.creator_model);
     if(!ofShouldAutoSend(s,model||{})) return;
@@ -2871,18 +2878,18 @@ async function maybeSendToOnlyFans(s, acceptedText){
     if(banned&&banned.hit){toast('Auto-send blocked: banned term in message — send manually after editing','e');return;}
     const res=await ofSend(model.of_account_id,s.of_chat_id,acceptedText);
     const ofId=res&&res.data&&res.data.id!=null?String(res.data.id):null;
-    if(sb&&ofId){
-      // Tag the just-inserted model row so the messages.sent echo dedupes.
+    if(sb&&ofId&&rowId){
+      // Tag the exact inserted row by id so the messages.sent echo dedupes.
       await sb.from('aich_messages')
         .update({of_message_id:ofId,send_state:'sent'})
-        .eq('session_id',s.id).eq('sender','model').is('of_message_id',null)
-        .order('created_at',{ascending:false}).limit(1);
+        .eq('id',rowId);
     }
     toast('Sent to OnlyFans','s');
   }catch(e){
-    if(sb){await sb.from('aich_messages').update({send_state:'send_failed'})
-      .eq('session_id',s.id).eq('sender','model').is('of_message_id',null)
-      .order('created_at',{ascending:false}).limit(1);}
+    if(sb&&rowId){
+      await sb.from('aich_messages').update({send_state:'send_failed'})
+        .eq('id',rowId);
+    }
     toast('OnlyFans send failed — send manually. ('+e.message+')','e');
   }
 }
