@@ -5418,6 +5418,13 @@ function confirmPpvSend(){
   // Next expected msg is the customer's reaction
   setSender('customer');
   toast(`PPV sent at $${price} — click bubble when unlocked`,'s');
+  try{
+    const _s=sessions[activeId];
+    const _m=_s&&models.find(m=>m.name===_s.creator_model);
+    if(_m&&_m.of_account_id){
+      toast('PPV recorded — attach media + send this PPV manually on OnlyFans (auto-send is text-only in v1)','i');
+    }
+  }catch(e){}
   // Persist messages array + promise status
   if(sb) sb.from('aich_sessions').update({
     messages_input:JSON.stringify(s.messages),
