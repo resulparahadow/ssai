@@ -27,6 +27,8 @@ const CK_DEFAULT='';
 const PROXY_URL='https://atzuqzdgqqcrcwthshfs.supabase.co/functions/v1/anthropic-proxy';
 // v0.3.0.38: same proxy pattern for Mistral via OpenRouter.
 const MISTRAL_PROXY_URL='https://atzuqzdgqqcrcwthshfs.supabase.co/functions/v1/mistral-proxy';
+// Same pattern for OnlyFans API via onlyfans-proxy Edge Function.
+const ONLYFANS_PROXY_URL='https://atzuqzdgqqcrcwthshfs.supabase.co/functions/v1/onlyfans-proxy';
 function useProxy(){
   // Default ON. Only OFF if explicitly set to the string 'false'.
   return localStorage.getItem('ss_use_proxy')!=='false';

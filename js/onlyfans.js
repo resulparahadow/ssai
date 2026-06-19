@@ -66,3 +66,32 @@ function ofIsAuthorized(chatter,creatorModel){
   if(chatter.role==='manager') return true;
   return Array.isArray(chatter.assignments)&&chatter.assignments.includes(creatorModel);
 }
+
+// Low-level proxy call. All OF traffic goes through onlyfans-proxy with the
+// per-chatter ssai_* token (same contract as callApi). The OF API key never
+// leaves the server.
+async function _ofProxy(payload){
+  const tk=getProxyToken();
+  if(!tk) throw new Error('Proxy token missing — contact your manager');
+  const r=await fetch(ONLYFANS_PROXY_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-ssai-token':tk},
+    body:JSON.stringify(payload)
+  });
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||d.error){
+    throw new Error('OnlyFans proxy error '+r.status+': '+(d.error||r.statusText||'unknown'));
+  }
+  return d;
+}
+
+// Pull chats or a chat's messages for a connected account.
+async function ofPull(accountId,op,chatId){
+  if(op!=='list_chats'&&op!=='list_messages') throw new Error('ofPull: bad op '+op);
+  return _ofProxy({op:op,account_id:accountId,chat_id:chatId});
+}
+
+// Send a TEXT reply. Blocks PPV client-side (server rejects it too).
+async function ofSend(accountId,chatId,text){
+  return _ofProxy({op:'send',account_id:accountId,chat_id:chatId,message:ofBuildSendBody(text)});
+}
