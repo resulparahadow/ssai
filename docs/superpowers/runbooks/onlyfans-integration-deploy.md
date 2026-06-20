@@ -19,3 +19,9 @@ Clear a creator's `of_account_id` (`UPDATE aich_models SET of_account_id=NULL WH
 - Inbound gaps: re-run "Sync from OnlyFans".
 - `SELECT send_state, count(*) FROM aich_messages WHERE send_state IS NOT NULL GROUP BY 1;`
 - `accounts.session_expired` (future event): reconnect the account in the OnlyFansAPI dashboard.
+
+## v2 chat loading (paginated + lazy)
+- Redeploy `onlyfans-proxy` (adds allowlisted pagination params): `supabase functions deploy onlyfans-proxy --no-verify-jwt`.
+- No DB migration (relies on the existing sender/text columns + non-partial of_message_id index).
+- UX: sidebar group "Load chats" loads a page of chat stubs; "Load more" pages forward; a chat's messages load when you open it.
+- First live "Load more": confirm the `_pagination` param (offset vs id) — the proxy allowlist already supports both.
