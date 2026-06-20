@@ -1774,7 +1774,7 @@ function renderSidebar(){
     return`<div class="model-group">
       <div class="mg-head" onclick="toggleGroup('${model}')">
         <span class="mg-name">${model}</span>
-        ${(models.find(m=>m.name===model)?.of_account_id)?`<button class="btn sm" title="Load this creator's OnlyFans chats into this group" onclick="event.stopPropagation();onOfLoadGroup('${model}')" style="font-size:10px;padding:1px 7px;margin-left:6px">Load chats</button>`:''}
+        ${(models.find(m=>m.name===model)?.of_account_id)?`<button class="btn sm" title="Load this creator's OnlyFans chats" onclick="event.stopPropagation();onOfLoadGroup('${model}')" style="font-size:10px;padding:1px 7px;margin-left:6px">Load chats</button>${(window._ofChatHasMore&&window._ofChatHasMore[model])?`<button class="btn sm" title="Load the next page of chats" onclick="event.stopPropagation();onOfLoadMore('${model}')" style="font-size:10px;padding:1px 7px;margin-left:4px">Load more ▸</button>`:''}`:''}
         <span class="mg-count">${gids.length}</span>
       </div>
       <div class="mg-sessions${collapsed[model]?' closed':''}">
@@ -8645,20 +8645,39 @@ function closeOcrPreviewModal(){
 
 // ── ONLYFANS SYNC + REALTIME ──────────────────────────────────
 // ── OF CHAT GROUP LOADER ──────────────────────────────────────
-// Sidebar group-header "Load chats" → pull ALL of this creator's OnlyFans chats
-// + their messages into sessions, then refresh the sidebar so they appear in the
-// group (each marked "OF" via of_chat_id / of_message_id). From there the existing
+// Sidebar group-header "Load chats" → paginated OnlyFans chat loader.
+// _ofLoadChatsPage handles one page; onOfLoadGroup resets cursor and loads page 1;
+// onOfLoadMore advances to the next page. From there the existing
 // generate → Accept → auto-send pipeline handles replies.
 async function onOfLoadGroup(modelName){
   const model=models.find(m=>m.name===modelName);
   if(!model||!model.of_account_id){toast('No OnlyFans account connected for '+modelName,'e');return;}
   if(!ofIsAuthorized(window.currentChatter,modelName)){toast('Not authorized for this creator','e');return;}
+  window._ofChatCursor=window._ofChatCursor||{};
+  window._ofChatCursor[modelName]=null; // fresh: start at page 1
+  await _ofLoadChatsPage(modelName, model.of_account_id);
+}
+
+async function onOfLoadMore(modelName){
+  const model=models.find(m=>m.name===modelName);
+  if(!model||!model.of_account_id) return;
+  if(!ofIsAuthorized(window.currentChatter,modelName)){toast('Not authorized for this creator','e');return;}
+  await _ofLoadChatsPage(modelName, model.of_account_id);
+}
+
+async function _ofLoadChatsPage(modelName, accountId){
   toast('Loading OnlyFans chats for '+modelName+'…','i');
   try{
-    const r=await ofSyncCreator(model.of_account_id,modelName);
-    await loadSessions();   // re-hydrate in-memory sessions (incl. the new OF chats)
-    renderSidebar();        // they now show in the group with the OF badge
-    toast(`${modelName}: ${r.chats} chats, ${r.created} new sessions, ${r.inserted} messages`,'s');
+    window._ofChatCursor=window._ofChatCursor||{};
+    window._ofChatHasMore=window._ofChatHasMore||{};
+    const cursor=window._ofChatCursor[modelName]||null;
+    const { chats, next }=await ofListChatsPage(accountId, cursor);
+    const r=await ofCreateSessionRows(modelName, chats);
+    window._ofChatCursor[modelName]=next;        // null when no more pages
+    window._ofChatHasMore[modelName]=!!next;
+    await loadSessions();   // hydrate in-memory sessions (incl. new stubs)
+    renderSidebar();        // stubs show in the group with the OF badge
+    toast(`${modelName}: +${chats.length} chats (${r.created} new)${next?' · more available':''}`,'s');
   }catch(e){ toast('Load failed: '+e.message,'e'); }
 }
 

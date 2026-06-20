@@ -134,59 +134,6 @@ function ofNeedsLoad(session){
   return !!(session && session.of_chat_id && !session.messages_input);
 }
 
-// Pull a creator's chats + messages and upsert them into aich_messages.
-// Returns {chats, inserted}. Server-side webhook handles live; this is backfill/recovery.
-async function ofSyncCreator(accountId,creatorModel){
-  const chatsRes=await ofPull(accountId,'list_chats');
-  const chats=(chatsRes&&chatsRes.data)||[];
-  if(chats.length) console.log('[ofSyncCreator] sample chat object:',chats[0]);
-  let inserted=0,createdCount=0;
-  for(const chat of chats){
-    // OnlyFansAPI chat object: the fan's user id is chat.fan.id (name/username under chat.fan).
-    const fan=chat.fan||chat.withUser||{};
-    const chatId=String(fan.id??'');
-    if(!chatId){ console.warn('[ofSyncCreator] skipped chat with no fan.id:',chat); continue; }
-    const sk=ofSessionKey(creatorModel,chatId);
-    // find-or-create session
-    let{data:sess}=await sb.from('aich_sessions').select('id')
-      .eq('creator_model',creatorModel).eq('of_chat_id',sk.of_chat_id).maybeSingle();
-    if(!sess){
-      const{data:created,error:insErr}=await sb.from('aich_sessions').insert({
-        creator_model:creatorModel,
-        customer_name:fan.name||fan.username||chatId,
-        customer_username:fan.username||('of_'+chatId),
-        of_chat_id:sk.of_chat_id,status:'active',current_posture:'WARM_BUILD',
-        last_active_at:new Date().toISOString()
-      }).select('id').single();
-      if(insErr) console.warn('[ofSyncCreator] session insert failed for fan '+chatId+':',insErr.message);
-      sess=created; if(created) createdCount++;
-    }
-    if(!sess) continue;
-    const msgsRes=await ofPull(accountId,'list_messages',chatId);
-    const raws=(msgsRes&&msgsRes.data)||[];
-    if(raws.length) console.log('[ofSyncCreator] sample message object (chat '+chatId+'):',raws[0]);
-    // Normalize + sort oldest→newest for display.
-    const norm=raws
-      .map(raw=>ofNormalizeMessage(raw,(raw.fromUser&&String(raw.fromUser.id)===chatId)?'customer':'model'))
-      .filter(m=>m.of_message_id)
-      .sort((a,b)=>String(a.ts_iso).localeCompare(String(b.ts_iso)));
-    for(const n of norm){
-      const{error}=await sb.from('aich_messages').upsert({
-        session_id:sess.id,sender:n.sender,text:n.text,
-        of_message_id:n.of_message_id,created_at:n.ts_iso
-      },{onConflict:'of_message_id',ignoreDuplicates:true});
-      if(!error) inserted++;
-    }
-    // Display source of truth — loadSessions() hydrates s.messages from messages_input,
-    // so without this the freshly-loaded chats would open empty.
-    await sb.from('aich_sessions').update({
-      messages_input:JSON.stringify(norm.map(m=>({sender:m.sender,text:m.text,of_message_id:m.of_message_id,ts_iso:m.ts_iso}))),
-      last_active_at:new Date().toISOString()
-    }).eq('id',sess.id);
-  }
-  return {chats:chats.length,created:createdCount,inserted};
-}
-
 // One paginated page of an account's chats. `cursor` is the params object from a
 // previous ofNextCursor (or null/undefined for page 1). Returns the chats + the
 // next cursor (null at end).
