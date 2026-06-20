@@ -7,6 +7,11 @@ ALTER TABLE aich_models   ADD COLUMN IF NOT EXISTS of_account_id text;
 ALTER TABLE aich_sessions ADD COLUMN IF NOT EXISTS of_chat_id    text;
 ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS of_message_id text;
 ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS send_state    text;
+-- The original aich_messages is a draft-log (response_text/input_messages/was_sent).
+-- The OF paths (webhook, sync, send-dedup) + the realtime inbound handler store one
+-- row per message with sender + text, so add those per-message columns here.
+ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS sender text;
+ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS "text" text;
 
 -- Dedup key: stops pull / messages.received / messages.sent-echo triple-insert.
 -- Partial unique index so existing NULL rows are unaffected.
