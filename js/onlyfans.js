@@ -121,70 +121,25 @@ async function ofSyncCreator(accountId,creatorModel){
     }
     if(!sess) continue;
     const msgsRes=await ofPull(accountId,'list_messages',chatId);
-    const msgs=(msgsRes&&msgsRes.data)||[];
-    for(const raw of msgs){
-      const sender=raw.fromUser&&String(raw.fromUser.id)===chatId?'customer':'model';
-      const n=ofNormalizeMessage(raw,sender);
-      if(!n.of_message_id) continue;
+    const raws=(msgsRes&&msgsRes.data)||[];
+    // Normalize + sort oldest→newest for display.
+    const norm=raws
+      .map(raw=>ofNormalizeMessage(raw,(raw.fromUser&&String(raw.fromUser.id)===chatId)?'customer':'model'))
+      .filter(m=>m.of_message_id)
+      .sort((a,b)=>String(a.ts_iso).localeCompare(String(b.ts_iso)));
+    for(const n of norm){
       const{error}=await sb.from('aich_messages').upsert({
         session_id:sess.id,sender:n.sender,text:n.text,
         of_message_id:n.of_message_id,created_at:n.ts_iso
       },{onConflict:'of_message_id',ignoreDuplicates:true});
       if(!error) inserted++;
     }
+    // Display source of truth — loadSessions() hydrates s.messages from messages_input,
+    // so without this the freshly-loaded chats would open empty.
+    await sb.from('aich_sessions').update({
+      messages_input:JSON.stringify(norm.map(m=>({sender:m.sender,text:m.text,of_message_id:m.of_message_id,ts_iso:m.ts_iso}))),
+      last_active_at:new Date().toISOString()
+    }).eq('id',sess.id);
   }
   return {chats:chats.length,inserted};
-}
-
-// List an account's chats (lightweight — no message pull). First page only in v1.
-// Returns the raw OF chat objects so the inbox can show name + last-message preview.
-async function ofListChats(accountId){
-  const res=await ofPull(accountId,'list_chats');
-  return (res&&res.data)||[];
-}
-
-// Open ONE chat: find-or-create its session, pull just that chat's messages,
-// write them to the dedup ledger (aich_messages) AND the display blob
-// (aich_sessions.messages_input, which the session loader reads). Returns the
-// session id so the caller can loadSessions()+openSession() and then use the
-// existing generate/accept/send pipeline. Mirrors ofSyncCreator's per-chat logic
-// but for a single chat, loaded on demand.
-async function ofOpenChatData(accountId,creatorModel,chat){
-  const chatId=String(chat.withUser?.id??chat.id??'');
-  if(!chatId) throw new Error('chat has no usable id');
-  const sk=ofSessionKey(creatorModel,chatId);
-  let{data:sess}=await sb.from('aich_sessions').select('id')
-    .eq('creator_model',creatorModel).eq('of_chat_id',sk.of_chat_id).maybeSingle();
-  if(!sess){
-    const{data:created}=await sb.from('aich_sessions').insert({
-      creator_model:creatorModel,
-      customer_name:chat.withUser?.name||chat.withUser?.username||chatId,
-      customer_username:chat.withUser?.username||('of_'+chatId),
-      of_chat_id:sk.of_chat_id,status:'active',current_posture:'WARM_BUILD',
-      last_active_at:new Date().toISOString(),
-      chatter_id:(typeof window!=='undefined'&&window.currentChatter?.id)||null
-    }).select('id').single();
-    sess=created;
-  }
-  if(!sess) throw new Error('could not find or create session');
-  // Pull this chat's messages, normalize, sort oldest→newest for display.
-  const msgsRes=await ofPull(accountId,'list_messages',chatId);
-  const raws=(msgsRes&&msgsRes.data)||[];
-  const messages=raws
-    .map(raw=>ofNormalizeMessage(raw,(raw.fromUser&&String(raw.fromUser.id)===chatId)?'customer':'model'))
-    .filter(m=>m.of_message_id)
-    .sort((a,b)=>String(a.ts_iso).localeCompare(String(b.ts_iso)));
-  // Dedup ledger (idempotent) — keeps the messages.sent echo + webhook from re-inserting.
-  for(const n of messages){
-    await sb.from('aich_messages').upsert({
-      session_id:sess.id,sender:n.sender,text:n.text,
-      of_message_id:n.of_message_id,created_at:n.ts_iso
-    },{onConflict:'of_message_id',ignoreDuplicates:true});
-  }
-  // Display source of truth — the loader hydrates s.messages from messages_input.
-  await sb.from('aich_sessions').update({
-    messages_input:JSON.stringify(messages.map(m=>({sender:m.sender,text:m.text,of_message_id:m.of_message_id,ts_iso:m.ts_iso}))),
-    last_active_at:new Date().toISOString()
-  }).eq('id',sess.id);
-  return sess.id;
 }

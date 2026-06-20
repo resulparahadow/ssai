@@ -1774,6 +1774,7 @@ function renderSidebar(){
     return`<div class="model-group">
       <div class="mg-head" onclick="toggleGroup('${model}')">
         <span class="mg-name">${model}</span>
+        ${(models.find(m=>m.name===model)?.of_account_id)?`<button class="btn sm" title="Load this creator's OnlyFans chats into this group" onclick="event.stopPropagation();onOfLoadGroup('${model}')" style="font-size:10px;padding:1px 7px;margin-left:6px">Load chats</button>`:''}
         <span class="mg-count">${gids.length}</span>
       </div>
       <div class="mg-sessions${collapsed[model]?' closed':''}">
@@ -1782,7 +1783,7 @@ function renderSidebar(){
           const b=s.is_flagged?'r':s.draft?'g':'a';
           const bl=s.is_flagged?'Flag':s.draft?'Ready':'Pending';
           const card=`<div class="sc${activeId===id?' on':''}${s.is_flagged?' flagged':''}" onclick="${isArch?`openArchivedSession('${id}')`:`openSession('${id}')`}">
-            <div class="sc-top"><span class="sc-name">${s.customer_name}</span><span class="badge ${b}">${bl}</span></div>
+            <div class="sc-top"><span class="sc-name">${s.customer_name}</span>${s.of_chat_id?'<span class="badge of" title="From OnlyFans" style="background:rgba(27,110,194,.2);color:#5aa9ee">OF</span>':''}<span class="badge ${b}">${bl}</span></div>
             <div class="sc-prev">${s.draft||s.crm_notes||'No response yet'}</div>
           </div>`;
           if(isArch){
@@ -2207,7 +2208,7 @@ function renderSession(){
         <button class="btn sm" onclick="clearMsgs()" style="color:var(--text3)">Clear</button>
         <button class="btn sm" onclick="toggleFlag()" id="flagBtn" style="color:${s.is_flagged?'var(--red)':'var(--text3)'}">${s.is_flagged?'Unflag':'Flag'}</button>
         <button class="btn sm ${s._customerTier==='flagged_tw'?'success':'danger'}" onclick="toggleTimewasterFlag()" id="twToggleBtn" title="${s._customerTier==='flagged_tw'?'Customer is currently flagged TW · click to unmark':'Mark as timewaster · future sessions start on tight thresholds'}">${s._customerTier==='flagged_tw'?'✅ Unmark TW':'🚩 Mark TW'}</button>
-        ${(()=>{const _m=(typeof models!=='undefined')&&models.find(m=>m.name===s.creator_model);return _m&&_m.of_account_id?'<button class="btn sm" id="ofChatsBtn" onclick="onOfChatsClick()" title="Browse OnlyFans chats for this creator">OF Chats</button> <button class="btn sm" id="ofSyncBtn" onclick="onOfSyncClick()" title="Pull messages from OnlyFans for this creator">Sync from OnlyFans</button>':'';})()} `}
+        ${(()=>{const _m=(typeof models!=='undefined')&&models.find(m=>m.name===s.creator_model);return _m&&_m.of_account_id?'<button class="btn sm" id="ofSyncBtn" onclick="onOfSyncClick()" title="Refresh this conversation from OnlyFans">Sync from OnlyFans</button>':'';})()} `}
       </div>
       ${ro?'':`<div class="mode-tabs">
         <div class="mode-tab on" id="tab_chat" onclick="setMode('chat')">Chat Builder</div>
@@ -2400,6 +2401,8 @@ function renderBubbles(){
       if(m.tags.tip) chips.push(chip('💸 TIP'+(typeof m.tags.tipAmount==='number'?' $'+m.tags.tipAmount:''),'rgba(52,211,153,0.18)','var(--green)'));
       if(chips.length) tagChipsHtml=`<div style="margin-top:2px;text-align:${isModelSide?'right':'left'}">${chips.join('')}</div>`;
     }
+    // Mark messages that came from / were sent through OnlyFans (have an of_message_id).
+    const ofMark=m.of_message_id?`<div style="margin-top:2px;text-align:${isModelSide?'right':'left'}"><span title="From OnlyFans" style="display:inline-block;background:rgba(27,110,194,.18);color:#5aa9ee;border-radius:3px;padding:0 5px;font-size:9px;font-weight:700;letter-spacing:.04em">OF</span></div>`:'';
     return `
     <div class="brow ${m.sender}">
       ${m.sender==='customer'?`<div class="bav c">${sessions[activeId].customer_name.slice(0,2).toUpperCase()}</div>`:''}
@@ -2409,6 +2412,7 @@ function renderBubbles(){
           ${isPpv?`<div class="ppv-tag${ppvOpened?' opened':''}">${ppvIcon} ${ppvTagText}${ppvPriceHtml}${ppvUnopenedTag}</div>`:''}${esc(m.text)}
         </div>
         ${tagChipsHtml}
+        ${ofMark}
         ${m.ts?`<div class="bbl-ts">${m.ts}${isPpv&&!ppvOpened?' · <span style="color:#e6b84d;font-style:italic">click bubble when he unlocks</span>':''}</div>`:''}
       </div>
       ${isPpv?`<div class="bav p">${ppvIcon}</div><button class="copy-btn" onclick="event.stopPropagation();copyMsgByIndex(${i})" title="Copy">Copy</button>`:''}
@@ -8658,58 +8662,23 @@ async function onOfSyncClick(){
   }catch(e){ toast('Sync failed: '+e.message,'e'); }
 }
 
-// ── OF CHAT INBOX ─────────────────────────────────────────────
-// Browse a connected creator's OnlyFans chats and jump into any one.
-// Uses the active session's creator to know which OF account to list.
-async function onOfChatsClick(){
-  const s=sessions[activeId]; if(!s) return;
-  const model=models.find(m=>m.name===s.creator_model);
-  if(!model||!model.of_account_id){toast('Creator has no OnlyFans account connected','e');return;}
-  if(!ofIsAuthorized(window.currentChatter,s.creator_model)){toast('Not authorized for this creator','e');return;}
-  toast('Loading OnlyFans chats…','i');
-  let chats;
-  try{ chats=await ofListChats(model.of_account_id); }
-  catch(e){ toast('Failed to load chats: '+e.message,'e'); return; }
-  renderOfChatsModal(model,chats);
-}
-
-function renderOfChatsModal(model,chats){
-  closeOfChatsModal();
-  window._ofInboxChats=chats; window._ofInboxModel=model;
-  const rows=(chats||[]).map((c,i)=>{
-    const who=c.withUser||{};
-    const name=esc(who.name||who.username||('user '+(who.id??c.id??'')));
-    const handle=who.username?('@'+esc(who.username)):'';
-    const last=esc((c.lastMessage?.text||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,90));
-    return `<div onclick="ofOpenChatFromInbox(${i})" style="padding:10px 12px;border-bottom:1px solid var(--line,#222);cursor:pointer">
-      <div style="font-weight:600;font-size:13px">${name} <span style="color:var(--text3);font-weight:400;font-size:11px">${handle}</span></div>
-      <div style="color:var(--text3);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${last||'—'}</div>
-    </div>`;
-  }).join('')||'<div style="padding:16px;color:var(--text3);font-size:12px">No chats returned for this account.</div>';
-  const html=`<div id="ofChatsBg" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)closeOfChatsModal()">
-    <div style="background:var(--panel,#15161a);border:1px solid var(--line,#2a2a2a);border-radius:12px;width:420px;max-width:92vw;max-height:78vh;display:flex;flex-direction:column;overflow:hidden">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line,#222)">
-        <div style="font-weight:700;font-size:13px">OnlyFans chats — ${esc(model.name)}</div>
-        <div onclick="closeOfChatsModal()" style="cursor:pointer;color:var(--text3);font-size:16px;line-height:1">✕</div>
-      </div>
-      <div style="overflow:auto">${rows}</div>
-    </div></div>`;
-  document.body.insertAdjacentHTML('beforeend',html);
-}
-
-async function ofOpenChatFromInbox(i){
-  const chats=window._ofInboxChats||[]; const model=window._ofInboxModel;
-  const chat=chats[i]; if(!chat||!model){closeOfChatsModal();return;}
-  closeOfChatsModal();
-  toast('Opening chat…','i');
+// ── OF CHAT GROUP LOADER ──────────────────────────────────────
+// Sidebar group-header "Load chats" → pull ALL of this creator's OnlyFans chats
+// + their messages into sessions, then refresh the sidebar so they appear in the
+// group (each marked "OF" via of_chat_id / of_message_id). From there the existing
+// generate → Accept → auto-send pipeline handles replies.
+async function onOfLoadGroup(modelName){
+  const model=models.find(m=>m.name===modelName);
+  if(!model||!model.of_account_id){toast('No OnlyFans account connected for '+modelName,'e');return;}
+  if(!ofIsAuthorized(window.currentChatter,modelName)){toast('Not authorized for this creator','e');return;}
+  toast('Loading OnlyFans chats for '+modelName+'…','i');
   try{
-    const sid=await ofOpenChatData(model.of_account_id,model.name,chat);
-    await loadSessions();   // re-hydrate in-memory sessions (incl. the opened one) so the sidebar + openSession work
-    openSession(sid);       // existing generate/accept/send pipeline takes over from here
-  }catch(e){ toast('Failed to open chat: '+e.message,'e'); }
+    const r=await ofSyncCreator(model.of_account_id,modelName);
+    await loadSessions();   // re-hydrate in-memory sessions (incl. the new OF chats)
+    renderSidebar();        // they now show in the group with the OF badge
+    toast(`${modelName}: loaded ${r.chats} chats (${r.inserted} messages)`,'s');
+  }catch(e){ toast('Load failed: '+e.message,'e'); }
 }
-
-function closeOfChatsModal(){ const el=document.getElementById('ofChatsBg'); if(el) el.remove(); }
 
 function installOfRealtime(){
   if(!sb||window._ofRealtime) return;
