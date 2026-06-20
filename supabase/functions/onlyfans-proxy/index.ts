@@ -9,10 +9,21 @@ const sb = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// CORS — the browser calls this directly (custom x-ssai-token header triggers a
+// preflight). Wildcard origin is safe here: auth is the token, not cookies, and
+// the client never sends credentials. file:// pages send Origin: null, which "*" covers.
+const cors: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-ssai-token, content-type, apikey",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
+  // Preflight: answer OPTIONS before any auth/parse logic.
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   if (!OF_KEY) return json({ error: "proxy misconfigured: ONLYFANS_API_KEY unset" }, 500);
