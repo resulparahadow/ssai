@@ -101,27 +101,32 @@ async function ofSend(accountId,chatId,text){
 async function ofSyncCreator(accountId,creatorModel){
   const chatsRes=await ofPull(accountId,'list_chats');
   const chats=(chatsRes&&chatsRes.data)||[];
-  let inserted=0;
+  if(chats.length) console.log('[ofSyncCreator] sample chat object:',chats[0]);
+  let inserted=0,createdCount=0;
   for(const chat of chats){
-    const chatId=String(chat.withUser?.id??chat.id??'');
-    if(!chatId) continue;
+    // OnlyFansAPI chat object: the fan's user id is chat.fan.id (name/username under chat.fan).
+    const fan=chat.fan||chat.withUser||{};
+    const chatId=String(fan.id??'');
+    if(!chatId){ console.warn('[ofSyncCreator] skipped chat with no fan.id:',chat); continue; }
     const sk=ofSessionKey(creatorModel,chatId);
     // find-or-create session
     let{data:sess}=await sb.from('aich_sessions').select('id')
       .eq('creator_model',creatorModel).eq('of_chat_id',sk.of_chat_id).maybeSingle();
     if(!sess){
-      const{data:created}=await sb.from('aich_sessions').insert({
+      const{data:created,error:insErr}=await sb.from('aich_sessions').insert({
         creator_model:creatorModel,
-        customer_name:chat.withUser?.name||chat.withUser?.username||chatId,
-        customer_username:chat.withUser?.username||('of_'+chatId),
+        customer_name:fan.name||fan.username||chatId,
+        customer_username:fan.username||('of_'+chatId),
         of_chat_id:sk.of_chat_id,status:'active',current_posture:'WARM_BUILD',
         last_active_at:new Date().toISOString()
       }).select('id').single();
-      sess=created;
+      if(insErr) console.warn('[ofSyncCreator] session insert failed for fan '+chatId+':',insErr.message);
+      sess=created; if(created) createdCount++;
     }
     if(!sess) continue;
     const msgsRes=await ofPull(accountId,'list_messages',chatId);
     const raws=(msgsRes&&msgsRes.data)||[];
+    if(raws.length) console.log('[ofSyncCreator] sample message object (chat '+chatId+'):',raws[0]);
     // Normalize + sort oldest→newest for display.
     const norm=raws
       .map(raw=>ofNormalizeMessage(raw,(raw.fromUser&&String(raw.fromUser.id)===chatId)?'customer':'model'))
@@ -141,5 +146,5 @@ async function ofSyncCreator(accountId,creatorModel){
       last_active_at:new Date().toISOString()
     }).eq('id',sess.id);
   }
-  return {chats:chats.length,inserted};
+  return {chats:chats.length,created:createdCount,inserted};
 }

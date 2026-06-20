@@ -8676,7 +8676,7 @@ async function onOfLoadGroup(modelName){
     const r=await ofSyncCreator(model.of_account_id,modelName);
     await loadSessions();   // re-hydrate in-memory sessions (incl. the new OF chats)
     renderSidebar();        // they now show in the group with the OF badge
-    toast(`${modelName}: loaded ${r.chats} chats (${r.inserted} messages)`,'s');
+    toast(`${modelName}: ${r.chats} chats, ${r.created} new sessions, ${r.inserted} messages`,'s');
   }catch(e){ toast('Load failed: '+e.message,'e'); }
 }
 
