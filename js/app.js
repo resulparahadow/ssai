@@ -2208,7 +2208,7 @@ function renderSession(){
         <button class="btn sm" onclick="clearMsgs()" style="color:var(--text3)">Clear</button>
         <button class="btn sm" onclick="toggleFlag()" id="flagBtn" style="color:${s.is_flagged?'var(--red)':'var(--text3)'}">${s.is_flagged?'Unflag':'Flag'}</button>
         <button class="btn sm ${s._customerTier==='flagged_tw'?'success':'danger'}" onclick="toggleTimewasterFlag()" id="twToggleBtn" title="${s._customerTier==='flagged_tw'?'Customer is currently flagged TW · click to unmark':'Mark as timewaster · future sessions start on tight thresholds'}">${s._customerTier==='flagged_tw'?'✅ Unmark TW':'🚩 Mark TW'}</button>
-        ${(()=>{const _m=(typeof models!=='undefined')&&models.find(m=>m.name===s.creator_model);return _m&&_m.of_account_id?'<button class="btn sm" id="ofSyncBtn" onclick="onOfSyncClick()" title="Refresh this conversation from OnlyFans">Sync from OnlyFans</button>':'';})()} `}
+        `}
       </div>
       ${ro?'':`<div class="mode-tabs">
         <div class="mode-tab on" id="tab_chat" onclick="setMode('chat')">Chat Builder</div>
@@ -8644,28 +8644,6 @@ function closeOcrPreviewModal(){
 }
 
 // ── ONLYFANS SYNC + REALTIME ──────────────────────────────────
-async function onOfSyncClick(){
-  const s=sessions[activeId]; if(!s) return;
-  const model=models.find(m=>m.name===s.creator_model);
-  if(!model||!model.of_account_id){toast('Creator has no OnlyFans account connected','e');return;}
-  if(!ofIsAuthorized(window.currentChatter,s.creator_model)){toast('Not authorized for this creator','e');return;}
-  toast('Syncing from OnlyFans…','i');
-  try{
-    const r=await ofSyncCreator(model.of_account_id,s.creator_model);
-    toast(`Synced ${r.chats} chats, ${r.inserted} new messages`,'s');
-    // Reload messages for active session from DB and re-render
-    if(sb&&activeId){
-      const{data:rows}=await sb.from('aich_messages').select('*').eq('session_id',activeId).order('created_at',{ascending:true});
-      if(rows&&s){
-        s.messages=(rows||[]).map(r=>({sender:r.sender,text:r.text,of_message_id:r.of_message_id,ts_iso:r.created_at}));
-        const cm=document.getElementById('chatMsgs');
-        if(cm) cm.innerHTML=renderBubbles();
-        scrollChat();
-      }
-    }
-  }catch(e){ toast('Sync failed: '+e.message,'e'); }
-}
-
 // ── OF CHAT GROUP LOADER ──────────────────────────────────────
 // Sidebar group-header "Load chats" → pull ALL of this creator's OnlyFans chats
 // + their messages into sessions, then refresh the sidebar so they appear in the
