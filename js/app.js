@@ -2874,12 +2874,6 @@ function acceptDraft(){
 // connected and the session has of_chat_id. Final ToS gate runs here.
 async function maybeSendToOnlyFans(s, acceptedText, rowId){
   try{
-    // Finding 1 guard: if the local aich_messages row was never inserted (no sb, or
-    // insert error), rowId is null. Sending without a row means we cannot write the
-    // of_message_id back, so the next sync would re-import the message as a duplicate
-    // (the NULL of_message_id row has no unique-conflict to block it). Fail toward
-    // manual rather than silent duplicate.
-    if(!rowId){toast('Could not record message locally — send this one manually on OnlyFans','e');return;}
     const model=models.find(m=>m.name===s.creator_model);
     if(!ofShouldAutoSend(s,model||{})) return;
     if(!ofIsAuthorized(window.currentChatter,s.creator_model)) return;
@@ -2889,17 +2883,27 @@ async function maybeSendToOnlyFans(s, acceptedText, rowId){
     if(banned&&banned.hit){toast('Auto-send blocked: banned term in message — send manually after editing','e');return;}
     const res=await ofSend(model.of_account_id,s.of_chat_id,acceptedText);
     const ofId=res&&res.data&&res.data.id!=null?String(res.data.id):null;
-    if(sb&&ofId&&rowId){
-      // Tag the exact inserted row by id so the messages.sent echo dedupes.
-      await sb.from('aich_messages')
-        .update({of_message_id:ofId,send_state:'sent'})
-        .eq('id',rowId);
+    // Record the OF message id so the messages.sent echo + future syncs dedupe.
+    // Prefer tagging the accepted row (rowId); if it's missing (insert/select hiccup),
+    // insert a minimal dedup row instead — sending must not be blocked, and dedup must
+    // still hold (unique of_message_id blocks any re-import).
+    if(sb&&ofId){
+      if(rowId){
+        const{error}=await sb.from('aich_messages').update({of_message_id:ofId,send_state:'sent'}).eq('id',rowId);
+        if(error) console.warn('[of] write-back update failed:',error.message);
+      }else{
+        const{error}=await sb.from('aich_messages').insert({
+          session_id:s.id,creator_model:s.creator_model,customer_username:s.customer_username,
+          sender:'model',text:acceptedText,of_message_id:ofId,
+          created_at:new Date().toISOString(),send_state:'sent'
+        });
+        if(error) console.warn('[of] dedup-row insert failed:',error.message);
+      }
     }
     toast('Sent to OnlyFans','s');
   }catch(e){
     if(sb&&rowId){
-      await sb.from('aich_messages').update({send_state:'send_failed'})
-        .eq('id',rowId);
+      await sb.from('aich_messages').update({send_state:'send_failed'}).eq('id',rowId);
     }
     toast('OnlyFans send failed — send manually. ('+e.message+')','e');
   }
