@@ -1716,6 +1716,7 @@ async function loadSessions(){
     sessions[s.id]={
       ...s,
       messages:msgs,
+      _ofNeedsLoad: ofNeedsLoad(s),
       draft:null,vn_used:vnMap[vnKey]||[],inputMode:'chat',
       // Posture system hydration — replaces old _rapportCount
       _freeMsgCount:s.free_msg_count||0,
@@ -1928,6 +1929,8 @@ function openSession(id){
   const sc=document.getElementById('sessContainer');
   sc.style.display='flex';sc.style.flex='1';sc.style.overflow='hidden';
   renderSession();
+  const _ofS=sessions[id];
+  if(_ofS && _ofS._ofNeedsLoad) ofEnsureChatLoaded(_ofS);
 }
 
 // ── GET / CREATE CUSTOMER PROFILE ─────────────────────────────
@@ -2378,7 +2381,9 @@ function renderBubbles(){
   const s=sessions[activeId];
   const msgs=s.messages||[];
   let html='';
-  if(!msgs.length) html='<div class="chat-empty">Add messages below<br>or use Quick Paste</div>';
+  if(!msgs.length) html=s._ofNeedsLoad
+    ?'<div class="chat-empty">Loading conversation from OnlyFans…</div>'
+    :'<div class="chat-empty">Add messages below<br>or use Quick Paste</div>';
   else html=msgs.map((m,i)=>{
     const isPpv=m.sender==='ppv';
     const isModelSide=m.sender==='model'||isPpv;
@@ -2868,6 +2873,27 @@ function acceptDraft(){
     maybeSendToOnlyFans(s, acceptedDraft, null);
   }
   toast('Accepted','s');
+}
+
+// Lazy-load an OF stub's messages the first time it's opened. Guarded against
+// double-fetch; re-renders only if it's still the active session.
+async function ofEnsureChatLoaded(s){
+  if(!s||!s._ofNeedsLoad||s._ofLoading) return;
+  const model=models.find(m=>m.name===s.creator_model);
+  if(!model||!model.of_account_id){s._ofNeedsLoad=false;return;}
+  s._ofLoading=true;
+  try{
+    const norm=await ofLoadChatMessages(model.of_account_id, s.creator_model, s.of_chat_id);
+    s.messages=norm.map(m=>({sender:m.sender,text:m.text,of_message_id:m.of_message_id,ts_iso:m.ts_iso}));
+    s._ofNeedsLoad=false;
+    if(activeId===s.id){
+      const cm=document.getElementById('chatMsgs'); if(cm) cm.innerHTML=renderBubbles();
+      if(typeof scrollChat==='function') scrollChat();
+      if(typeof recomputePosture==='function') recomputePosture(s);
+      if(typeof updatePostureChip==='function') updatePostureChip();
+    }
+  }catch(e){ toast('Failed to load messages: '+e.message,'e'); }
+  finally{ s._ofLoading=false; }
 }
 
 // Auto-send an accepted TEXT reply to OnlyFans. No-op unless the creator is
