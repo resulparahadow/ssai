@@ -65,6 +65,17 @@ Deno.serve(async (req) => {
     fwdBody = JSON.stringify({ text: message.text });
   }
 
+  // Allowlisted pagination params (list ops only). Never fetch a raw next_page URL.
+  if (op === "list_chats" || op === "list_messages") {
+    const p = (payload && payload.params) || {};
+    const qp = new URLSearchParams();
+    for (const k of ["limit", "offset", "id", "order"]) {
+      if (p[k] != null && String(p[k]) !== "") qp.set(k, String(p[k]));
+    }
+    const qs = qp.toString();
+    if (qs) url += (url.includes("?") ? "&" : "?") + qs;
+  }
+
   const ofRes = await fetch(url, {
     method,
     headers: { "Authorization": `Bearer ${OF_KEY}`, "Content-Type": "application/json" },
