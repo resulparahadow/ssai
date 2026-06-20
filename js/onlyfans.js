@@ -186,3 +186,42 @@ async function ofSyncCreator(accountId,creatorModel){
   }
   return {chats:chats.length,created:createdCount,inserted};
 }
+
+// One paginated page of an account's chats. `cursor` is the params object from a
+// previous ofNextCursor (or null/undefined for page 1). Returns the chats + the
+// next cursor (null at end).
+async function ofListChatsPage(accountId, cursor){
+  const res=await ofPull(accountId,'list_chats',null,cursor||undefined);
+  const chats=(res&&res.data)||[];
+  const next=ofNextCursor(res&&res._pagination);
+  return { chats, next };
+}
+
+// Batch find-or-create STUB sessions for a page of chats (name only, no messages).
+// One SELECT for existing of_chat_ids + one bulk INSERT of the missing rows.
+// messages_input is intentionally left null → ofNeedsLoad(session) === true.
+async function ofCreateSessionRows(creatorModel, chats){
+  const rows=(chats||[]).map(c=>{
+    const fan=c.fan||c.withUser||{};
+    const id=String(fan.id??'');
+    return id?{ id, name:fan.name||fan.username||id, username:fan.username||('of_'+id) }:null;
+  }).filter(Boolean);
+  if(!rows.length) return { created:0 };
+  const ids=rows.map(r=>r.id);
+  const { data:existing }=await sb.from('aich_sessions').select('of_chat_id')
+    .eq('creator_model',creatorModel).in('of_chat_id',ids);
+  const have=new Set((existing||[]).map(e=>String(e.of_chat_id)));
+  const missing=rows.filter(r=>!have.has(r.id));
+  if(!missing.length) return { created:0 };
+  const { error }=await sb.from('aich_sessions').insert(missing.map(r=>({
+    creator_model:creatorModel,
+    customer_name:r.name,
+    customer_username:r.username,
+    of_chat_id:r.id,
+    status:'active',
+    current_posture:'WARM_BUILD',
+    last_active_at:new Date().toISOString()
+  })));
+  if(error){ console.warn('[of] stub insert failed:',error.message); return { created:0 }; }
+  return { created:missing.length };
+}
