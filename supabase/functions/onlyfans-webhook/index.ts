@@ -10,6 +10,25 @@ const sb = createClient(
 );
 const ok = () => new Response("ok", { status: 200 });
 
+// HMAC-SHA256(body, secret) as lowercase hex — matches OnlyFansAPI's documented
+// signing scheme (the JSON body is the message, the signing secret is the key).
+async function hmacHex(secret: string, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Constant-time compare for equal-length hex signatures.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 function stripToText(html: string): string {
   if (!html) return "";
   return String(html).replace(/<[^>]*>/g, "")
@@ -21,12 +40,31 @@ function stripToText(html: string): string {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
-  // Verify shared secret (header configured when registering the webhook).
-  const sig = req.headers.get("x-ofapi-signature") || req.headers.get("x-webhook-secret") || "";
-  if (!SECRET || sig !== SECRET) return new Response("unauthorized", { status: 401 });
+  // Read the raw body FIRST — the HMAC must be computed over the exact bytes
+  // OnlyFansAPI signed (re-serializing parsed JSON would change the bytes).
+  const raw = await req.text();
+
+  // Verify HMAC-SHA256(rawBody, ONLYFANS_WEBHOOK_SECRET). OnlyFansAPI sends the
+  // signature as a hex digest in a header; the exact header name is not documented,
+  // so we accept a match on any likely candidate. The HMAC must still match, so this
+  // tolerates header-name uncertainty WITHOUT weakening security.
+  if (!SECRET) return new Response("unauthorized", { status: 401 });
+  const computed = await hmacHex(SECRET, raw);
+  const sigHeaders = ["x-webhook-signature", "x-ofapi-signature", "x-signature", "ofapi-signature", "x-hub-signature-256"];
+  let verified = false;
+  for (const h of sigHeaders) {
+    const v = (req.headers.get(h) || "").replace(/^sha256=/i, "").trim().toLowerCase();
+    if (v && timingSafeEqual(v, computed)) { verified = true; break; }
+  }
+  if (!verified) {
+    // Log header NAMES (not values) so the real signature header can be identified
+    // from the Supabase function logs on the first delivery, then pinned here.
+    console.log("webhook signature verify failed; headers present:", [...req.headers.keys()].join(", "));
+    return new Response("unauthorized", { status: 401 });
+  }
 
   let evt: any;
-  try { evt = await req.json(); } catch { return new Response("bad json", { status: 400 }); }
+  try { evt = JSON.parse(raw); } catch { return new Response("bad json", { status: 400 }); }
   if (evt?.event !== "messages.received") return ok(); // ignore other events in v1
 
   const accountId = evt.account_id;
