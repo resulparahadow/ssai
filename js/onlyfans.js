@@ -225,3 +225,33 @@ async function ofCreateSessionRows(creatorModel, chats){
   if(error){ console.warn('[of] stub insert failed:',error.message); return { created:0 }; }
   return { created:missing.length };
 }
+
+// Pull ONE chat's messages (first page), normalize + sort, batch-upsert to the
+// dedup ledger, and write messages_input (the display source). Returns the
+// normalized messages. messages_input is always written (even '[]') so the chat
+// is marked loaded and won't re-fetch on every open.
+async function ofLoadChatMessages(accountId, creatorModel, fanId){
+  const chatId=String(fanId);
+  const res=await ofPull(accountId,'list_messages',chatId);
+  const raws=(res&&res.data)||[];
+  const norm=raws
+    .map(raw=>ofNormalizeMessage(raw,(raw.fromUser&&String(raw.fromUser.id)===chatId)?'customer':'model'))
+    .filter(m=>m.of_message_id)
+    .sort((a,b)=>String(a.ts_iso).localeCompare(String(b.ts_iso)));
+  const { data:sess }=await sb.from('aich_sessions').select('id')
+    .eq('creator_model',creatorModel).eq('of_chat_id',chatId).maybeSingle();
+  if(sess && norm.length){
+    const { error }=await sb.from('aich_messages').upsert(
+      norm.map(n=>({ session_id:sess.id, sender:n.sender, text:n.text, of_message_id:n.of_message_id, created_at:n.ts_iso })),
+      { onConflict:'of_message_id', ignoreDuplicates:true }
+    );
+    if(error) console.warn('[of] message batch upsert failed:',error.message);
+  }
+  if(sess){
+    await sb.from('aich_sessions').update({
+      messages_input:JSON.stringify(norm.map(m=>({sender:m.sender,text:m.text,of_message_id:m.of_message_id,ts_iso:m.ts_iso}))),
+      last_active_at:new Date().toISOString()
+    }).eq('id',sess.id);
+  }
+  return norm;
+}
