@@ -73,22 +73,31 @@ function ofIsAuthorized(chatter,creatorModel){
 async function _ofProxy(payload){
   const tk=getProxyToken();
   if(!tk) throw new Error('Proxy token missing — contact your manager');
-  const r=await fetch(ONLYFANS_PROXY_URL,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-ssai-token':tk},
-    body:JSON.stringify(payload)
-  });
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok||d.error){
-    throw new Error('OnlyFans proxy error '+r.status+': '+(d.error||r.statusText||'unknown'));
+  let attempt=0;
+  while(attempt<3){
+    attempt++;
+    const r=await fetch(ONLYFANS_PROXY_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-ssai-token':tk},
+      body:JSON.stringify(payload)
+    });
+    if(r.status===429 && attempt<3){
+      const ra=parseFloat(r.headers.get('retry-after')||'0');
+      const delay=ra>0?Math.min(ra*1000,8000):(attempt===1?1200:3500)+Math.floor(Math.random()*400);
+      await new Promise(res=>setTimeout(res,delay));
+      continue;
+    }
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||d.error) throw new Error('OnlyFans proxy error '+r.status+': '+(d.error||r.statusText||'unknown'));
+    return d;
   }
-  return d;
+  throw new Error('OnlyFans rate limited (429) after retries — try again shortly');
 }
 
 // Pull chats or a chat's messages for a connected account.
-async function ofPull(accountId,op,chatId){
+async function ofPull(accountId,op,chatId,params){
   if(op!=='list_chats'&&op!=='list_messages') throw new Error('ofPull: bad op '+op);
-  return _ofProxy({op:op,account_id:accountId,chat_id:chatId});
+  return _ofProxy({op:op,account_id:accountId,chat_id:chatId,params:params});
 }
 
 // Send a TEXT reply. Blocks PPV client-side (server rejects it too).
