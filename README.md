@@ -1,7 +1,7 @@
 # SSAI — SmartStarsAI
 
-AI chatter system for OnlyFans agency operations. Single-file browser
-application backed by Supabase.
+AI chatter system for OnlyFans agency operations. No-build browser
+application (`SSAI.html` shell + `js/` modules + `css/`) backed by Supabase.
 
 ## What this is
 
@@ -12,7 +12,7 @@ multi-tenant or autonomous operation.
 
 ## Architecture
 
-- **Frontend:** Single HTML file (`SSAI.html`) — vanilla JS, Supabase client
+- **Frontend:** `SSAI.html` shell + `js/` modules (no build step) — vanilla JS, Supabase client
 - **Backend:** Supabase (Postgres + auth + realtime)
 - **AI providers:** Claude (primary), Mistral (explicit content routing)
 - **Storage:** All session state, events, and metrics persist to Supabase
@@ -20,7 +20,7 @@ multi-tenant or autonomous operation.
 ## Setup
 
 1. Open `SSAI.html` in a browser (Chrome recommended)
-2. Set `SB_URL` and `SB_KEY` at the top of the script section to your Supabase project credentials
+2. Set `SB_URL` and `SB_KEY` in `js/config.js` to your Supabase project credentials
 3. On first load, open Settings → API Keys and paste your Claude API key (and optionally Mistral via OpenRouter)
 4. Keys are stored in browser localStorage — never committed to source
 
