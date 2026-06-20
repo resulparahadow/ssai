@@ -14,9 +14,14 @@ ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS sender text;
 ALTER TABLE aich_messages ADD COLUMN IF NOT EXISTS "text" text;
 
 -- Dedup key: stops pull / messages.received / messages.sent-echo triple-insert.
--- Partial unique index so existing NULL rows are unaffected.
+-- MUST be a NON-partial unique index: PostgREST upserts use ON CONFLICT (of_message_id),
+-- and Postgres cannot use a PARTIAL unique index as the conflict arbiter (42P10 → 400).
+-- NULLs are distinct by default, so the many draft-log rows (null of_message_id) coexist
+-- while non-null OF ids stay unique.
+-- If a partial version was already created, drop it first:
+--   DROP INDEX IF EXISTS uq_aich_messages_of_message_id;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_aich_messages_of_message_id
-  ON aich_messages (of_message_id) WHERE of_message_id IS NOT NULL;
+  ON aich_messages (of_message_id);
 
 -- Reverse lookup acct_XXXX -> creator_model (webhook + proxy account check).
 CREATE INDEX IF NOT EXISTS idx_aich_models_of_account_id
