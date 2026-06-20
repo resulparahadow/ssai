@@ -96,6 +96,35 @@ async function ofSend(accountId,chatId,text){
   return _ofProxy({op:'send',account_id:accountId,chat_id:chatId,message:ofBuildSendBody(text)});
 }
 
+// Extract the next-page params from an OnlyFansAPI _pagination block.
+// next_page may be null/false (end), a URL/path with a query string, or an object.
+// Returns an allowlisted params object (limit/offset/id/order) or null at the end.
+function ofNextCursor(pagination){
+  if(!pagination) return null;
+  const np=pagination.next_page;
+  if(!np) return null;
+  const keys=['limit','offset','id','order'];
+  const out={};
+  if(typeof np==='string'){
+    const q=np.indexOf('?'); if(q<0) return null;
+    for(const pair of np.slice(q+1).split('&')){
+      const eq=pair.indexOf('='); if(eq<0) continue;
+      const k=decodeURIComponent(pair.slice(0,eq)), v=decodeURIComponent(pair.slice(eq+1));
+      if(keys.includes(k)&&v!=='') out[k]=v;
+    }
+  } else if(typeof np==='object'){
+    for(const k of keys) if(np[k]!=null) out[k]=String(np[k]);
+  }
+  return Object.keys(out).length?out:null;
+}
+
+// True when a session is an unloaded OnlyFans stub: it has of_chat_id but its
+// messages_input has never been written (null). Once messages_input is set
+// (even '[]'), the chat is considered loaded.
+function ofNeedsLoad(session){
+  return !!(session && session.of_chat_id && !session.messages_input);
+}
+
 // Pull a creator's chats + messages and upsert them into aich_messages.
 // Returns {chats, inserted}. Server-side webhook handles live; this is backfill/recovery.
 async function ofSyncCreator(accountId,creatorModel){

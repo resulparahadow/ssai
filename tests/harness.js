@@ -34,7 +34,7 @@ const load=(f)=>{ try{ vm.runInContext(fs.readFileSync(`${ROOT}/js/${f}`,'utf8')
 // availability check
 const need=['computePosture','recomputePosture','computeCustomerTier','computeWallState','computeLadderState',
  'capTrustBySpend','parseMoney','effectiveSessionSpend','effectiveLifetimeSpend','detectContinuedInterest',
- 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked','ofHtmlStripToText','ofNormalizeMessage','ofResolveCreator','ofSessionKey','ofBuildSendBody','ofShouldAutoSend','ofIsAuthorized'];
+ 'detectSextingActive','detectTipPrimary','detectInvestmentSignals','detectFork','scanForBanned','detectPromiseCommitment','resolveOcrDateHint','combineDateAndTime','sanitizeSlop','dedupeEmoji','ofPpvBlocked','ofHtmlStripToText','ofNormalizeMessage','ofResolveCreator','ofSessionKey','ofBuildSendBody','ofShouldAutoSend','ofIsAuthorized','ofNextCursor','ofNeedsLoad'];
 const missing=need.filter(n=>typeof sandbox[n]!=='function');
 console.log('Functions loaded:',need.length-missing.length,'/',need.length, missing.length?('— MISSING: '+missing.join(', ')):'');
 const F={}; need.forEach(n=>F[n]=sandbox[n]);
@@ -523,6 +523,17 @@ T('authz manager → true',F.ofIsAuthorized({role:'manager'},'Cielo'),true);
 T('authz assigned chatter → true',F.ofIsAuthorized({role:'chatter',assignments:['Cielo','Jammy']},'Cielo'),true);
 T('authz unassigned chatter → false',F.ofIsAuthorized({role:'chatter',assignments:['Jammy']},'Cielo'),false);
 T('authz null chatter → false',F.ofIsAuthorized(null,'Cielo'),false);
+T('nextCursor null pagination → null',F.ofNextCursor(null),null);
+T('nextCursor no next_page → null',F.ofNextCursor({next_page:null}),null);
+T('nextCursor url offset → {offset}',F.ofNextCursor({next_page:'https://x/api/acct/chats?limit=10&offset=20'}),x=>x&&x.offset==='20'&&x.limit==='10');
+T('nextCursor url cursor id → {id}',F.ofNextCursor({next_page:'/api/acct/chats?id=998877'}),x=>x&&x.id==='998877');
+T('nextCursor url no query → null',F.ofNextCursor({next_page:'https://x/api/acct/chats'}),null);
+T('nextCursor object form → params',F.ofNextCursor({next_page:{offset:40}}),x=>x&&x.offset==='40');
+T('needsLoad stub (of_chat_id, no messages_input) → true',F.ofNeedsLoad({of_chat_id:'123'}),true);
+T('needsLoad loaded ([] blob) → false',F.ofNeedsLoad({of_chat_id:'123',messages_input:'[]'}),false);
+T('needsLoad loaded (real blob) → false',F.ofNeedsLoad({of_chat_id:'123',messages_input:'[{}]'}),false);
+T('needsLoad no of_chat_id → false',F.ofNeedsLoad({messages_input:null}),false);
+T('needsLoad null session → false',F.ofNeedsLoad(null),false);
 
 console.log('\n════════ RESULT ════════');
 console.log(`PASS ${pass} / FAIL ${fail} (${pass+fail} assertions)`);
