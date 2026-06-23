@@ -3,15 +3,22 @@
 // Mirrors ofHtmlStripToText/ofResolveCreator from js/onlyfans.js — keep in sync.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SECRET = Deno.env.get("ONLYFANS_WEBHOOK_SECRET")!;
+// Layered auth (first match wins):
+//   1. ONLYFANS_WEBHOOK_SECRET set → verify HMAC-SHA256(rawBody, secret) hex against the
+//      `Signature` header (OnlyFansAPI's documented scheme). Must be set on BOTH sides —
+//      if OFapi has no signing secret it sends no Signature header and this 401s.
+//   2. else ONLYFANS_WEBHOOK_TOKEN set → require ?token=<value> in the URL.
+//   3. else → accept all POSTs (fully open: anyone who knows the URL can post fan messages).
+const SECRET = Deno.env.get("ONLYFANS_WEBHOOK_SECRET") || "";
+const URL_TOKEN = Deno.env.get("ONLYFANS_WEBHOOK_TOKEN") || "";
 const sb = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 const ok = () => new Response("ok", { status: 200 });
 
-// HMAC-SHA256(body, secret) as lowercase hex — matches OnlyFansAPI's documented
-// signing scheme (the JSON body is the message, the signing secret is the key).
+// HMAC-SHA256(body, secret) as lowercase hex. OnlyFansAPI signs the raw JSON body with the
+// signing secret and sends the digest in the `Signature` header (docs: Protecting your webhooks).
 async function hmacHex(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(secret),
@@ -21,7 +28,7 @@ async function hmacHex(secret: string, body: string): Promise<string> {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Constant-time compare for equal-length hex signatures.
+// Constant-time compare for equal-length hex strings.
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -40,27 +47,23 @@ function stripToText(html: string): string {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });
 
-  // Read the raw body FIRST — the HMAC must be computed over the exact bytes
-  // OnlyFansAPI signed (re-serializing parsed JSON would change the bytes).
+  // Read the raw body first — HMAC must be computed over the exact bytes OFapi signed
+  // (re-serializing parsed JSON would change them).
   const raw = await req.text();
 
-  // Verify HMAC-SHA256(rawBody, ONLYFANS_WEBHOOK_SECRET). OnlyFansAPI sends the
-  // signature as a hex digest in a header; the exact header name is not documented,
-  // so we accept a match on any likely candidate. The HMAC must still match, so this
-  // tolerates header-name uncertainty WITHOUT weakening security.
-  if (!SECRET) return new Response("unauthorized", { status: 401 });
-  const computed = await hmacHex(SECRET, raw);
-  const sigHeaders = ["x-webhook-signature", "x-ofapi-signature", "x-signature", "ofapi-signature", "x-hub-signature-256"];
-  let verified = false;
-  for (const h of sigHeaders) {
-    const v = (req.headers.get(h) || "").replace(/^sha256=/i, "").trim().toLowerCase();
-    if (v && timingSafeEqual(v, computed)) { verified = true; break; }
-  }
-  if (!verified) {
-    // Log header NAMES (not values) so the real signature header can be identified
-    // from the Supabase function logs on the first delivery, then pinned here.
-    console.log("webhook signature verify failed; headers present:", [...req.headers.keys()].join(", "));
-    return new Response("unauthorized", { status: 401 });
+  // Layered auth — see the constants block above.
+  if (SECRET) {
+    // OnlyFansAPI scheme: HMAC-SHA256(rawBody, signingSecret) hex, sent in the `Signature` header.
+    const computed = await hmacHex(SECRET, raw);
+    const sent = (req.headers.get("signature") || "").replace(/^sha256=/i, "").trim().toLowerCase();
+    if (!sent || !timingSafeEqual(sent, computed)) {
+      // Log header NAMES (not values) so a header-name change can be spotted from the logs.
+      console.log("webhook signature verify failed; headers present:", [...req.headers.keys()].join(", "));
+      return new Response("unauthorized", { status: 401 });
+    }
+  } else if (URL_TOKEN) {
+    const t = new URL(req.url).searchParams.get("token") || "";
+    if (t !== URL_TOKEN) return new Response("unauthorized", { status: 401 });
   }
 
   let evt: any;

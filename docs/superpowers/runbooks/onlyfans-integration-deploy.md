@@ -2,9 +2,9 @@
 
 ## One-time setup
 1. Run `sql/onlyfans_integration_migration.sql` in the Supabase SQL Editor.
-2. Set secrets: `ONLYFANS_API_KEY`, `ONLYFANS_WEBHOOK_SECRET` (Edge Function secrets).
-3. Deploy functions: `onlyfans-proxy`, `onlyfans-webhook` (CLI `supabase functions deploy <name> --no-verify-jwt`, or paste in the Dashboard).
-4. Register the webhook in the OnlyFansAPI dashboard: URL `<SUPABASE_URL>/functions/v1/onlyfans-webhook`, event `messages.received`, secret header = `ONLYFANS_WEBHOOK_SECRET`.
+2. Set secrets: `ONLYFANS_API_KEY` (required). Webhook auth is layered (first match wins): (a) set `ONLYFANS_WEBHOOK_SECRET` on BOTH sides → HMAC-SHA256 verification against the `Signature` header (most secure, OFapi's documented scheme); (b) else set `ONLYFANS_WEBHOOK_TOKEN` (e.g. `openssl rand -hex 32`) → require `?token=<value>` on every delivery; (c) else neither set → accept all POSTs (fully open endpoint).
+3. Deploy functions: `onlyfans-proxy`, `onlyfans-webhook` (CLI `supabase functions deploy <name> --no-verify-jwt`, or paste in the Dashboard). Env vars load at cold start — redeploy after changing a secret.
+4. Register the webhook in the OnlyFansAPI dashboard: URL `<SUPABASE_URL>/functions/v1/onlyfans-webhook` (append `?token=<ONLYFANS_WEBHOOK_TOKEN>` for token mode), event `messages.received`. For HMAC mode set the OFapi signing secret to the SAME value as `ONLYFANS_WEBHOOK_SECRET`; for token/open modes leave the OFapi signing secret blank.
 
 ## Staged rollout
 - **Phase 0:** Steps above. No creator has `of_account_id` → zero behavior change.
