@@ -1,0 +1,6 @@
+{
+  "name": "ssai-legacy",
+  "private": true,
+  "type": "commonjs",
+  "description": "Archived legacy SSAI browser app (read-only reference). This file only restores CommonJS resolution for the legacy Node scripts (tests/harness.js) now that the repo root is an ESM (Vite) package."
+}
