@@ -4,11 +4,17 @@ import { computed } from 'vue';
 import SsSidebar from '@/components/crm/SsSidebar.vue';
 import SsTopbar from '@/components/crm/SsTopbar.vue';
 import { useCrmShell } from '@/composables/useCrmShell';
+import { useInboundNotifications } from '@/composables/useInboundNotifications';
 import { NAV } from '@/crm/nav';
 import type { Role, User } from '@/types/auth';
+import type { SidebarCreator } from '@/types/crm';
 
 const page = usePage();
 const { previewRole } = useCrmShell();
+
+// App-wide new-message notifier: subscribe to every assigned creator's live channel so
+// inbound DMs toast + bing on any CRM page (gated by the user's notification prefs).
+useInboundNotifications((page.props.creators as SidebarCreator[]) ?? []);
 
 const user = computed(() => page.props.auth.user as User);
 const effectiveRole = computed<Role>(

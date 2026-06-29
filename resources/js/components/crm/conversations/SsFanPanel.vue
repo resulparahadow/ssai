@@ -5,7 +5,7 @@ defineProps<{ fan: OfFan | null }>();
 </script>
 
 <template>
-    <aside class="flex w-80 shrink-0 flex-col rounded-xl border border-ss-border bg-ss-surface">
+    <div class="flex flex-1 flex-col overflow-hidden">
         <div class="border-b border-ss-border p-4">
             <div class="flex items-center gap-3">
                 <span class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-ss-surface-2 text-sm font-semibold text-ss-text-2">
@@ -37,5 +37,5 @@ defineProps<{ fan: OfFan | null }>();
 
             <p v-if="!fan" class="text-ss-text-3">Open a conversation to load fan details.</p>
         </div>
-    </aside>
+    </div>
 </template>

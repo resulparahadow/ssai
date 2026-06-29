@@ -9,6 +9,8 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Live OnlyFans proxy for Conversations — nothing is persisted. Every endpoint
@@ -90,6 +92,42 @@ class OnlyFansChatController extends Controller
             'hasMore' => (bool) data_get($j, 'data.hasMore', false),
             'next' => data_get($j, 'data.nextLastId'),
         ]);
+    }
+
+    /**
+     * Proxy a single OnlyFans CDN media file (image / video poster) through the
+     * download endpoint, since the raw cdn*.onlyfans.com URLs are IP-locked and
+     * 403 from the browser. Cached server-side by the stable file path so repeat
+     * views (and SWR revalidation) don't re-download/re-bill.
+     */
+    public function mediaFile(Request $request, AichModel $model): HttpResponse
+    {
+        $acct = $this->account($request, $model);
+        $url = (string) $request->query('url', '');
+
+        if (! $this->of->isOnlyFansCdnUrl($url)) {
+            abort(400, 'Unsupported media URL.');
+        }
+
+        $key = 'ofmedia:'.sha1((string) (parse_url($url, PHP_URL_PATH) ?: $url));
+        $cached = Cache::get($key);
+
+        if (! $cached) {
+            $res = $this->of->downloadMedia($acct, $url);
+            if (! $res->successful()) {
+                return $this->forward($res);
+            }
+
+            $cached = [
+                'ct' => $res->header('Content-Type') ?: 'application/octet-stream',
+                'body' => $res->body(),
+            ];
+            Cache::put($key, $cached, now()->addHours(6));
+        }
+
+        return response($cached['body'])
+            ->header('Content-Type', $cached['ct'])
+            ->header('Cache-Control', 'private, max-age=86400');
     }
 
     public function send(Request $request, AichModel $model, string $chat): JsonResponse

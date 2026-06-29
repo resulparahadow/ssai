@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Heart, Image, Search, Trash2, X } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { AlertCircle, Heart, Image, LoaderCircle, RefreshCw, Search, Trash2, X } from '@lucide/vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import SsMessageMedia from '@/components/crm/conversations/SsMessageMedia.vue';
 import { ofApi } from '@/lib/onlyfans';
 import type { OfChat, OfMessage } from '@/types/crm';
 
@@ -12,7 +13,7 @@ const props = defineProps<{
     error: string | null;
 }>();
 
-const emit = defineEmits<{ like: [m: OfMessage]; delete: [m: OfMessage] }>();
+const emit = defineEmits<{ like: [m: OfMessage]; delete: [m: OfMessage]; resend: [m: OfMessage] }>();
 
 // ---- search (server, with client-filter fallback) ----
 const query = ref('');
@@ -43,6 +44,17 @@ function clearSearch() {
 
 const shown = computed(() => searchResults.value ?? props.messages);
 
+// Open/refresh at the newest message (bottom), like any chat app.
+const threadEl = ref<HTMLElement | null>(null);
+function scrollToBottom() {
+    const el = threadEl.value;
+
+    if (el) {
+el.scrollTop = el.scrollHeight;
+}
+}
+watch(() => props.messages, () => nextTick(scrollToBottom));
+
 function fmtTime(t: string | null): string {
     if (!t) {
 return '';
@@ -58,6 +70,16 @@ const showMedia = ref(false);
 const mediaItems = ref<Record<string, unknown>[]>([]);
 const mediaLoading = ref(false);
 
+// The component instance is reused across chat/creator switches, so close the gallery and
+// drop its items when the chat changes — otherwise a new chat shows the previous one's media.
+watch(
+    () => [props.modelId, props.chat.id],
+    () => {
+        showMedia.value = false;
+        mediaItems.value = [];
+    },
+);
+
 async function openMedia() {
     showMedia.value = true;
     mediaLoading.value = true;
@@ -72,8 +94,24 @@ async function openMedia() {
     }
 }
 
+// The gallery returns raw OnlyFans items in a few possible shapes — pull a CDN url from the
+// flat fields or the nested `files.*.url`, then load it through our proxy (the raw cdn urls are
+// IP-locked and 403 in the browser, same as message media).
 function thumb(item: Record<string, unknown>): string | null {
-    return (item.thumb || item.preview || item.squarePreview || item.src || item.full || item.url) as string | null;
+    const files = (item.files ?? {}) as Record<string, { url?: string } | undefined>;
+    const cdn = (item.thumb ||
+        item.preview ||
+        item.squarePreview ||
+        item.src ||
+        item.full ||
+        item.url ||
+        files.thumb?.url ||
+        files.preview?.url ||
+        files.squarePreview?.url ||
+        files.full?.url ||
+        null) as string | null;
+
+    return cdn ? ofApi.mediaUrl(props.modelId, cdn) : null;
 }
 </script>
 
@@ -106,7 +144,7 @@ function thumb(item: Record<string, unknown>): string | null {
         </div>
 
         <!-- Thread -->
-        <div class="flex-1 space-y-3 overflow-y-auto p-4">
+        <div ref="threadEl" class="flex-1 space-y-3 overflow-y-auto p-4 scrollbar-gutter-stable">
             <p v-if="searchResults" class="text-center text-[11px] text-ss-text-3">{{ shown.length }} result(s) · <button class="text-ss-accent-text" @click="clearSearch">clear</button></p>
             <div
                 v-for="(m, i) in shown"
@@ -116,15 +154,17 @@ function thumb(item: Record<string, unknown>): string | null {
             >
                 <div class="flex items-center gap-1.5" :class="m.from === 'creator' ? 'flex-row-reverse' : ''">
                     <div
-                        class="max-w-[78%] rounded-2xl px-3.5 py-2 text-[14px] leading-relaxed"
-                        :class="m.from === 'creator' ? 'bg-ss-accent text-white' : 'border border-ss-border bg-ss-surface-2 text-ss-text'"
+                        class="max-w-[78%] rounded-2xl px-3.5 py-2 text-[14px] leading-relaxed transition-opacity"
+                        :class="[m.from === 'creator' ? 'bg-ss-accent text-white' : 'border border-ss-border bg-ss-surface-2 text-ss-text', m.pending ? 'opacity-60' : '']"
                     >
+                        <SsMessageMedia v-if="m.media?.length" :media="m.media" :price="m.price" :model-id="modelId" />
                         <span v-if="m.text">{{ m.text }}</span>
-                        <span v-if="m.mediaCount" class="text-[12px] opacity-80">📎 {{ m.mediaCount }} media{{ m.price ? ` · $${m.price}` : '' }}</span>
-                        <span v-else-if="!m.text" class="text-[12px] opacity-70">(no text)</span>
+                        <!-- fallback: count-only when the API gave us no media objects (e.g. cached/locked with no preview) -->
+                        <span v-else-if="!m.media?.length && m.mediaCount" class="text-[12px] opacity-80">📎 {{ m.mediaCount }} media{{ m.price ? ` · $${m.price}` : '' }}</span>
+                        <span v-else-if="!m.text && !m.media?.length" class="text-[12px] opacity-70">(no text)</span>
                     </div>
-                    <!-- hover actions -->
-                    <div class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <!-- hover actions (real messages only) -->
+                    <div v-if="!m.pending && !m.failed" class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                         <button type="button" class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:text-ss-neg" :class="{ 'text-ss-neg': m.isLiked }" title="Like / unlike" @click="emit('like', m)">
                             <Heart :size="13" :fill="m.isLiked ? 'currentColor' : 'none'" />
                         </button>
@@ -133,8 +173,23 @@ function thumb(item: Record<string, unknown>): string | null {
                         </button>
                     </div>
                 </div>
-                <span class="mt-1 px-1 text-[10px] text-ss-text-3">
-                    {{ m.from === 'creator' ? chat.name + ' · you' : chat.name }} · {{ fmtTime(m.time) }}
+                <span class="mt-1 flex items-center gap-1 px-1 text-[10px] text-ss-text-3">
+                    {{ m.from === 'creator' ? chat.name + ' · you' : chat.name }}
+                    <template v-if="m.pending">
+                        · <LoaderCircle :size="11" class="animate-spin" /> sending…
+                    </template>
+                    <template v-else-if="m.failed">
+                        · <AlertCircle :size="11" class="text-ss-neg" /> <span class="text-ss-neg">not sent</span>
+                        <button
+                            type="button"
+                            class="ml-1 inline-flex items-center gap-0.5 rounded px-1 font-medium text-ss-accent-text hover:bg-ss-accent-soft"
+                            title="Resend this message"
+                            @click="emit('resend', m)"
+                        >
+                            <RefreshCw :size="10" /> Resend
+                        </button>
+                    </template>
+                    <template v-else>· {{ fmtTime(m.time) }}</template>
                     <span v-if="m.isTip" class="text-ss-tip">· tip</span>
                 </span>
             </div>

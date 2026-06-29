@@ -7,16 +7,17 @@ function cookie(name: string): string {
     return m ? decodeURIComponent(m[2]) : '';
 }
 
-export async function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
+/** Generic same-origin JSON request (GET/POST/PUT/PATCH/DELETE) with the XSRF header. */
+export async function reqJson<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
     const res = await fetch(url, {
-        method: 'POST',
+        method,
         credentials: 'same-origin',
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
             'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
         },
-        body: JSON.stringify(body),
+        body: body === undefined ? undefined : JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -26,4 +27,8 @@ export async function postJson<T = unknown>(url: string, body: unknown): Promise
     }
 
     return res.json();
+}
+
+export function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
+    return reqJson<T>('POST', url, body);
 }

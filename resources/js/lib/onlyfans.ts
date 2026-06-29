@@ -1,4 +1,5 @@
 import { postJson } from '@/lib/api';
+import type { AiStrategy } from '@/types/crm';
 
 /** Live OnlyFans proxy client. All calls hit /onlyfans/{model}/… and return the
  *  controller's normalised JSON. Nothing is cached/persisted. */
@@ -37,6 +38,8 @@ export const ofApi = {
         req<{ messages: unknown[] }>('GET', `${base(m)}/chats/${chat}/messages/search?query=${encodeURIComponent(query)}`),
     media: (m: number, chat: string) =>
         req<{ items: unknown[]; hasMore: boolean; next: number | null }>('GET', `${base(m)}/chats/${chat}/media`),
+    /** Proxied URL for an IP-locked OnlyFans CDN file — safe to use as an <img>/<video> src. */
+    mediaUrl: (m: number, cdnUrl: string) => `${base(m)}/media?url=${encodeURIComponent(cdnUrl)}`,
     send: (m: number, chat: string, text: string) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, { text }),
     deleteMessage: (m: number, chat: string, id: string) =>
@@ -48,5 +51,5 @@ export const ofApi = {
     fan: (m: number, fanId: string) =>
         req<{ fan: unknown }>('GET', `${base(m)}/users/${fanId}`),
     generate: (m: number, chat: string, payload: object) =>
-        postJson<{ draft: string; strategy: Record<string, unknown> | null; telemetry: Record<string, unknown> | null }>(`${base(m)}/chats/${chat}/generate`, payload),
+        postJson<{ draft: string; strategy: AiStrategy | null; telemetry: Record<string, unknown> | null }>(`${base(m)}/chats/${chat}/generate`, payload),
 };

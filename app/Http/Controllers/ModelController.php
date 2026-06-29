@@ -8,6 +8,7 @@ use App\Models\ModelAssignment;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -23,20 +24,21 @@ class ModelController extends Controller
         $assignments = ModelAssignment::query()->get()->groupBy('creator_model');
 
         return Inertia::render('Models', [
-            'models' => AichModel::query()->orderBy('name')->get()->map(fn (AichModel $m) => [
-                'id' => $m->id,
-                'name' => $m->name,
-                'tier' => $m->tier,
-                'prompt' => $m->prompt,
-                'content_library' => $m->content_library,
-                'feedback_rules' => $m->feedback_rules,
-                'of_account_id' => $m->of_account_id,
-                'assigned' => $assignments->get($m->name, collect())->pluck('user_id')->values(),
-            ]),
-            'chatters' => User::query()
-                ->whereIn('role', [UserRole::Chatter, UserRole::Manager])
-                ->orderBy('name')->get(['id', 'name', 'role'])
-                ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name, 'role' => $u->role->value]),
+            'models' => AichModel::query()->orderBy('name')->get()->map(
+                fn (AichModel $m) => $this->serializeModel($m, $assignments->get($m->name, collect())->pluck('user_id')->values()->all())
+            ),
+            'chatters' => $this->chatters(),
+        ]);
+    }
+
+    public function show(AichModel $model): Response
+    {
+        $assigned = ModelAssignment::query()->where('creator_model', $model->name)->pluck('user_id')->values()->all();
+
+        return Inertia::render('ModelShow', [
+            'model' => $this->serializeModel($model, $assigned),
+            'connected' => ! empty($model->of_account_id),
+            'chatters' => $this->chatters(),
         ]);
     }
 
@@ -77,6 +79,33 @@ class ModelController extends Controller
         }
 
         return back()->with('success', "{$model->name} assignments updated");
+    }
+
+    /**
+     * @param  list<int>  $assigned
+     * @return array<string, mixed>
+     */
+    private function serializeModel(AichModel $model, array $assigned): array
+    {
+        return [
+            'id' => $model->id,
+            'name' => $model->name,
+            'tier' => $model->tier,
+            'prompt' => $model->prompt,
+            'content_library' => $model->content_library,
+            'feedback_rules' => $model->feedback_rules,
+            'of_account_id' => $model->of_account_id,
+            'assigned' => $assigned,
+        ];
+    }
+
+    /** Chatters + managers, for the assignment editor. */
+    private function chatters(): Collection
+    {
+        return User::query()
+            ->whereIn('role', [UserRole::Chatter, UserRole::Manager])
+            ->orderBy('name')->get(['id', 'name', 'role'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name, 'role' => $u->role->value]);
     }
 
     /** @return array<string, mixed> */

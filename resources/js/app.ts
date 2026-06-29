@@ -1,10 +1,17 @@
 import { createInertiaApp } from '@inertiajs/vue3';
+import { configureEcho } from '@laravel/echo-vue';
 import { initializeTheme } from '@/composables/useAppearance';
 import AppLayout from '@/layouts/AppLayout.vue';
 import AuthLayout from '@/layouts/AuthLayout.vue';
 import SettingsLayout from '@/layouts/settings/Layout.vue';
 import SmartStarsLayout from '@/layouts/SmartStarsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
+
+// Laravel Echo (Reverb) — reads VITE_REVERB_* from the env. Powers live OnlyFans
+// inbound messages on the Conversations view via private per-creator channels.
+configureEcho({
+    broadcaster: 'reverb',
+});
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -22,6 +29,7 @@ createInertiaApp({
             case name === 'Dashboard':
             case name === 'Conversations':
             case name === 'Models':
+            case name === 'ModelShow':
             case name === 'DevGenerate':
                 return SmartStarsLayout;
             default:

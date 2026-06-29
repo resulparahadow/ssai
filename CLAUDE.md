@@ -37,7 +37,9 @@ Later phases build the other CRM views and may port the engine to PHP. See
 │   │   ├── AI/{AnthropicService,MistralService}.php   ← server-held keys (proxy ports, STUBS)
 │   │   ├── OnlyFans/OnlyFansService.php               ← OF client (helpers real, sync STUB)
 │   │   └── Doctrine/DoctrineService.php               ← active row + integrity hash
-│   ├── Http/Controllers/Webhooks/OnlyFansWebhookController.php  ← webhook STUB
+│   ├── Http/Controllers/Webhooks/OnlyFansWebhookController.php  ← messages.received → broadcast
+│   ├── Events/OnlyFansMessageReceived.php  ← broadcasts inbound on private creator.{id}
+│   ├── Broadcasting/CreatorChannel.php     ← authorizes that channel (creator access scope)
 │   └── Providers/AppServiceProvider.php  ← role gates defined in configureGates()
 ├── database/migrations/              ← schema (mirror of legacy Supabase tables + doctrines)
 ├── resources/
@@ -130,23 +132,105 @@ engine uses its in-process copy. Provider keys live in the engine's env
     list chats, list/get/search messages, chat media gallery, send (text-only), delete,
     like/unlike, fan details, and AI `generate` (a transient engine session built from the
     live thread — no DB row). Access is scoped in the controller (chatter → assigned creators).
+    **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
+    (`normalizeMedia`: type/canView/thumb/preview/full/duration/dims) instead of only `mediaCount`;
+    `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ + duration,
+    locked/PPV = 🔒 + price) and `SsMediaLightbox` is the full-screen viewer (prev/next + arrow/Esc).
+    DRM video has no plain url, so videos show the poster only (no inline streaming). **CDN urls are
+    IP-locked** (`cdn*.onlyfans.com` is bound to the proxy IP → 403/`ERR_BLOCKED_BY_ORB` in the
+    browser), so every media src loads through `GET /onlyfans/{model}/media?url=<cdn>`
+    (`OnlyFansChatController::mediaFile` → `OnlyFansService::downloadMedia`, the API's
+    `media/download/{cdnUrl}` endpoint; SSRF-guarded to onlyfans.com hosts, cached server-side by
+    file path so repeat views don't re-bill). Frontend builds the url via `ofApi.mediaUrl()`.
+    The right rail is **tabbed (Fan / AI Intel)**: `SsAiIntel` renders the legacy AI-Intelligence
+    dashboard (temperature gauge, Connection/Customer Type/Phase/Engagement, Framework Calibration,
+    Message Purpose, Next Move, Warning) straight from the `generate` response's `strategy` object
+    (the legacy "analysis" is folded into the strategy — no separate `/analyze` call); `SsComposer`
+    emits the strategy up via `@result`, which auto-switches the rail to AI Intel. Reset per chat.
+    Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
+    (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
+    background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.
+    `SsChatThread` auto-scrolls to the newest message (bottom) on open/refresh. The bigger
+    upgrade path if the data layer grows is `@tanstack/vue-query` (staleness windows, dedup,
+    pagination). **Realtime inbound is wired** (see below): the page subscribes to the active
+    creator's private Reverb channel and `onInbound` appends to the open thread + bumps unread/
+    preview in the list (still nothing persisted).
   - **Creator Models** (`/models`, manager/admin via `can:manage-team`) — `ModelController`
-    CRUD over `aich_models` (persona/library/rules/OF-id/tier) + chatter assignment sync.
+    CRUD over `aich_models` (persona/library/rules/OF-id/tier) + chatter assignment sync. The
+    **index** (`Models.vue`) is a card grid (avatar, tier, green "OnlyFans connected" dot when
+    `of_account_id` is set, assigned-chatter count) → each card opens the **show page**
+    (`ModelController@show` → `ModelShow.vue`): edit the model's own fields + assignments, plus —
+    when an OF account is mapped — a tabbed panel of **live** OnlyFans account data (nothing
+    persisted) served by `ModelOnlyFansController` under `models/{model}/of/*` (also manage-team
+    gated, so no per-creator assignment scope, unlike the chatter-facing `OnlyFansChatController`).
+    Six tabs (`resources/js/components/crm/models/`, client via `lib/onlyfansModel.ts` → `ofModel`):
+    **Fans** (`SsModelFans` — active list / top spenders + per-fan subscription history, read-only),
+    **OnlyFans Settings** (`SsModelSettings` — editable profile name/bio/location/website/wishlist +
+    subscription price, read-only account flags), **Welcome Message** (`SsModelWelcome` — text edit +
+    active toggle, media preview reuses `SsMessageMedia`), **Notifications** (`SsModelNotifications` —
+    type-filtered feed + per-type counts + mark-all-read), **Users** (`SsModelUsers` — lookup a fan by
+    id/username → profile + Block/Restrict/Subscribe toggles, each POST to act / DELETE to undo; or
+    comma-separate up to 10 ids for a **mass lookup** (`users/list`) → pick a result to manage),
+    **Links** (`SsModelLinks` — a 4-way subswitch: **Free trial** + **Tracking** (`list`/`create`/
+    `delete`/per-link `stats`), **Smart links** (`SsModelSmartLinks` — list/create/delete + an
+    expandable per-link detail with inner tabs: Stats, Conversions, Fans, Spenders, Clicks, Tags
+    add/remove), **Link tags** (`SsModelLinkTags` — agency-wide tag list, optional type filter)).
+    Smart links are an **agency-level** OF resource (`/smart-links`, no `{acct}` path segment): list is
+    scoped to the creator via `account_ids=<of_account_id>`, create injects `account_id`; per-link ops
+    (`/smart-links/{id}/…`) address the smart-link id directly (still `manage-team` gated).
+    The show header runs a **live** connection check via `GET {acct}/me` (`isAuth` + real OF
+    avatar/@username/subscriber count). `OnlyFansService` methods: `getMe`, `getUser`/`listUserDetails`, `listFans`/`listTopFans`/
+    `getFanSubscriptionHistory`, `getSettings`/`updateProfile`/`updateSubscriptionPrice`, welcome
+    get/update/toggle, `listNotifications`/`getNotificationCounts`/`markAllNotificationsRead`,
+    `block`/`restrict`/`subscribe` (+ un* via DELETE), tracking/trial `list*`/`create*`/`delete*`/
+    `get*Stats`, smart-link `listSmartLinks`/`createSmartLink`/`deleteSmartLink`/`getSmartLinkStats`/
+    `listSmartLink{Fans,Spenders,Clicks,Conversions,Tags}`/`add|removeSmartLinkTags`, `listLinkTags`
+    (+ matching `normalizeSmartLink*`). **Note:** these `models/{model}/of/*` routes are not under
+    `api/*`, so `bootstrap/app.php`'s `shouldRenderJsonWhen` would turn a `ValidationException` into a
+    302 redirect — `ModelOnlyFansController::validateJson()` throws an `HttpResponseException` to force
+    a real JSON 422 for the `fetch` client. Deferred (read-but-not-built): social buttons,
+    DRM/blocked-country editing, fan notes/custom-name, fans-AI-summary, welcome media/price,
+    **smart-link cohort-ARPS** (no 200 response shape is documented, so left unimplemented) +
+    smart-link postbacks, shared/stored link variants, notification tabs-order.
 - **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
   is the proxy for chats/messages/media/send/delete/like/unlike/users; send is text-only (PPV
   blocked, v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id` per creator. Confirmed
   paths: `GET {acct}/chats`, `GET {acct}/chats/{chat}/messages[/{id}|/search]`, `GET {acct}/chats/{chat}/media`,
   `POST {acct}/chats/{chat}/messages` (send), `DELETE …/messages/{id}`, `POST …/messages/{id}/like|unlike`,
   `GET {acct}/users/{id}`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
-  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **webhook
-  ingestion** (`messages.received` → thread) and **PPV/tip + media sends**.
+  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **PPV/tip +
+  media sends**.
+- **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
+  (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)
+  handles `messages.received`: resolves the creator by `of_account_id`, normalises the message
+  (`OnlyFansService::normalizeMessage`), and dispatches `OnlyFansMessageReceived`
+  (`ShouldBroadcastNow`) on private `creator.{id}` (authorized by `App\Broadcasting\CreatorChannel`,
+  same access scope as the chat controller). The browser uses `@laravel/echo-vue` (`configureEcho`
+  in `app.ts`, reads `VITE_REVERB_*`). Channel subscriptions are centralized in
+  `resources/js/lib/realtimeInbound.ts` (one private `creator.{id}` subscription per assigned
+  creator, kept for the session; events fan out to registered handlers + an `activeChat` tracker)
+  so the page UI updater and the app-wide notifier don't fight over `echo().leave`. `Conversations.vue`
+  registers its thread/list updater; **`useInboundNotifications`** (started from `SmartStarsLayout`
+  + `AppLayout`, so alerts fire on any authenticated page) shows a `vue-sonner` toast + plays a short
+  synthesized "bing" (`lib/sound.ts`), gated by client-side prefs in `lib/notificationPrefs.ts`
+  (localStorage: `showToast`/`playSound`/`volume`; the notifier stays quiet for the chat you're
+  actively viewing in a focused tab). Prefs are editable in two places sharing that store: a quick
+  bell menu in the Conversations list header (`SsNotifyMenu`) and `/settings/notifications`
+  (`settings/Notifications.vue`). Nothing is persisted server-side — it only mirrors live to open
+  browsers. Run Reverb with `php artisan reverb:start` (now part of `composer run dev`); real OF
+  delivery needs a public URL (tunnel) + the webhook subscribed to `messages.received` (no secret
+  yet). Deferred: `messages.sent`/outbound echo, signature verification, inbound media/PPV rendering,
+  browser/system (Notification API) alerts.
 - **Production data migration** from the old Supabase project.
 
 ## Workflow
 
 - **Run**: `composer run dev` (serves app + vite + queue) or `php artisan serve` + `npm run dev`.
-- **Engine**: `ANTHROPIC_API_KEY=… OPENROUTER_API_KEY=… node engine/server.js` (port 8787);
-  exercise it at `/dev/generate`. Without keys the pipeline runs but returns an empty draft.
+- **Engine**: `node engine/server.js` (port 8787) — it auto-loads `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`
+  (+ `*_MODEL`) from `.env` if unset, so no manual export is needed; exercise it at `/dev/generate`.
+  Without keys the pipeline runs but returns an empty draft. On `EADDRINUSE` it means an engine is
+  already running — `lsof -ti tcp:8787 | xargs kill` (or set `ENGINE_PORT`). Conversations' Generate
+  surfaces a 503 if the engine is unreachable.
 - **OnlyFans**: set `ONLYFANS_API_KEY` in `.env` + map `aich_models.of_account_id` (acct_…) per
   creator; then `/conversations` → pick the creator (sidebar) → chats/messages load **live**,
   Generate (engine) → Send posts live; like/unlike/delete/search/media all hit OnlyFans directly.

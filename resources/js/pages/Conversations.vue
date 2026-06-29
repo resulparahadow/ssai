@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import SsAiIntel from '@/components/crm/conversations/SsAiIntel.vue';
 import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
 import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
+import { chatComposer, chatsCache, fanCache, msgCache } from '@/lib/conversationCache';
 import { ofApi } from '@/lib/onlyfans';
+import { ensureSubscribed,  onInboundMessage, setActiveChat } from '@/lib/realtimeInbound';
+import type {InboundPayload} from '@/lib/realtimeInbound';
 import type { OfChat, OfFan, OfMessage, SidebarCreator } from '@/types/crm';
 
 const props = defineProps<{ selectedCreator: string | null }>();
@@ -26,73 +30,342 @@ const chats = ref<OfChat[]>([]);
 const chatsLoading = ref(false);
 const chatsError = ref<string | null>(null);
 const selected = ref<OfChat | null>(null);
+const activeModelId = ref<number | null>(null);
 
 const messages = ref<OfMessage[]>([]);
 const msgsLoading = ref(false);
 const msgsError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
 
-async function loadChats() {
-    selected.value = null;
-    messages.value = [];
-    fan.value = null;
+// Right rail: Fan / AI Intel tabs.
+const rail = ref<'fan' | 'ai'>('fan');
 
-    if (!model.value || !model.value.hasOf) {
+// The open chat's composer state (draft / generating / AI strategy). Per-chat,
+// so loading + results stay attached to the chat they belong to and drafts are
+// preserved across switches.
+const cur = computed(() => (selected.value ? chatComposer(selected.value.id) : null));
+
+async function generate() {
+    const m = model.value;
+    const chat = selected.value;
+
+    if (!m || !chat) {
+        return;
+    }
+
+    const chatId = chat.id;
+    const st = chatComposer(chatId);
+    st.generating = true;
+    st.error = null;
+
+    try {
+        // Use the cached thread for THIS chat, not whatever is on screen now.
+        const thread = msgCache.get(chatId) ?? (selected.value?.id === chatId ? messages.value : []);
+        const data = await ofApi.generate(m.id, chatId, {
+            messages: thread.map((mm) => ({ from: mm.from, text: mm.text, time: mm.time })),
+            customer: { id: chatId },
+            api: 'claude',
+        });
+
+        st.suggestion = data.draft || null;
+        st.strategy = data.strategy;
+
+        if (!data.draft) {
+            st.error = 'Engine returned an empty draft (is the engine running with an API key?).';
+        } else if (data.strategy && selected.value?.id === chatId) {
+            rail.value = 'ai'; // surface intel only if this chat is still open
+        }
+    } catch (e) {
+        st.error = e instanceof Error ? e.message : String(e);
+    } finally {
+        st.generating = false;
+    }
+}
+
+/** Accept the suggestion into the typing bar to edit before sending. */
+function acceptSuggestion() {
+    const st = cur.value;
+
+    if (!st || !st.suggestion) {
+        return;
+    }
+
+    st.draft = st.suggestion;
+    st.suggestion = null;
+}
+
+/** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
+async function acceptAndSend() {
+    const st = cur.value;
+
+    if (!st || !st.suggestion) {
+        return;
+    }
+
+    const text = st.suggestion;
+    st.suggestion = null;
+    await send(text);
+}
+
+function dismissSuggestion() {
+    if (cur.value) {
+        cur.value.suggestion = null;
+    }
+}
+
+async function send(override?: string) {
+    const m = model.value;
+    const chat = selected.value;
+
+    if (!m || !chat) {
+        return;
+    }
+
+    const chatId = chat.id;
+    const st = chatComposer(chatId);
+    // Accept & Send passes the suggestion directly so it never lands in the typing bar.
+    const text = (override ?? st.draft).trim();
+
+    if (!text) {
+        return;
+    }
+
+    st.sending = true;
+    st.error = null;
+
+    // Optimistic bubble: show the message in the thread immediately with a
+    // "sending" indicator, then reconcile with what OnlyFans returns.
+    const tempId = `pending-${Date.now()}`;
+    const optimistic: OfMessage = {
+        id: tempId,
+        from: 'creator',
+        text,
+        time: new Date().toISOString(),
+        price: 0,
+        isFree: true,
+        isOpened: false,
+        isLiked: false,
+        isTip: false,
+        mediaCount: 0,
+        media: [],
+        pending: true,
+    };
+
+    if (selected.value?.id === chatId) {
+        messages.value = [...messages.value, optimistic];
+    }
+
+    try {
+        const res = await ofApi.send(m.id, chatId, text);
+        const sent = (res.message as OfMessage) ?? { ...optimistic, pending: false };
+
+        // Swap the temp bubble for the confirmed message + keep the cache in sync.
+        const cached = msgCache.get(chatId);
+        msgCache.set(chatId, cached ? [...cached, sent] : [sent]);
+
+        if (selected.value?.id === chatId) {
+            messages.value = messages.value.map((x) => (x.id === tempId ? sent : x));
+            rail.value = 'fan'; // the turn is done — back to the fan view
+        }
+
+        st.draft = '';
+        st.suggestion = null;
+        // Keep st.strategy: the AI Intel for this chat stays available so reopening
+        // the chat (or the AI Intel tab) still shows the last analysis. A new
+        // Generate overwrites it.
+    } catch (e) {
+        st.error = e instanceof Error ? e.message : String(e);
+
+        // Mark the optimistic bubble as failed so it doesn't look sent.
+        if (selected.value?.id === chatId) {
+            messages.value = messages.value.map((x) => (x.id === tempId ? { ...x, pending: false, failed: true } : x));
+        }
+    } finally {
+        st.sending = false;
+    }
+}
+
+/** Retry a previously-failed optimistic message in place. */
+async function resend(failed: OfMessage) {
+    const m = model.value;
+    const chat = selected.value;
+    const tempId = failed.id;
+
+    if (!m || !chat || !tempId || !failed.text) {
+        return;
+    }
+
+    const chatId = chat.id;
+    const setMsg = (patch: Partial<OfMessage>) => {
+        if (selected.value?.id === chatId) {
+            messages.value = messages.value.map((x) => (x.id === tempId ? { ...x, ...patch } : x));
+        }
+    };
+
+    setMsg({ pending: true, failed: false });
+
+    try {
+        const res = await ofApi.send(m.id, chatId, failed.text);
+        const sent = (res.message as OfMessage) ?? { ...failed, pending: false, failed: false };
+
+        const cached = msgCache.get(chatId);
+        msgCache.set(chatId, cached ? [...cached, sent] : [sent]);
+
+        if (selected.value?.id === chatId) {
+            messages.value = messages.value.map((x) => (x.id === tempId ? sent : x));
+        }
+    } catch {
+        setMsg({ pending: false, failed: true });
+    }
+}
+
+async function loadChats() {
+    const m = model.value;
+
+    // Reset the open conversation only when the creator actually changes — not on
+    // a same-creator revisit/Refresh (which would needlessly blank the thread).
+    if (activeModelId.value !== (m?.id ?? null)) {
+        selected.value = null;
+        messages.value = [];
+        fan.value = null;
+        rail.value = 'fan';
+        activeModelId.value = m?.id ?? null;
+    }
+
+    if (!m || !m.hasOf) {
         chats.value = [];
-        chatsError.value = model.value && !model.value.hasOf ? 'No OnlyFans account connected for this creator (set it on Creator Models).' : null;
+        chatsError.value = m && !m.hasOf ? 'No OnlyFans account connected for this creator (set it on Creator Models).' : null;
 
         return;
     }
 
+    // Serve the cached list instantly so it never blanks on a revisit; show the
+    // top indicator while we revalidate against OnlyFans in the background.
+    const cached = chatsCache.get(m.id);
+    chats.value = cached ?? [];
     chatsLoading.value = true;
     chatsError.value = null;
 
     try {
-        const r = await ofApi.chats(model.value.id);
-        chats.value = r.chats as OfChat[];
+        const r = await ofApi.chats(m.id);
+        const list = r.chats as OfChat[];
+
+        // The currently-open chat has been seen — keep its badge cleared even if the
+        // server still reports it unread, so a background revalidation can't flash it back.
+        const openId = selected.value?.id;
+
+        if (openId) {
+            const open = list.find((c) => c.id === openId);
+
+            if (open) {
+                open.unread = 0;
+            }
+        }
+
+        chatsCache.set(m.id, list);
+
+        if (model.value?.id === m.id) {
+            chats.value = list; // ignore if the user already switched creators
+        }
     } catch (e) {
-        chatsError.value = e instanceof Error ? e.message : String(e);
-        chats.value = [];
+        if (model.value?.id === m.id) {
+            chatsError.value = e instanceof Error ? e.message : String(e);
+
+            if (!cached) {
+                chats.value = []; // keep the stale list if we had one cached
+            }
+        }
     } finally {
-        chatsLoading.value = false;
+        if (model.value?.id === m.id) {
+            chatsLoading.value = false;
+        }
     }
 }
 
-async function openChat(chat: OfChat) {
+async function fetchMessages(chatId: string, background = false) {
     if (!model.value) {
-return;
+        return;
+    }
+
+    if (!background) {
+        msgsError.value = null;
+        msgsLoading.value = true;
+    }
+
+    try {
+        const r = await ofApi.messages(model.value.id, chatId);
+        const list = r.messages as OfMessage[];
+        msgCache.set(chatId, list);
+
+        if (selected.value?.id === chatId) {
+            messages.value = list; // ignore if the user already moved on
+
+            // The freshest thread (incl. any new inbound message) is now loaded and on
+            // screen — the fan's messages have been seen, so clear the unread badge.
+            if (selected.value.unread > 0) {
+                selected.value.unread = 0;
+            }
+        }
+    } catch (e) {
+        if (!background && selected.value?.id === chatId) {
+            msgsError.value = e instanceof Error ? e.message : String(e);
+        }
+    } finally {
+        if (!background) {
+            msgsLoading.value = false;
+        }
+    }
 }
+
+async function fetchFan(chatId: string, background = false) {
+    if (!model.value) {
+        return;
+    }
+
+    try {
+        const f = await ofApi.fan(model.value.id, chatId);
+        const got = f.fan as OfFan;
+        fanCache.set(chatId, got);
+
+        if (selected.value?.id === chatId) {
+            fan.value = got;
+        }
+    } catch {
+        if (!background && selected.value?.id === chatId) {
+            fan.value = null;
+        }
+    }
+}
+
+function openChat(chat: OfChat) {
+    if (!model.value) {
+        return;
+    }
 
     selected.value = chat;
-    messages.value = [];
-    fan.value = null;
-    msgsError.value = null;
-    msgsLoading.value = true;
 
-    try {
-        const r = await ofApi.messages(model.value.id, chat.id);
-        messages.value = r.messages as OfMessage[];
-    } catch (e) {
-        msgsError.value = e instanceof Error ? e.message : String(e);
-    } finally {
+    // Show AI Intel if this chat already has a generated strategy, else the Fan tab.
+    rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
+
+    // Messages — serve cache instantly, then revalidate in the background.
+    if (msgCache.has(chat.id)) {
+        messages.value = msgCache.get(chat.id)!;
         msgsLoading.value = false;
+        msgsError.value = null;
+        fetchMessages(chat.id, true);
+    } else {
+        messages.value = [];
+        fetchMessages(chat.id);
     }
 
-    try {
-        const f = await ofApi.fan(model.value.id, chat.id);
-        fan.value = f.fan as OfFan;
-    } catch {
+    // Fan intel — same pattern.
+    if (fanCache.has(chat.id)) {
+        fan.value = fanCache.get(chat.id)!;
+        fetchFan(chat.id, true);
+    } else {
         fan.value = null;
+        fetchFan(chat.id);
     }
-}
-
-async function refreshMessages() {
-    if (!model.value || !selected.value) {
-return;
-}
-
-    const r = await ofApi.messages(model.value.id, selected.value.id);
-    messages.value = r.messages as OfMessage[];
 }
 
 async function onLike(m: OfMessage) {
@@ -131,6 +404,106 @@ return;
 }
 
 watch(model, () => loadChats(), { immediate: true });
+
+// ---- Realtime inbound (OnlyFans `messages.received` webhook → Reverb) ----
+// We subscribe to the active creator's private channel and reflect new fan messages
+// live: append to the open thread, and bump unread + preview/time in the chat list
+// for chats that aren't open. Nothing is persisted.
+
+function deriveInitials(name: string): string {
+    return (
+        name
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((w) => w[0]?.toUpperCase() ?? '')
+            .join('') || '?'
+    );
+}
+
+function applyToChatList(chatId: string, message: OfMessage, fan: InboundPayload['fan'], isOpen: boolean) {
+    const existing = chats.value.find((c) => c.id === chatId);
+
+    if (existing) {
+        existing.preview = message.text || existing.preview;
+        existing.time = message.time ?? existing.time;
+
+        if (!isOpen) {
+            existing.unread = (existing.unread ?? 0) + 1;
+        }
+
+        return;
+    }
+
+    // A fan we haven't loaded a chat card for yet — surface it at the top of the list.
+    const name = fan.name || fan.username || chatId;
+    chats.value.unshift({
+        id: chatId,
+        name,
+        username: fan.username ?? null,
+        avatar: fan.avatar ?? null,
+        initials: deriveInitials(name),
+        preview: message.text || '',
+        time: message.time ?? null,
+        unread: isOpen ? 0 : 1,
+        canSend: true,
+    });
+}
+
+function onInbound(payload: InboundPayload) {
+    const { chatId, message, fan } = payload;
+
+    if (!model.value || payload.creatorId !== model.value.id) {
+        return;
+    }
+
+    const isOpen = selected.value?.id === chatId;
+
+    // Thread / msgCache — append (dedup by id), replacing the array so the open thread
+    // re-renders and auto-scrolls. chats.value and chatsCache share their backing array,
+    // so the list update below keeps the cache in sync without a separate write.
+    const cachedThread = msgCache.get(chatId);
+
+    if (cachedThread) {
+        const dup = message.id != null && cachedThread.some((x) => x.id === message.id);
+
+        if (!dup) {
+            const next = [...cachedThread, message];
+            msgCache.set(chatId, next);
+
+            if (isOpen) {
+                messages.value = next;
+            }
+        }
+    } else if (isOpen) {
+        const dup = message.id != null && messages.value.some((x) => x.id === message.id);
+
+        if (!dup) {
+            messages.value = [...messages.value, message];
+            msgCache.set(chatId, messages.value);
+        }
+    }
+
+    applyToChatList(chatId, message, fan, isOpen);
+}
+
+// Channel subscriptions are owned by the shared realtime module (so the app-wide notifier
+// and this page don't fight over leaving channels). We just ensure our creators are joined
+// and register a handler that updates the live UI; the module fans events to every handler.
+ensureSubscribed(creators.value.map((c) => c.id));
+const stopInbound = onInboundMessage(onInbound);
+
+// Tell the notifier which chat is open, so it stays quiet for the message you're watching.
+watch(
+    [() => model.value?.id ?? null, () => selected.value?.id ?? null],
+    ([modelId, chatId]) => setActiveChat(modelId, chatId),
+    { immediate: true },
+);
+
+onBeforeUnmount(() => {
+    stopInbound();
+    setActiveChat(null, null);
+});
 </script>
 
 <template>
@@ -156,18 +529,48 @@ watch(model, () => loadChats(), { immediate: true });
                 :error="msgsError"
                 @like="onLike"
                 @delete="onDelete"
+                @resend="resend"
             >
-                <template #composer>
+                <template v-if="cur" #composer>
                     <SsComposer
-                        :model-id="model.id"
-                        :chat-id="selected.id"
                         :creator="model.name"
-                        :messages="messages"
-                        @sent="refreshMessages"
+                        :draft="cur.draft"
+                        :suggestion="cur.suggestion"
+                        :generating="cur.generating"
+                        :sending="cur.sending"
+                        :error="cur.error"
+                        @update:draft="cur.draft = $event"
+                        @generate="generate"
+                        @send="send"
+                        @accept="acceptSuggestion"
+                        @accept-send="acceptAndSend"
+                        @dismiss="dismissSuggestion"
                     />
                 </template>
             </SsChatThread>
-            <SsFanPanel :fan="fan" />
+
+            <aside class="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-ss-border bg-ss-surface">
+                <div class="flex shrink-0 border-b border-ss-border p-1.5">
+                    <button
+                        type="button"
+                        class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
+                        :class="rail === 'fan' ? 'bg-ss-surface-2 text-ss-text' : 'text-ss-text-3 hover:text-ss-text-2'"
+                        @click="rail = 'fan'"
+                    >
+                        Fan
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
+                        :class="rail === 'ai' ? 'bg-ss-surface-2 text-ss-text' : 'text-ss-text-3 hover:text-ss-text-2'"
+                        @click="rail = 'ai'"
+                    >
+                        AI Intel
+                    </button>
+                </div>
+                <SsFanPanel v-show="rail === 'fan'" :fan="fan" />
+                <SsAiIntel v-show="rail === 'ai'" :strategy="cur?.strategy ?? null" />
+            </aside>
         </template>
 
         <div v-else class="grid flex-1 place-items-center rounded-xl border border-ss-border bg-ss-surface text-[13px] text-ss-text-3">

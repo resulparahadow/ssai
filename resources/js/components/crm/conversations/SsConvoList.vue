@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { RefreshCw, Search } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
+import { chatDraft } from '@/lib/conversationCache';
 import type { OfChat } from '@/types/crm';
 
 const props = defineProps<{
@@ -27,16 +29,19 @@ const filtered = computed(() => {
         <div class="space-y-2 border-b border-ss-border p-3">
             <div class="flex items-center justify-between">
                 <span class="truncate text-[13px] font-semibold text-ss-text">{{ creator ?? 'Conversations' }}</span>
-                <button
-                    type="button"
-                    :disabled="loading"
-                    class="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
-                    title="Reload chats from OnlyFans"
-                    @click="emit('refresh')"
-                >
-                    <RefreshCw :size="12" :class="loading ? 'animate-spin' : ''" />
-                    {{ loading ? 'Loading…' : 'Refresh' }}
-                </button>
+                <div class="flex shrink-0 items-center gap-1">
+                    <SsNotifyMenu />
+                    <button
+                        type="button"
+                        :disabled="loading"
+                        class="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
+                        title="Reload chats from OnlyFans"
+                        @click="emit('refresh')"
+                    >
+                        <RefreshCw :size="12" :class="loading ? 'animate-spin' : ''" />
+                        {{ loading ? 'Loading…' : 'Refresh' }}
+                    </button>
+                </div>
             </div>
             <div class="relative flex items-center">
                 <Search :size="14" class="absolute left-2.5 text-ss-text-3" />
@@ -70,11 +75,17 @@ const filtered = computed(() => {
                             class="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-ss-accent px-1 text-[10px] font-semibold text-white"
                         >{{ c.unread }}</span>
                     </span>
-                    <span class="mt-0.5 block truncate text-[12px] text-ss-text-3">{{ c.preview || '—' }}</span>
+                    <span class="mt-0.5 block truncate text-[12px]">
+                        <template v-if="chatDraft(c.id)">
+                            <span class="font-medium text-ss-neg">Draft:</span>
+                            <span class="text-ss-text-3"> {{ chatDraft(c.id) }}</span>
+                        </template>
+                        <span v-else class="text-ss-text-3">{{ c.preview || '—' }}</span>
+                    </span>
                 </span>
             </button>
 
-            <p v-if="loading" class="px-2 py-6 text-center text-[13px] text-ss-text-3">Loading chats…</p>
+            <p v-if="loading && !filtered.length" class="px-2 py-6 text-center text-[13px] text-ss-text-3">Loading chats…</p>
             <p v-else-if="error" class="px-2 py-6 text-center text-[12px] text-ss-neg">{{ error }}</p>
             <p v-else-if="!filtered.length" class="px-2 py-6 text-center text-[13px] text-ss-text-3">No conversations.</p>
         </div>

@@ -52,6 +52,60 @@ it('lists messages and tags sender by fan id', function () {
         ->assertJsonPath('messages.1.from', 'creator');
 });
 
+it('normalises message media (image, video poster, locked ppv)', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [[
+            'id' => 1,
+            'text' => 'look',
+            'fromUser' => ['id' => 101],
+            'createdAt' => '2026-06-24T10:00:00Z',
+            'mediaCount' => 3,
+            'price' => 15,
+            'media' => [
+                ['id' => 11, 'type' => 'photo', 'canView' => true, 'files' => ['full' => ['url' => 'https://cdn/full.jpg', 'width' => 800, 'height' => 600], 'thumb' => ['url' => 'https://cdn/thumb.jpg']]],
+                ['id' => 12, 'type' => 'video', 'canView' => true, 'duration' => 9, 'files' => ['full' => ['url' => null], 'preview' => ['url' => 'https://cdn/poster.jpg', 'width' => 480, 'height' => 848], 'thumb' => ['url' => 'https://cdn/vthumb.jpg']]],
+                ['id' => 13, 'type' => 'photo', 'canView' => false, 'files' => []],
+            ],
+        ]],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/messages")
+        ->assertOk()
+        ->assertJsonPath('messages.0.mediaCount', 3)
+        ->assertJsonPath('messages.0.media.0.type', 'photo')
+        ->assertJsonPath('messages.0.media.0.canView', true)
+        ->assertJsonPath('messages.0.media.0.full', 'https://cdn/full.jpg')
+        ->assertJsonPath('messages.0.media.0.width', 800)
+        ->assertJsonPath('messages.0.media.1.type', 'video')
+        ->assertJsonPath('messages.0.media.1.full', null)
+        ->assertJsonPath('messages.0.media.1.preview', 'https://cdn/poster.jpg')
+        ->assertJsonPath('messages.0.media.1.duration', 9)
+        ->assertJsonPath('messages.0.media.2.canView', false)
+        ->assertJsonPath('messages.0.media.2.preview', null);
+});
+
+it('proxies an OnlyFans CDN media file through the download endpoint', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response('JPEGBYTES', 200, ['Content-Type' => 'image/jpeg'])]);
+    $cdn = 'https://cdn2.onlyfans.com/files/3/35/abc/960x1280_xyz.jpg?Tag=2&u=1&Policy=p&Signature=s&Key-Pair-Id=k';
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->get("/onlyfans/{$this->model->id}/media?url=".urlencode($cdn))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'image/jpeg')
+        ->assertSee('JPEGBYTES');
+
+    Http::assertSent(fn ($r) => str_contains(rawurldecode($r->url()), '/acct_cam/media/download/')
+        && str_contains(rawurldecode($r->url()), 'cdn2.onlyfans.com')
+        && $r->hasHeader('Authorization', 'Bearer test-key'));
+});
+
+it('rejects a non-OnlyFans media url (SSRF guard)', function () {
+    $this->actingAs(User::factory()->admin()->create())
+        ->get("/onlyfans/{$this->model->id}/media?url=".urlencode('https://evil.example.com/secret'))
+        ->assertStatus(400);
+});
+
 it('sends text to OnlyFans and blocks PPV', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 555, 'text' => 'hello', 'fromUser' => ['id' => 999]]])]);
     $admin = User::factory()->admin()->create();
