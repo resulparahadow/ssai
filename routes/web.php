@@ -1,11 +1,15 @@
 <?php
 
+use App\Http\Controllers\AiUsageController;
+use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\Auth\PasswordChangeController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GenerationController;
 use App\Http\Controllers\ModelController;
 use App\Http\Controllers\ModelOnlyFansController;
 use App\Http\Controllers\OnlyFansChatController;
+use App\Http\Controllers\TeamController;
 use App\Http\Controllers\Webhooks\OnlyFansWebhookController;
 use App\Models\AichSession;
 use Illuminate\Support\Facades\Route;
@@ -15,6 +19,9 @@ Route::inertia('/', 'Welcome')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
+
+    // AI usage / cost telemetry — manager/admin only (mirrors the legacy manager-only cost cards).
+    Route::get('analytics/ai-usage', AiUsageController::class)->middleware('can:manage-team')->name('analytics.ai-usage');
 
     // Conversations — thin shell; all chat data is fetched LIVE from OnlyFans.
     Route::get('conversations', [ConversationController::class, 'index'])->name('conversations.index');
@@ -32,11 +39,29 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('chats/{chat}/messages/{message}/like', [OnlyFansChatController::class, 'like'])->name('like');
         Route::post('chats/{chat}/messages/{message}/unlike', [OnlyFansChatController::class, 'unlike'])->name('unlike');
         Route::get('users/{user}', [OnlyFansChatController::class, 'user'])->name('user');
+        Route::get('fans/{fan}/summary', [OnlyFansChatController::class, 'fanSummary'])->name('fan-summary');
+        Route::post('fans/{fan}/summary', [OnlyFansChatController::class, 'generateFanSummary'])->name('fan-summary.generate');
         Route::post('chats/{chat}/generate', [OnlyFansChatController::class, 'generate'])->name('generate');
+        Route::get('chats/{chat}/intel', [OnlyFansChatController::class, 'intel'])->name('intel');
+        Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
+        Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
     });
 
     // Creator Models — manager/admin only.
     Route::middleware('can:manage-team')->group(function () {
+        // Agency-wide OnlyFans Analytics dashboard (live proxy; nothing persisted).
+        Route::get('analytics/overview', [AnalyticsController::class, 'page'])->name('analytics.overview');
+        Route::prefix('analytics/of')->name('analytics.of.')->group(function () {
+            Route::post('earnings', [AnalyticsController::class, 'earnings'])->name('earnings');
+            Route::post('historical', [AnalyticsController::class, 'historical'])->name('historical');
+            Route::post('comparison', [AnalyticsController::class, 'comparison'])->name('comparison');
+            Route::post('transactions/summary', [AnalyticsController::class, 'transactionSummary'])->name('transactions.summary');
+            Route::post('transactions/by-type', [AnalyticsController::class, 'transactionsByType'])->name('transactions.by-type');
+            Route::post('forecast', [AnalyticsController::class, 'forecast'])->name('forecast');
+            Route::post('profitability', [AnalyticsController::class, 'profitability'])->name('profitability');
+            Route::get('profitability/{model}/history', [AnalyticsController::class, 'profitabilityHistory'])->name('profitability.history');
+        });
+
         Route::get('models', [ModelController::class, 'index'])->name('models.index');
         Route::get('models/{model}', [ModelController::class, 'show'])->name('models.show');
         Route::post('models', [ModelController::class, 'store'])->name('models.store');
@@ -49,6 +74,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('status', [ModelOnlyFansController::class, 'status'])->name('status');
             Route::get('fans', [ModelOnlyFansController::class, 'fans'])->name('fans');
             Route::get('fans/{fan}/history', [ModelOnlyFansController::class, 'fanHistory'])->name('fan-history');
+            Route::get('fans/{fan}/summary', [ModelOnlyFansController::class, 'fanSummary'])->name('fan-summary');
+            Route::post('fans/{fan}/summary', [ModelOnlyFansController::class, 'generateFanSummary'])->name('fan-summary.generate');
             Route::get('settings', [ModelOnlyFansController::class, 'settings'])->name('settings');
             Route::post('settings/profile', [ModelOnlyFansController::class, 'updateProfile'])->name('settings.profile');
             Route::patch('settings/subscription-price', [ModelOnlyFansController::class, 'updateSubscriptionPrice'])->name('settings.subscription-price');
@@ -94,7 +121,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::delete('smart-links/{link}', [ModelOnlyFansController::class, 'deleteSmartLink'])->name('smart-links.delete');
 
             Route::get('link-tags', [ModelOnlyFansController::class, 'linkTags'])->name('link-tags');
+
+            Route::get('promotions', [ModelOnlyFansController::class, 'promotions'])->name('promotions');
+            Route::post('promotions', [ModelOnlyFansController::class, 'createPromotion'])->name('promotions.create');
+            Route::post('promotions/{promotion}/stop', [ModelOnlyFansController::class, 'stopPromotion'])->name('promotions.stop');
+            Route::delete('promotions/{promotion}', [ModelOnlyFansController::class, 'deletePromotion'])->name('promotions.delete');
+
+            Route::get('bundles', [ModelOnlyFansController::class, 'bundles'])->name('bundles');
+            Route::post('bundles', [ModelOnlyFansController::class, 'createBundle'])->name('bundles.create');
+            Route::delete('bundles/{bundle}', [ModelOnlyFansController::class, 'deleteBundle'])->name('bundles.delete');
         });
+
+        // Team & roles — user management (admins/managers; per-target rules in UserPolicy).
+        Route::get('team', [TeamController::class, 'index'])->name('team.index');
+        Route::post('team', [TeamController::class, 'store'])->name('team.store');
+        Route::put('team/{user}', [TeamController::class, 'update'])->name('team.update');
+        Route::delete('team/{user}', [TeamController::class, 'destroy'])->name('team.destroy');
     });
 
     // Phase-3 dev surface: exercise the legacy engine in isolation (DB-session harness).
@@ -112,6 +154,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 ]),
         ]);
     })->name('dev.generate');
+});
+
+// Forced password change (must_change_password). Auth-only and intentionally outside
+// the RequirePasswordChange redirect so a flagged user can always reach the form.
+Route::middleware('auth')->group(function () {
+    Route::get('password/change', [PasswordChangeController::class, 'edit'])->name('password.change');
+    Route::put('password/change', [PasswordChangeController::class, 'update'])->name('password.change.update');
 });
 
 // Server-to-server webhook (no session/CSRF — excluded in bootstrap/app.php).

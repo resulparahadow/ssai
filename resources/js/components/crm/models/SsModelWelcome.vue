@@ -33,7 +33,8 @@ async function load() {
         welcome.value = r.welcome;
         text.value = stripHtml(r.welcome.text);
     } catch (e) {
-        error.value = e instanceof Error ? e.message : 'Failed to load welcome message.';
+        error.value =
+            e instanceof Error ? e.message : 'Failed to load welcome message.';
     } finally {
         loading.value = false;
     }
@@ -52,7 +53,8 @@ async function save() {
         saved.value = true;
         setTimeout(() => (saved.value = false), 2000);
     } catch (e) {
-        error.value = e instanceof Error ? e.message : 'Failed to save welcome message.';
+        error.value =
+            e instanceof Error ? e.message : 'Failed to save welcome message.';
     } finally {
         saving.value = false;
     }
@@ -82,17 +84,32 @@ onMounted(load);
 
 <template>
     <div class="space-y-4">
-        <p v-if="loading" class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3">
-            <LoaderCircle :size="16" class="animate-spin" /> Loading welcome message…
+        <p
+            v-if="loading"
+            class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3"
+        >
+            <LoaderCircle :size="16" class="animate-spin" /> Loading welcome
+            message…
         </p>
-        <p v-else-if="error && !welcome" class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg">{{ error }}</p>
+        <p
+            v-else-if="error && !welcome"
+            class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg"
+        >
+            {{ error }}
+        </p>
 
         <template v-else-if="welcome">
             <!-- Active toggle -->
-            <div class="flex items-center justify-between rounded-xl border border-ss-border bg-ss-surface p-4">
+            <div
+                class="flex items-center justify-between rounded-xl border border-ss-border bg-ss-surface p-4"
+            >
                 <div>
-                    <div class="text-[13px] font-semibold text-ss-text">Auto welcome message</div>
-                    <div class="text-[11px] text-ss-text-3">Sent automatically to new subscribers.</div>
+                    <div class="text-[13px] font-semibold text-ss-text">
+                        Auto welcome message
+                    </div>
+                    <div class="text-[11px] text-ss-text-3">
+                        Sent automatically to new subscribers.
+                    </div>
                 </div>
                 <button
                     type="button"
@@ -103,21 +120,45 @@ onMounted(load);
                     :disabled="toggling"
                     @click="toggleActive"
                 >
-                    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform" :class="welcome.isActive ? 'translate-x-5' : 'translate-x-0.5'" />
+                    <span
+                        class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform"
+                        :class="
+                            welcome.isActive
+                                ? 'translate-x-5'
+                                : 'translate-x-0.5'
+                        "
+                    />
                 </button>
             </div>
 
             <!-- Media preview (read-only) -->
-            <div v-if="welcome.media.length" class="rounded-xl border border-ss-border bg-ss-surface p-4">
-                <div class="mb-2 text-[12px] font-medium text-ss-text-2">Attached media</div>
-                <SsMessageMedia :media="welcome.media" :price="welcome.price || undefined" :model-id="modelId" />
+            <div
+                v-if="welcome.media.length"
+                class="rounded-xl border border-ss-border bg-ss-surface p-4"
+            >
+                <div class="mb-2 text-[12px] font-medium text-ss-text-2">
+                    Attached media
+                </div>
+                <SsMessageMedia
+                    :media="welcome.media"
+                    :price="welcome.price || undefined"
+                    :model-id="modelId"
+                />
             </div>
 
             <!-- Editable text -->
-            <div class="space-y-2 rounded-xl border border-ss-border bg-ss-surface p-4">
+            <div
+                class="space-y-2 rounded-xl border border-ss-border bg-ss-surface p-4"
+            >
                 <div class="flex items-center justify-between">
-                    <h4 class="text-[13px] font-semibold text-ss-text">Message text</h4>
-                    <span v-if="saved" class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"><Check :size="13" /> Saved</span>
+                    <h4 class="text-[13px] font-semibold text-ss-text">
+                        Message text
+                    </h4>
+                    <span
+                        v-if="saved"
+                        class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"
+                        ><Check :size="13" /> Saved</span
+                    >
                 </div>
                 <textarea
                     v-model="text"

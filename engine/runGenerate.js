@@ -45,9 +45,13 @@ async function generateDraft(input, opts = {}) {
     // Serve creator status from the payload instead of Supabase.
     eng.set('fetchActiveCreatorStatus', async () => input.creatorStatus || []);
 
+    // Per-request usage ledger (one entry per LLM call, incl. retries) — mirrors the legacy
+    // _ssaiCostLog. Only the real transports record; injected test fakes don't.
+    const usage = [];
+
     // Model transport (real by default; tests inject fakes).
-    eng.set('callApi', opts.callApi || makeRealCallApi());
-    eng.set('callMistral', opts.callMistral || makeRealCallMistral());
+    eng.set('callApi', opts.callApi || makeRealCallApi(usage));
+    eng.set('callMistral', opts.callMistral || makeRealCallMistral(usage));
 
     // DOM-fed inputs.
     document.getElementById('ctxIn').value = input.context || '';
@@ -83,6 +87,7 @@ async function generateDraft(input, opts = {}) {
             registerHits: s._registerHitsFirstPass ?? null,
             reasoningLeakStripped: s._reasoningLeakStripped ?? null,
         },
+        usage,
         writes,
     };
 }

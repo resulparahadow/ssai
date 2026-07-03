@@ -16,7 +16,22 @@ class AichMessage extends Model
 
     protected $table = 'aich_messages';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'session_id',
+        'user_id',
+        'creator_model',
+        'customer_username',
+        'sender',
+        'text',
+        'response_text',
+        'input_messages',
+        'was_sent',
+        'feedback_text',
+        'agent_note',
+        'api_used',
+        'of_message_id',
+        'send_state',
+    ];
 
     protected $casts = [
         'input_messages' => 'array',

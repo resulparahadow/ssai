@@ -75,6 +75,18 @@ class OnlyFansService
         return $this->client()->post("{$account}/chats/{$chatId}/messages", ['text' => $text]);
     }
 
+    /** Send a Giphy GIF (by its giphy id) to a chat, with optional accompanying text. */
+    public function sendGif(string $account, string $chatId, string $giphyId, string $text = ''): Response
+    {
+        $body = ['giphyId' => $giphyId];
+        $text = trim($text);
+        if ($text !== '') {
+            $body['text'] = $text;
+        }
+
+        return $this->client()->post("{$account}/chats/{$chatId}/messages", $body);
+    }
+
     public function deleteMessage(string $account, string $chatId, string $messageId): Response
     {
         return $this->client()->delete("{$account}/chats/{$chatId}/messages/{$messageId}");
@@ -88,6 +100,23 @@ class OnlyFansService
     public function unlikeMessage(string $account, string $chatId, string $messageId): Response
     {
         return $this->client()->post("{$account}/chats/{$chatId}/messages/{$messageId}/unlike");
+    }
+
+    // ---- Giphy ------------------------------------------------------------
+    // Giphy proxy: a returned GIF's `id` is used as the `giphyId` body param on send.
+
+    public function listGiphyTrending(string $account): Response
+    {
+        return $this->client()->get("{$account}/giphy/trending");
+    }
+
+    /** Search GIFs. `q` is required; `limit` (max 50) and `offset` are optional. */
+    public function searchGiphy(string $account, array $params): Response
+    {
+        return $this->client()->get("{$account}/giphy/search", collect($params)
+            ->only(['q', 'limit', 'offset'])
+            ->filter(fn ($v) => $v !== null && $v !== '')
+            ->all());
     }
 
     // ---- Users ------------------------------------------------------------
@@ -330,6 +359,47 @@ class OnlyFansService
         return $this->client()->get('link-tags', collect($params)->only(['type'])->filter(fn ($v) => $v !== null && $v !== '')->all());
     }
 
+    // ---- Promotions -------------------------------------------------------
+    // Subscription promo campaigns offered to new/expired fans.
+
+    public function listPromotions(string $account, array $params = []): Response
+    {
+        return $this->client()->get("{$account}/promotions", $this->pageParams($params));
+    }
+
+    public function createPromotion(string $account, array $data): Response
+    {
+        return $this->client()->post("{$account}/promotions", $data);
+    }
+
+    public function stopPromotion(string $account, string $promotionId): Response
+    {
+        return $this->client()->post("{$account}/promotions/{$promotionId}/stop");
+    }
+
+    public function deletePromotion(string $account, string $promotionId): Response
+    {
+        return $this->client()->delete("{$account}/promotions/{$promotionId}");
+    }
+
+    // ---- Subscription bundles ---------------------------------------------
+    // Discounted multi-month subscription offers.
+
+    public function listBundles(string $account): Response
+    {
+        return $this->client()->get("{$account}/bundles");
+    }
+
+    public function createBundle(string $account, array $data): Response
+    {
+        return $this->client()->post("{$account}/bundles", $data);
+    }
+
+    public function deleteBundle(string $account, string $bundleId): Response
+    {
+        return $this->client()->delete("{$account}/bundles/{$bundleId}");
+    }
+
     // ---- Media ------------------------------------------------------------
 
     /**
@@ -373,6 +443,7 @@ class OnlyFansService
         $fan = $chat['fan'] ?? $chat['withUser'] ?? [];
         $id = (string) ($fan['id'] ?? '');
         $name = $fan['name'] ?? $fan['username'] ?? $id;
+        $lastMessage = is_array($chat['lastMessage'] ?? null) ? $chat['lastMessage'] : [];
 
         return [
             'id' => $id,
@@ -380,17 +451,75 @@ class OnlyFansService
             'username' => $fan['username'] ?? null,
             'avatar' => $fan['avatar'] ?? null,
             'initials' => $this->initials($name),
-            'preview' => $this->htmlToText((string) (data_get($chat, 'lastMessage.text') ?? '')),
-            'time' => data_get($chat, 'lastMessage.createdAt'),
+            'preview' => $this->htmlToText((string) ($lastMessage['text'] ?? '')),
+            'previewKind' => $this->lastMessageKind($lastMessage),
+            'time' => $lastMessage['createdAt'] ?? null,
             'unread' => (int) ($chat['unreadMessagesCount'] ?? 0),
             'canSend' => (bool) ($chat['canSendMessage'] ?? true),
         ];
+    }
+
+    /**
+     * Classify a chat's last message for the conversation-list preview when it carries no
+     * text (a GIF, photo, video, voice note, tip, or locked PPV) — the list shows an icon +
+     * label instead of a bare "—". Returns null when text is present (the text is shown).
+     *
+     * @param  array<string, mixed>  $lastMessage
+     */
+    public function lastMessageKind(array $lastMessage): ?string
+    {
+        if ($lastMessage === [] || $this->htmlToText((string) ($lastMessage['text'] ?? '')) !== '') {
+            return null;
+        }
+
+        $giphyId = $lastMessage['giphyId'] ?? null;
+        if ($giphyId !== null && $giphyId !== '') {
+            return 'gif';
+        }
+
+        $media = is_array($lastMessage['media'] ?? null) ? $lastMessage['media'] : [];
+        if ($media !== []) {
+            $types = array_map(fn ($m) => (string) (is_array($m) ? ($m['type'] ?? '') : ''), $media);
+
+            if (in_array('gif', $types, true)) {
+                return 'gif';
+            }
+            // Every media item is pay-to-view → render it as a locked PPV bundle.
+            if (! collect($media)->contains(fn ($m) => is_array($m) && ! empty($m['canView']))) {
+                return 'locked';
+            }
+            if (in_array('video', $types, true)) {
+                return 'video';
+            }
+            if (in_array('audio', $types, true)) {
+                return 'audio';
+            }
+            if (in_array('photo', $types, true)) {
+                return 'photo';
+            }
+
+            return 'media';
+        }
+
+        if ((int) ($lastMessage['mediaCount'] ?? 0) > 0) {
+            return 'media';
+        }
+
+        return ! empty($lastMessage['isTip']) ? 'tip' : null;
     }
 
     /** Map an OnlyFans message to a thread bubble. `chatId` is the fan's user id. */
     public function normalizeMessage(array $raw, string $chatId): array
     {
         $fromId = (string) (data_get($raw, 'fromUser.id') ?? '');
+        $media = $this->normalizeMedia($raw);
+
+        // A sent GIF comes back as a `giphyId` with empty text + empty media, so rebuild a
+        // renderable media item from the public Giphy CDN (loaded directly, not via the OF proxy).
+        $giphyId = $raw['giphyId'] ?? null;
+        if ($giphyId !== null && $giphyId !== '' && $media === []) {
+            $media = [$this->giphyMedia((string) $giphyId)];
+        }
 
         return [
             'id' => isset($raw['id']) ? (string) $raw['id'] : null,
@@ -402,8 +531,31 @@ class OnlyFansService
             'isOpened' => (bool) ($raw['isOpened'] ?? false),
             'isLiked' => (bool) ($raw['isLiked'] ?? false),
             'isTip' => (bool) ($raw['isTip'] ?? false),
-            'mediaCount' => (int) ($raw['mediaCount'] ?? 0),
-            'media' => $this->normalizeMedia($raw),
+            'mediaCount' => $media !== [] ? count($media) : (int) ($raw['mediaCount'] ?? 0),
+            'media' => $media,
+        ];
+    }
+
+    /**
+     * Build a renderable media item for a Giphy GIF id. The OnlyFans message only stores the
+     * `giphyId`, so we point at Giphy's public CDN (id-addressable, no signing/IP-lock). `direct`
+     * tells the frontend to load it as-is rather than through the OF media proxy.
+     *
+     * @return array<string, mixed>
+     */
+    public function giphyMedia(string $giphyId): array
+    {
+        return [
+            'id' => $giphyId,
+            'type' => 'gif',
+            'canView' => true,
+            'thumb' => "https://media.giphy.com/media/{$giphyId}/200w.gif",
+            'preview' => "https://media.giphy.com/media/{$giphyId}/200w.gif",
+            'full' => "https://media.giphy.com/media/{$giphyId}/giphy.gif",
+            'duration' => null,
+            'width' => null,
+            'height' => null,
+            'direct' => true,
         ];
     }
 
@@ -436,6 +588,30 @@ class OnlyFansService
                 'height' => data_get($files, 'full.height') ?? data_get($files, 'preview.height'),
             ];
         })->values()->all();
+    }
+
+    /**
+     * Map a Giphy result (trending uses `images.fixed_width`, search uses
+     * `images.fixed_height`; both carry `images.original`). The preview/full URLs
+     * are Giphy CDN (media.giphy.com) — browser-loadable, NOT IP-locked like OF CDN.
+     *
+     * @return array<string, mixed>
+     */
+    public function normalizeGif(array $g): array
+    {
+        $img = $g['images'] ?? [];
+        $fixed = $img['fixed_width'] ?? $img['fixed_height'] ?? [];
+        $orig = $img['original'] ?? [];
+        $preview = data_get($fixed, 'url') ?? data_get($orig, 'url');
+
+        return [
+            'id' => isset($g['id']) ? (string) $g['id'] : null,
+            'title' => $g['title'] ?? null,
+            'preview' => $preview,
+            'url' => data_get($orig, 'url') ?? $preview,
+            'width' => (int) (data_get($fixed, 'width') ?? data_get($orig, 'width') ?? 0),
+            'height' => (int) (data_get($fixed, 'height') ?? data_get($orig, 'height') ?? 0),
+        ];
     }
 
     /**
@@ -606,6 +782,36 @@ class OnlyFansService
         ];
     }
 
+    /** Map a promotion row (list `data.items[]` / create `data[]` share this shape). */
+    public function normalizePromotion(array $p): array
+    {
+        return [
+            'id' => isset($p['id']) ? (string) $p['id'] : null,
+            'message' => $p['message'] ?? null,
+            'type' => $p['type'] ?? null,
+            'price' => (float) ($p['price'] ?? 0),
+            'subscribeCounts' => (int) ($p['subscribeCounts'] ?? 0),
+            'subscribeDays' => (int) ($p['subscribeDays'] ?? 0),
+            'claimsCount' => (int) ($p['claimsCount'] ?? 0),
+            'canClaim' => (bool) ($p['canClaim'] ?? false),
+            'createdAt' => $p['createdAt'] ?? null,
+            'finishedAt' => $p['finishedAt'] ?? null,
+            'isFinished' => (bool) ($p['isFinished'] ?? false),
+        ];
+    }
+
+    /** Map a subscription-bundle row (list/create/delete share this shape). */
+    public function normalizeBundle(array $b): array
+    {
+        return [
+            'id' => isset($b['id']) ? (string) $b['id'] : null,
+            'discount' => (int) ($b['discount'] ?? 0),
+            'duration' => (int) ($b['duration'] ?? 0),
+            'price' => (float) ($b['price'] ?? 0),
+            'canBuy' => (bool) ($b['canBuy'] ?? false),
+        ];
+    }
+
     /** Map a Smart Link row (list/create/get share this shape). */
     public function normalizeSmartLink(array $l): array
     {
@@ -745,6 +951,62 @@ class OnlyFansService
         return (float) $price > 0;
     }
 
+    // ---- Analytics — Summary (agency-wide; take account_ids[]) -------------
+
+    public function earningsOverview(array $body): Response
+    {
+        return $this->client()->post('analytics/summary/earnings', $body);
+    }
+
+    public function historicalPerformance(array $body): Response
+    {
+        return $this->client()->post('analytics/summary/historical', $body);
+    }
+
+    public function periodComparison(array $body): Response
+    {
+        return $this->client()->post('analytics/summary/comparison', $body);
+    }
+
+    // ---- Analytics — Financial --------------------------------------------
+
+    public function transactionSummary(array $body): Response
+    {
+        return $this->client()->post('analytics/financial/transactions/summary', $body);
+    }
+
+    public function transactionsByType(array $body): Response
+    {
+        return $this->client()->post('analytics/financial/transactions/by-type', $body);
+    }
+
+    public function revenueForecast(array $body): Response
+    {
+        return $this->client()->post('analytics/financial/forecast', $body);
+    }
+
+    public function profitability(array $body): Response
+    {
+        return $this->client()->post('analytics/financial/profitability', $body);
+    }
+
+    public function profitabilityHistory(string $account, array $params = []): Response
+    {
+        return $this->client()->get("analytics/financial/profitability/{$account}/history", $this->profitHistoryParams($params));
+    }
+
+    // ---- Fans — AI Summary (per-account, per-fan) -------------------------
+
+    public function getFanSummary(string $account, string $fanId): Response
+    {
+        return $this->client()->get("{$account}/fans/{$fanId}/summary");
+    }
+
+    public function generateFanSummary(string $account, string $fanId, bool $regenerate = false): Response
+    {
+        return $this->client()->post("{$account}/fans/{$fanId}/summary", $regenerate ? ['regenerate' => true] : []);
+    }
+
     // ---- internals --------------------------------------------------------
 
     protected function client(): PendingRequest
@@ -815,6 +1077,15 @@ class OnlyFansService
                 'has_messages', 'min_messages_sent_by_fan', 'min_revenue_net', 'min_tips_net',
                 'minSpend', 'include_bots', 'include_duplicates', 'conversion_type', 'onlyfans_user_id',
             ])
+            ->filter(fn ($v) => $v !== null && $v !== '')
+            ->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function profitHistoryParams(array $params): array
+    {
+        return collect($params)
+            ->only(['account_prefixed_id', 'months'])
             ->filter(fn ($v) => $v !== null && $v !== '')
             ->all();
     }

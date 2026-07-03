@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AichChatIntel;
 use App\Models\AichModel;
+use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\Client\ConnectionException;
@@ -10,6 +12,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -23,6 +26,7 @@ class OnlyFansChatController extends Controller
     public function __construct(
         protected OnlyFansService $of,
         protected EngineClient $engine,
+        protected AiUsageRecorder $usage,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -110,7 +114,12 @@ class OnlyFansChatController extends Controller
         }
 
         $key = 'ofmedia:'.sha1((string) (parse_url($url, PHP_URL_PATH) ?: $url));
-        $cached = Cache::get($key);
+        // Media bytes are raw binary — cache them in the file store, NOT the default
+        // store. The app's default cache is the MySQL `database` store, whose `value`
+        // column is utf8mb4 text and rejects non-UTF-8 bytes (SQLSTATE 1366). The file
+        // store serialises to disk (byte-safe) and keeps large blobs out of the DB.
+        $store = Cache::store('file');
+        $cached = $store->get($key);
 
         if (! $cached) {
             $res = $this->of->downloadMedia($acct, $url);
@@ -122,7 +131,7 @@ class OnlyFansChatController extends Controller
                 'ct' => $res->header('Content-Type') ?: 'application/octet-stream',
                 'body' => $res->body(),
             ];
-            Cache::put($key, $cached, now()->addHours(6));
+            $store->put($key, $cached, now()->addHours(6));
         }
 
         return response($cached['body'])
@@ -133,17 +142,76 @@ class OnlyFansChatController extends Controller
     public function send(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
-        $data = $request->validate(['text' => 'required|string', 'price' => 'nullable|numeric']);
+        $data = $request->validate([
+            'text' => 'nullable|string',
+            'giphyId' => 'nullable|string',
+            'price' => 'nullable|numeric',
+        ]);
+
+        $text = trim((string) ($data['text'] ?? ''));
+        $giphyId = $data['giphyId'] ?? null;
+
+        if ($text === '' && ! $giphyId) {
+            return response()->json(['error' => 'Message requires text or a GIF.'], 422);
+        }
 
         if ($this->of->ppvBlocked($data['price'] ?? 0)) {
             return response()->json(['error' => 'PPV/paid send is disabled (text only).'], 422);
         }
 
-        $res = $this->of->sendText($acct, $chat, $data['text']);
+        $res = $giphyId
+            ? $this->of->sendGif($acct, $chat, $giphyId, $text)
+            : $this->of->sendText($acct, $chat, $text);
 
         return $res->successful()
             ? response()->json(['message' => $this->of->normalizeMessage($res->json('data') ?? [], $chat)])
             : $this->forward($res);
+    }
+
+    public function giphyTrending(Request $request, AichModel $model): JsonResponse
+    {
+        $res = $this->of->listGiphyTrending($this->account($request, $model));
+
+        return $res->successful()
+            ? response()->json(['gifs' => collect($this->gifList($res->json()))->map(fn ($g) => $this->of->normalizeGif($g))->values()])
+            : $this->forward($res);
+    }
+
+    public function giphySearch(Request $request, AichModel $model): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+        if ($q === '') {
+            return response()->json(['error' => 'A search query is required.'], 422);
+        }
+
+        $res = $this->of->searchGiphy($this->account($request, $model), [
+            'q' => $q,
+            'limit' => $request->query('limit'),
+            'offset' => $request->query('offset'),
+        ]);
+
+        return $res->successful()
+            ? response()->json(['gifs' => collect($this->gifList($res->json()))->map(fn ($g) => $this->of->normalizeGif($g))->values()])
+            : $this->forward($res);
+    }
+
+    /**
+     * The OFAPI Giphy proxy wraps the list as `data.data[]` (the Giphy payload nested under
+     * the OFAPI envelope's `data`). Fall back to a flat `data[]` for resilience.
+     *
+     * @param  array<string, mixed>|null  $json
+     * @return list<array<string, mixed>>
+     */
+    private function gifList(?array $json): array
+    {
+        $nested = data_get($json, 'data.data');
+        if (is_array($nested) && array_is_list($nested)) {
+            return $nested;
+        }
+
+        $flat = data_get($json, 'data');
+
+        return is_array($flat) && array_is_list($flat) ? $flat : [];
     }
 
     public function destroy(Request $request, AichModel $model, string $chat, string $message): JsonResponse
@@ -183,6 +251,23 @@ class OnlyFansChatController extends Controller
         ]]);
     }
 
+    /** AI profile summary for a fan (poll after generate). */
+    public function fanSummary(Request $request, AichModel $model, string $fan): JsonResponse
+    {
+        $res = $this->of->getFanSummary($this->account($request, $model), $fan);
+
+        return $res->successful() ? response()->json($res->json()) : $this->forward($res);
+    }
+
+    /** Queue (re)generation of a fan's AI profile summary — 200 credits, async. */
+    public function generateFanSummary(Request $request, AichModel $model, string $fan): JsonResponse
+    {
+        $regenerate = $request->boolean('regenerate');
+        $res = $this->of->generateFanSummary($this->account($request, $model), $fan, $regenerate);
+
+        return $res->successful() ? response()->json($res->json()) : $this->forward($res);
+    }
+
     /** AI draft from the LIVE thread (no persistence). */
     public function generate(Request $request, AichModel $model, string $chat): JsonResponse
     {
@@ -213,10 +298,45 @@ class OnlyFansChatController extends Controller
             return response()->json(['error' => 'AI engine error: '.$e->getMessage()], 502);
         }
 
+        $this->usage->record($out['usage'] ?? [], [
+            'generation_id' => (string) Str::ulid(),
+            'user_id' => $request->user()?->id,
+            'creator_model' => $model->name,
+            'chat_id' => $chat,
+            'source' => 'live',
+        ]);
+
+        // Persist the AI Intel (strategy only — no message text) so the right-rail
+        // panel survives a reload and is shared across chatters. Latest wins per chat.
+        $generatedAt = null;
+        if (! empty($out['strategy'])) {
+            $row = AichChatIntel::updateOrCreate(
+                ['creator_model' => $model->name, 'chat_id' => $chat],
+                ['strategy' => $out['strategy'], 'generated_by' => $request->user()?->id],
+            );
+            $generatedAt = $row->updated_at?->toIso8601String();
+        }
+
         return response()->json([
             'draft' => $out['draft'] ?? '',
             'strategy' => $out['strategy'] ?? null,
             'telemetry' => $out['telemetry'] ?? null,
+            'generatedAt' => $generatedAt,
+        ]);
+    }
+
+    /** The saved AI Intel for a chat (strategy + when it was generated), or nulls. */
+    public function intel(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->account($request, $model); // authorise (chatter → assigned only)
+
+        $row = AichChatIntel::where('creator_model', $model->name)
+            ->where('chat_id', $chat)
+            ->first();
+
+        return response()->json([
+            'strategy' => $row?->strategy,
+            'generatedAt' => $row?->updated_at?->toIso8601String(),
         ]);
     }
 

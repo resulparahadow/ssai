@@ -14,7 +14,14 @@ class AichModel extends Model
 {
     protected $table = 'aich_models';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'name',
+        'prompt',
+        'content_library',
+        'feedback_rules',
+        'tier',
+        'of_account_id',
+    ];
 
     /** Assignments are matched on the creator name, not a FK (legacy convention). */
     public function assignments(): HasMany

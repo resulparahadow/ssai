@@ -29,8 +29,8 @@ function cookie(name: string): string {
 
 async function generate() {
     if (!sessionId.value) {
-return;
-}
+        return;
+    }
 
     loading.value = true;
     error.value = null;
@@ -53,7 +53,11 @@ return;
         if (!res.ok) {
             const body = await res.json().catch(() => ({}));
 
-            throw new Error(body.error || body.message || `Engine call failed (${res.status})`);
+            throw new Error(
+                body.error ||
+                    body.message ||
+                    `Engine call failed (${res.status})`,
+            );
         }
 
         const data = await res.json();
@@ -74,28 +78,39 @@ return;
     <div class="mx-auto max-w-5xl space-y-5">
         <div>
             <h2 class="flex items-center gap-2 text-xl font-bold text-ss-text">
-                <Sparkles :size="20" class="text-ss-accent" /> Generation engine (legacy parity)
+                <Sparkles :size="20" class="text-ss-accent" /> Generation engine
+                (legacy parity)
             </h2>
             <p class="text-sm text-ss-text-2">
-                Runs the exact legacy <code class="font-ss-mono text-ss-accent-text">generate()</code> via the Node sidecar. Pick a seeded
-                conversation and generate a draft.
+                Runs the exact legacy
+                <code class="font-ss-mono text-ss-accent-text">generate()</code>
+                via the Node sidecar. Pick a seeded conversation and generate a
+                draft.
             </p>
         </div>
 
         <!-- Controls -->
-        <div class="space-y-4 rounded-xl border border-ss-border bg-ss-surface p-5">
+        <div
+            class="space-y-4 rounded-xl border border-ss-border bg-ss-surface p-5"
+        >
             <div class="grid gap-4 sm:grid-cols-2">
                 <label class="block">
-                    <span class="mb-1 block text-[12px] text-ss-text-2">Conversation</span>
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Conversation</span
+                    >
                     <select
                         v-model="sessionId"
                         class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
                     >
-                        <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.label }}</option>
+                        <option v-for="s in sessions" :key="s.id" :value="s.id">
+                            {{ s.label }}
+                        </option>
                     </select>
                 </label>
                 <label class="block">
-                    <span class="mb-1 block text-[12px] text-ss-text-2">Model route</span>
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Model route</span
+                    >
                     <select
                         v-model="api"
                         class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
@@ -108,7 +123,9 @@ return;
             </div>
 
             <label class="block">
-                <span class="mb-1 block text-[12px] text-ss-text-2">Agent context / override (optional)</span>
+                <span class="mb-1 block text-[12px] text-ss-text-2"
+                    >Agent context / override (optional)</span
+                >
                 <textarea
                     v-model="context"
                     rows="2"
@@ -127,11 +144,17 @@ return;
                     {{ loading ? 'Generating…' : 'Generate' }}
                 </button>
                 <p v-if="!sessions.length" class="text-[13px] text-ss-text-3">
-                    No seeded conversations — run <code class="font-ss-mono">php artisan migrate:fresh --seed</code>.
+                    No seeded conversations — run
+                    <code class="font-ss-mono"
+                        >php artisan migrate:fresh --seed</code
+                    >.
                 </p>
             </div>
 
-            <p v-if="error" class="rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-2 text-[13px] text-ss-neg">
+            <p
+                v-if="error"
+                class="rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-2 text-[13px] text-ss-neg"
+            >
                 {{ error }}
             </p>
         </div>
@@ -140,23 +163,41 @@ return;
         <div v-if="draft" class="space-y-4">
             <div class="rounded-xl border border-ss-border bg-ss-surface p-5">
                 <h3 class="mb-2 text-sm font-semibold text-ss-text">Draft</h3>
-                <p class="rounded-lg bg-ss-bg-2 p-3 text-[15px] leading-relaxed text-ss-text">{{ draft }}</p>
+                <p
+                    class="rounded-lg bg-ss-bg-2 p-3 text-[15px] leading-relaxed text-ss-text"
+                >
+                    {{ draft }}
+                </p>
             </div>
 
-            <div v-if="telemetry" class="rounded-xl border border-ss-border bg-ss-surface p-5">
-                <h3 class="mb-2 text-sm font-semibold text-ss-text">Telemetry</h3>
+            <div
+                v-if="telemetry"
+                class="rounded-xl border border-ss-border bg-ss-surface p-5"
+            >
+                <h3 class="mb-2 text-sm font-semibold text-ss-text">
+                    Telemetry
+                </h3>
                 <div class="flex flex-wrap gap-2">
                     <span
                         v-for="(v, k) in telemetry"
                         :key="k"
                         class="rounded-md bg-ss-surface-2 px-2 py-1 font-ss-mono text-[11px] text-ss-text-2"
-                    >{{ k }}: {{ v === null ? '—' : v }}</span>
+                        >{{ k }}: {{ v === null ? '—' : v }}</span
+                    >
                 </div>
             </div>
 
-            <div v-if="strategy" class="rounded-xl border border-ss-border bg-ss-surface p-5">
-                <h3 class="mb-2 text-sm font-semibold text-ss-text">Strategy JSON</h3>
-                <pre class="max-h-80 overflow-auto rounded-lg bg-ss-bg-2 p-3 font-ss-mono text-[11px] text-ss-text-2">{{ JSON.stringify(strategy, null, 2) }}</pre>
+            <div
+                v-if="strategy"
+                class="rounded-xl border border-ss-border bg-ss-surface p-5"
+            >
+                <h3 class="mb-2 text-sm font-semibold text-ss-text">
+                    Strategy JSON
+                </h3>
+                <pre
+                    class="max-h-80 overflow-auto rounded-lg bg-ss-bg-2 p-3 font-ss-mono text-[11px] text-ss-text-2"
+                    >{{ JSON.stringify(strategy, null, 2) }}</pre
+                >
             </div>
         </div>
     </div>

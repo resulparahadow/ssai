@@ -1,8 +1,12 @@
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { notificationPrefs } from '@/lib/notificationPrefs';
-import { ensureSubscribed, isViewingChat, onInboundMessage  } from '@/lib/realtimeInbound';
-import type {InboundPayload} from '@/lib/realtimeInbound';
+import {
+    ensureSubscribed,
+    isViewingChat,
+    onInboundMessage,
+} from '@/lib/realtimeInbound';
+import type { InboundPayload } from '@/lib/realtimeInbound';
 import { playBing, unlockAudioOnGesture } from '@/lib/sound';
 
 export interface NotifyCreator {
@@ -19,7 +23,11 @@ let registered = false;
 function notify(payload: InboundPayload): void {
     // Already looking at this exact chat in a focused tab? The thread appends it live —
     // no need to also bing/toast.
-    if (isViewingChat(payload.creatorId, payload.chatId) && typeof document !== 'undefined' && document.hasFocus()) {
+    if (
+        isViewingChat(payload.creatorId, payload.chatId) &&
+        typeof document !== 'undefined' &&
+        document.hasFocus()
+    ) {
         return;
     }
 
@@ -40,7 +48,10 @@ function notify(payload: InboundPayload): void {
         action: creator
             ? {
                   label: 'Open',
-                  onClick: () => router.visit(`/conversations?creator=${encodeURIComponent(creator)}`),
+                  onClick: () =>
+                      router.visit(
+                          `/conversations?creator=${encodeURIComponent(creator)}`,
+                      ),
               }
             : undefined,
     });

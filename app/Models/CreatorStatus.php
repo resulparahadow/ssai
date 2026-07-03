@@ -12,7 +12,12 @@ class CreatorStatus extends Model
 {
     protected $table = 'creator_status';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'creator_model',
+        'category',
+        'status_text',
+        'expires_at',
+    ];
 
     protected $casts = [
         'expires_at' => 'datetime',

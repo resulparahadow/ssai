@@ -12,7 +12,15 @@ class AichFeedbackQueue extends Model
 {
     protected $table = 'aich_feedback_queue';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'creator_model',
+        'proposed_rules',
+        'source_message_ids',
+        'status',
+        'rejection_count',
+        'resolved_at',
+        'resolved_by',
+    ];
 
     protected $casts = [
         'proposed_rules' => 'array',

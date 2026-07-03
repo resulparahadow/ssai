@@ -12,7 +12,10 @@ class ModelAssignment extends Model
 {
     protected $table = 'model_assignments';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'creator_model',
+    ];
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

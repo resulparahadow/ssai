@@ -11,9 +11,24 @@ const error = ref<string | null>(null);
 const settings = ref<OfSettings | null>(null);
 
 // Editable profile (with a pristine copy so we only send changed fields).
-type ProfileFields = Record<'name' | 'about' | 'location' | 'website' | 'wishlist', string>;
-const form = reactive<ProfileFields>({ name: '', about: '', location: '', website: '', wishlist: '' });
-let pristine: ProfileFields = { name: '', about: '', location: '', website: '', wishlist: '' };
+type ProfileFields = Record<
+    'name' | 'about' | 'location' | 'website' | 'wishlist',
+    string
+>;
+const form = reactive<ProfileFields>({
+    name: '',
+    about: '',
+    location: '',
+    website: '',
+    wishlist: '',
+});
+let pristine: ProfileFields = {
+    name: '',
+    about: '',
+    location: '',
+    website: '',
+    wishlist: '',
+};
 
 const savingProfile = ref(false);
 const profileSaved = ref(false);
@@ -42,7 +57,8 @@ async function load() {
         pristine = { ...next };
         price.value = p.subscribePrice != null ? String(p.subscribePrice) : '';
     } catch (e) {
-        error.value = e instanceof Error ? e.message : 'Failed to load settings.';
+        error.value =
+            e instanceof Error ? e.message : 'Failed to load settings.';
     } finally {
         loading.value = false;
     }
@@ -69,7 +85,8 @@ async function saveProfile() {
         profileSaved.value = true;
         setTimeout(() => (profileSaved.value = false), 2000);
     } catch (e) {
-        error.value = e instanceof Error ? e.message : 'Failed to save profile.';
+        error.value =
+            e instanceof Error ? e.message : 'Failed to save profile.';
     } finally {
         savingProfile.value = false;
     }
@@ -79,7 +96,11 @@ async function savePrice() {
     const v = price.value.trim();
     priceError.value = null;
 
-    if (v !== '0' && v.toLowerCase() !== 'free' && (isNaN(Number(v)) || Number(v) < 4.99 || Number(v) > 200)) {
+    if (
+        v !== '0' &&
+        v.toLowerCase() !== 'free' &&
+        (isNaN(Number(v)) || Number(v) < 4.99 || Number(v) > 200)
+    ) {
         priceError.value = 'Use 0, "free", or 4.99–200.';
 
         return;
@@ -92,7 +113,8 @@ async function savePrice() {
         priceSaved.value = true;
         setTimeout(() => (priceSaved.value = false), 2000);
     } catch (e) {
-        priceError.value = e instanceof Error ? e.message : 'Failed to save price.';
+        priceError.value =
+            e instanceof Error ? e.message : 'Failed to save price.';
     } finally {
         savingPrice.value = false;
     }
@@ -103,39 +125,85 @@ onMounted(load);
 
 <template>
     <div class="space-y-4">
-        <p v-if="loading" class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3">
+        <p
+            v-if="loading"
+            class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3"
+        >
             <LoaderCircle :size="16" class="animate-spin" /> Loading settings…
         </p>
-        <p v-else-if="error && !settings" class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg">{{ error }}</p>
+        <p
+            v-else-if="error && !settings"
+            class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg"
+        >
+            {{ error }}
+        </p>
 
         <template v-else>
             <!-- Profile (editable) -->
-            <div class="space-y-3 rounded-xl border border-ss-border bg-ss-surface p-4">
+            <div
+                class="space-y-3 rounded-xl border border-ss-border bg-ss-surface p-4"
+            >
                 <div class="flex items-center justify-between">
-                    <h4 class="text-[13px] font-semibold text-ss-text">Profile</h4>
-                    <span v-if="profileSaved" class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"><Check :size="13" /> Saved</span>
+                    <h4 class="text-[13px] font-semibold text-ss-text">
+                        Profile
+                    </h4>
+                    <span
+                        v-if="profileSaved"
+                        class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"
+                        ><Check :size="13" /> Saved</span
+                    >
                 </div>
                 <label class="block">
-                    <span class="mb-1 block text-[12px] text-ss-text-2">Display name</span>
-                    <input v-model="form.name" type="text" class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none" />
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Display name</span
+                    >
+                    <input
+                        v-model="form.name"
+                        type="text"
+                        class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
+                    />
                 </label>
                 <label class="block">
-                    <span class="mb-1 block text-[12px] text-ss-text-2">Bio</span>
-                    <textarea v-model="form.about" rows="3" class="w-full resize-y rounded-lg border border-ss-border bg-ss-bg p-2.5 text-[13px] text-ss-text focus:border-ss-accent focus:outline-none" />
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Bio</span
+                    >
+                    <textarea
+                        v-model="form.about"
+                        rows="3"
+                        class="w-full resize-y rounded-lg border border-ss-border bg-ss-bg p-2.5 text-[13px] text-ss-text focus:border-ss-accent focus:outline-none"
+                    />
                 </label>
                 <div class="grid gap-3 sm:grid-cols-2">
                     <label class="block">
-                        <span class="mb-1 block text-[12px] text-ss-text-2">Location</span>
-                        <input v-model="form.location" type="text" class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none" />
+                        <span class="mb-1 block text-[12px] text-ss-text-2"
+                            >Location</span
+                        >
+                        <input
+                            v-model="form.location"
+                            type="text"
+                            class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
+                        />
                     </label>
                     <label class="block">
-                        <span class="mb-1 block text-[12px] text-ss-text-2">Website</span>
-                        <input v-model="form.website" type="text" class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none" />
+                        <span class="mb-1 block text-[12px] text-ss-text-2"
+                            >Website</span
+                        >
+                        <input
+                            v-model="form.website"
+                            type="text"
+                            class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
+                        />
                     </label>
                 </div>
                 <label class="block">
-                    <span class="mb-1 block text-[12px] text-ss-text-2">Wishlist URL</span>
-                    <input v-model="form.wishlist" type="text" class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none" />
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Wishlist URL</span
+                    >
+                    <input
+                        v-model="form.wishlist"
+                        type="text"
+                        class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
+                    />
                 </label>
                 <button
                     type="button"
@@ -148,10 +216,18 @@ onMounted(load);
             </div>
 
             <!-- Subscription price (editable) -->
-            <div class="space-y-2 rounded-xl border border-ss-border bg-ss-surface p-4">
+            <div
+                class="space-y-2 rounded-xl border border-ss-border bg-ss-surface p-4"
+            >
                 <div class="flex items-center justify-between">
-                    <h4 class="text-[13px] font-semibold text-ss-text">Subscription price</h4>
-                    <span v-if="priceSaved" class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"><Check :size="13" /> Saved</span>
+                    <h4 class="text-[13px] font-semibold text-ss-text">
+                        Subscription price
+                    </h4>
+                    <span
+                        v-if="priceSaved"
+                        class="flex items-center gap-1 text-[11px] font-medium text-ss-pos"
+                        ><Check :size="13" /> Saved</span
+                    >
                 </div>
                 <div class="flex items-center gap-2">
                     <input
@@ -169,29 +245,74 @@ onMounted(load);
                         Update
                     </button>
                 </div>
-                <p v-if="priceError" class="text-[11px] text-ss-neg">{{ priceError }}</p>
-                <p class="text-[11px] text-ss-text-3">OnlyFans limits price changes to 3 per day.</p>
+                <p v-if="priceError" class="text-[11px] text-ss-neg">
+                    {{ priceError }}
+                </p>
+                <p class="text-[11px] text-ss-text-3">
+                    OnlyFans limits price changes to 3 per day.
+                </p>
             </div>
 
             <!-- Account flags (read-only) -->
             <div class="rounded-xl border border-ss-border bg-ss-surface p-4">
-                <h4 class="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-ss-text"><ShieldCheck :size="14" /> Account</h4>
+                <h4
+                    class="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-ss-text"
+                >
+                    <ShieldCheck :size="14" /> Account
+                </h4>
                 <dl class="grid grid-cols-2 gap-3 text-[12px]">
-                    <div class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2">
+                    <div
+                        class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2"
+                    >
                         <dt class="text-ss-text-2">Private profile</dt>
-                        <dd class="font-medium" :class="settings?.isPrivate ? 'text-ss-pos' : 'text-ss-text-3'">{{ settings?.isPrivate ? 'On' : 'Off' }}</dd>
+                        <dd
+                            class="font-medium"
+                            :class="
+                                settings?.isPrivate
+                                    ? 'text-ss-pos'
+                                    : 'text-ss-text-3'
+                            "
+                        >
+                            {{ settings?.isPrivate ? 'On' : 'Off' }}
+                        </dd>
                     </div>
-                    <div class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2">
+                    <div
+                        class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2"
+                    >
                         <dt class="text-ss-text-2">DRM enabled</dt>
-                        <dd class="font-medium" :class="settings?.isDrmEnabled ? 'text-ss-pos' : 'text-ss-text-3'">{{ settings?.isDrmEnabled ? 'On' : 'Off' }}</dd>
+                        <dd
+                            class="font-medium"
+                            :class="
+                                settings?.isDrmEnabled
+                                    ? 'text-ss-pos'
+                                    : 'text-ss-text-3'
+                            "
+                        >
+                            {{ settings?.isDrmEnabled ? 'On' : 'Off' }}
+                        </dd>
                     </div>
-                    <div class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2">
+                    <div
+                        class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2"
+                    >
                         <dt class="text-ss-text-2">Paid posts</dt>
-                        <dd class="font-medium" :class="settings?.hasPaidPosts ? 'text-ss-pos' : 'text-ss-text-3'">{{ settings?.hasPaidPosts ? 'Yes' : 'No' }}</dd>
+                        <dd
+                            class="font-medium"
+                            :class="
+                                settings?.hasPaidPosts
+                                    ? 'text-ss-pos'
+                                    : 'text-ss-text-3'
+                            "
+                        >
+                            {{ settings?.hasPaidPosts ? 'Yes' : 'No' }}
+                        </dd>
                     </div>
-                    <div class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2">
+                    <div
+                        class="flex items-center justify-between rounded-lg bg-ss-surface-2 px-3 py-2"
+                    >
                         <dt class="text-ss-text-2">Blocked countries</dt>
-                        <dd class="font-medium text-ss-text">{{ settings?.blockedCountriesCount ?? 0 }}</dd>
+                        <dd class="font-medium text-ss-text">
+                            {{ settings?.blockedCountriesCount ?? 0 }}
+                        </dd>
                     </div>
                 </dl>
             </div>

@@ -14,7 +14,14 @@ class Doctrine extends Model
 {
     protected $table = 'doctrines';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'version',
+        'prompt',
+        'sha256',
+        'tier',
+        'is_active',
+        'notes',
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',

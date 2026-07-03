@@ -3,7 +3,7 @@ import { configureEcho } from '@laravel/echo-vue';
 import { initializeTheme } from '@/composables/useAppearance';
 import AppLayout from '@/layouts/AppLayout.vue';
 import AuthLayout from '@/layouts/AuthLayout.vue';
-import SettingsLayout from '@/layouts/settings/Layout.vue';
+import SsSettingsLayout from '@/layouts/settings/SsSettingsLayout.vue';
 import SmartStarsLayout from '@/layouts/SmartStarsLayout.vue';
 import { initializeFlashToast } from '@/lib/flashToast';
 
@@ -22,14 +22,18 @@ createInertiaApp({
             case name === 'Welcome':
                 return null;
             case name.startsWith('auth/'):
+            case name === 'PasswordChange':
                 return AuthLayout;
             case name.startsWith('settings/'):
-                return [AppLayout, SettingsLayout];
+                return [SmartStarsLayout, SsSettingsLayout];
             // SmartStars CRM views use the design shell.
             case name === 'Dashboard':
+            case name === 'Analytics':
+            case name === 'AiUsage':
             case name === 'Conversations':
             case name === 'Models':
             case name === 'ModelShow':
+            case name === 'Team':
             case name === 'DevGenerate':
                 return SmartStarsLayout;
             default:

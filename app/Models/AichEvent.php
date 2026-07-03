@@ -16,7 +16,14 @@ class AichEvent extends Model
 
     protected $table = 'aich_events';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'event_type',
+        'creator_model',
+        'session_id',
+        'customer_username',
+        'payload',
+    ];
 
     protected $casts = [
         'payload' => 'array',

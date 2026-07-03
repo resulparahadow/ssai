@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { Ban, BadgeCheck, Heart, LoaderCircle, Search, ShieldBan } from '@lucide/vue';
+import {
+    Ban,
+    BadgeCheck,
+    Heart,
+    LoaderCircle,
+    Search,
+    ShieldBan,
+} from '@lucide/vue';
 import { ref } from 'vue';
 import { ofModel } from '@/lib/onlyfansModel';
 import type { OfUserDetail } from '@/types/crm';
@@ -14,7 +21,10 @@ const error = ref<string | null>(null);
 const busy = ref<'block' | 'restrict' | 'subscribe' | null>(null);
 
 async function lookup() {
-    const ids = query.value.split(',').map((s) => s.trim()).filter(Boolean);
+    const ids = query.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
 
     if (!ids.length) {
         return;
@@ -28,7 +38,9 @@ async function lookup() {
     try {
         if (ids.length > 1) {
             // mass lookup (up to 10 numeric ids) → pick a result to manage
-            const users = (await ofModel.userDetails(props.modelId, ids.slice(0, 10))).users;
+            const users = (
+                await ofModel.userDetails(props.modelId, ids.slice(0, 10))
+            ).users;
 
             if (!users.length) {
                 error.value = 'No users found for those ids.';
@@ -57,7 +69,12 @@ async function toggle(action: 'block' | 'restrict' | 'subscribe') {
         return;
     }
 
-    const stateKey = action === 'block' ? 'isBlocked' : action === 'restrict' ? 'isRestricted' : 'subscribedBy';
+    const stateKey =
+        action === 'block'
+            ? 'isBlocked'
+            : action === 'restrict'
+              ? 'isRestricted'
+              : 'subscribedBy';
     const next = !user.value[stateKey];
     busy.value = action;
     error.value = null;
@@ -103,11 +120,24 @@ function money(n: number | null): string {
             </button>
         </div>
 
-        <p v-if="loading" class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3"><LoaderCircle :size="16" class="animate-spin" /> Looking up…</p>
-        <p v-else-if="error" class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg">{{ error }}</p>
+        <p
+            v-if="loading"
+            class="flex items-center justify-center gap-2 py-8 text-[13px] text-ss-text-3"
+        >
+            <LoaderCircle :size="16" class="animate-spin" /> Looking up…
+        </p>
+        <p
+            v-else-if="error"
+            class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg"
+        >
+            {{ error }}
+        </p>
 
         <!-- mass-lookup results → click one to manage -->
-        <div v-else-if="results" class="overflow-hidden rounded-xl border border-ss-border bg-ss-surface">
+        <div
+            v-else-if="results"
+            class="overflow-hidden rounded-xl border border-ss-border bg-ss-surface"
+        >
             <button
                 v-for="u in results"
                 :key="u.id ?? u.username ?? ''"
@@ -115,48 +145,119 @@ function money(n: number | null): string {
                 class="flex w-full items-center gap-3 border-b border-ss-border p-3 text-left last:border-b-0 hover:bg-ss-surface-2"
                 @click="select(u)"
             >
-                <span class="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-ss-surface-2 text-[12px] font-semibold text-ss-text-2">
-                    <img v-if="u.avatar" :src="u.avatar" :alt="u.name ?? ''" class="h-full w-full object-cover" />
+                <span
+                    class="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-ss-surface-2 text-[12px] font-semibold text-ss-text-2"
+                >
+                    <img
+                        v-if="u.avatar"
+                        :src="u.avatar"
+                        :alt="u.name ?? ''"
+                        class="h-full w-full object-cover"
+                    />
                     <template v-else>{{ u.initials }}</template>
                 </span>
                 <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1 text-[13px] font-medium text-ss-text">
+                    <div
+                        class="flex items-center gap-1 text-[13px] font-medium text-ss-text"
+                    >
                         <span class="truncate">{{ u.name || u.username }}</span>
-                        <BadgeCheck v-if="u.isVerified" :size="13" class="shrink-0 text-ss-accent" />
+                        <BadgeCheck
+                            v-if="u.isVerified"
+                            :size="13"
+                            class="shrink-0 text-ss-accent"
+                        />
                     </div>
-                    <div class="text-[11px] text-ss-text-3">@{{ u.username }}</div>
+                    <div class="text-[11px] text-ss-text-3">
+                        @{{ u.username }}
+                    </div>
                 </div>
                 <div class="flex shrink-0 gap-1">
-                    <span v-if="u.subscribedBy" class="rounded-full bg-ss-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-ss-accent-text">Sub</span>
-                    <span v-if="u.isBlocked" class="rounded-full bg-ss-neg/10 px-1.5 py-0.5 text-[10px] font-medium text-ss-neg">Blocked</span>
-                    <span v-if="u.isRestricted" class="rounded-full bg-ss-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-ss-warn">Restricted</span>
+                    <span
+                        v-if="u.subscribedBy"
+                        class="rounded-full bg-ss-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-ss-accent-text"
+                        >Sub</span
+                    >
+                    <span
+                        v-if="u.isBlocked"
+                        class="rounded-full bg-ss-neg/10 px-1.5 py-0.5 text-[10px] font-medium text-ss-neg"
+                        >Blocked</span
+                    >
+                    <span
+                        v-if="u.isRestricted"
+                        class="rounded-full bg-ss-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-ss-warn"
+                        >Restricted</span
+                    >
                 </div>
             </button>
         </div>
 
-        <div v-else-if="user" class="space-y-4 rounded-xl border border-ss-border bg-ss-surface p-5">
+        <div
+            v-else-if="user"
+            class="space-y-4 rounded-xl border border-ss-border bg-ss-surface p-5"
+        >
             <div class="flex items-start gap-3">
-                <span class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-ss-surface-2 text-[13px] font-semibold text-ss-text-2">
-                    <img v-if="user.avatar" :src="user.avatar" :alt="user.name ?? ''" class="h-full w-full object-cover" />
+                <span
+                    class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-ss-surface-2 text-[13px] font-semibold text-ss-text-2"
+                >
+                    <img
+                        v-if="user.avatar"
+                        :src="user.avatar"
+                        :alt="user.name ?? ''"
+                        class="h-full w-full object-cover"
+                    />
                     <template v-else>{{ user.initials }}</template>
                 </span>
                 <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1 text-[15px] font-semibold text-ss-text">
-                        <span class="truncate">{{ user.name || user.username }}</span>
-                        <BadgeCheck v-if="user.isVerified" :size="14" class="shrink-0 text-ss-accent" />
+                    <div
+                        class="flex items-center gap-1 text-[15px] font-semibold text-ss-text"
+                    >
+                        <span class="truncate">{{
+                            user.name || user.username
+                        }}</span>
+                        <BadgeCheck
+                            v-if="user.isVerified"
+                            :size="14"
+                            class="shrink-0 text-ss-accent"
+                        />
                     </div>
-                    <div class="text-[12px] text-ss-text-3">@{{ user.username }}</div>
-                    <p v-if="user.about" class="mt-1 line-clamp-2 text-[12px] text-ss-text-2">{{ user.about }}</p>
+                    <div class="text-[12px] text-ss-text-3">
+                        @{{ user.username }}
+                    </div>
+                    <p
+                        v-if="user.about"
+                        class="mt-1 line-clamp-2 text-[12px] text-ss-text-2"
+                    >
+                        {{ user.about }}
+                    </p>
                 </div>
             </div>
 
             <!-- relationship chips -->
             <div class="flex flex-wrap gap-1.5 text-[11px]">
-                <span class="rounded-full bg-ss-surface-2 px-2 py-0.5 text-ss-text-2">Sub price: {{ money(user.subscribePrice) }}</span>
-                <span v-if="user.location" class="rounded-full bg-ss-surface-2 px-2 py-0.5 text-ss-text-2">{{ user.location }}</span>
-                <span v-if="user.subscribedBy" class="rounded-full bg-ss-accent-soft px-2 py-0.5 font-medium text-ss-accent-text">You subscribe to them</span>
-                <span v-if="user.isBlocked" class="rounded-full bg-ss-neg/10 px-2 py-0.5 font-medium text-ss-neg">Blocked</span>
-                <span v-if="user.isRestricted" class="rounded-full bg-ss-warn/15 px-2 py-0.5 font-medium text-ss-warn">Restricted</span>
+                <span
+                    class="rounded-full bg-ss-surface-2 px-2 py-0.5 text-ss-text-2"
+                    >Sub price: {{ money(user.subscribePrice) }}</span
+                >
+                <span
+                    v-if="user.location"
+                    class="rounded-full bg-ss-surface-2 px-2 py-0.5 text-ss-text-2"
+                    >{{ user.location }}</span
+                >
+                <span
+                    v-if="user.subscribedBy"
+                    class="rounded-full bg-ss-accent-soft px-2 py-0.5 font-medium text-ss-accent-text"
+                    >You subscribe to them</span
+                >
+                <span
+                    v-if="user.isBlocked"
+                    class="rounded-full bg-ss-neg/10 px-2 py-0.5 font-medium text-ss-neg"
+                    >Blocked</span
+                >
+                <span
+                    v-if="user.isRestricted"
+                    class="rounded-full bg-ss-warn/15 px-2 py-0.5 font-medium text-ss-warn"
+                    >Restricted</span
+                >
             </div>
 
             <!-- moderation actions -->
@@ -164,35 +265,57 @@ function money(n: number | null): string {
                 <button
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
-                    :class="user.isBlocked ? 'border-ss-neg bg-ss-neg/10 text-ss-neg' : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'"
+                    :class="
+                        user.isBlocked
+                            ? 'border-ss-neg bg-ss-neg/10 text-ss-neg'
+                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                    "
                     :disabled="busy === 'block'"
                     @click="toggle('block')"
                 >
-                    <Ban :size="14" /> {{ user.isBlocked ? 'Unblock' : 'Block' }}
+                    <Ban :size="14" />
+                    {{ user.isBlocked ? 'Unblock' : 'Block' }}
                 </button>
                 <button
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
-                    :class="user.isRestricted ? 'border-ss-warn bg-ss-warn/15 text-ss-warn' : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'"
+                    :class="
+                        user.isRestricted
+                            ? 'border-ss-warn bg-ss-warn/15 text-ss-warn'
+                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                    "
                     :disabled="busy === 'restrict'"
                     @click="toggle('restrict')"
                 >
-                    <ShieldBan :size="14" /> {{ user.isRestricted ? 'Unrestrict' : 'Restrict' }}
+                    <ShieldBan :size="14" />
+                    {{ user.isRestricted ? 'Unrestrict' : 'Restrict' }}
                 </button>
                 <button
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
-                    :class="user.subscribedBy ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text' : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'"
+                    :class="
+                        user.subscribedBy
+                            ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
+                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                    "
                     :disabled="busy === 'subscribe'"
                     @click="toggle('subscribe')"
                 >
-                    <Heart :size="14" :fill="user.subscribedBy ? 'currentColor' : 'none'" /> {{ user.subscribedBy ? 'Unsubscribe' : 'Subscribe' }}
+                    <Heart
+                        :size="14"
+                        :fill="user.subscribedBy ? 'currentColor' : 'none'"
+                    />
+                    {{ user.subscribedBy ? 'Unsubscribe' : 'Subscribe' }}
                 </button>
             </div>
         </div>
 
-        <p v-else class="rounded-xl border border-dashed border-ss-border p-8 text-center text-[13px] text-ss-text-3">
-            Enter a fan's user id or username to view their profile and moderate.
+        <p
+            v-else
+            class="rounded-xl border border-dashed border-ss-border p-8 text-center text-[13px] text-ss-text-3"
+        >
+            Enter a fan's user id or username to view their profile and
+            moderate.
         </p>
     </div>
 </template>

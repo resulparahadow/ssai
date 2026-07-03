@@ -1,26 +1,25 @@
 <script setup lang="ts">
+import { Link, router } from '@inertiajs/vue3';
 import {
     Bell,
     ChevronDown,
-    Clock,
-    Flame,
+    LogOut,
     Moon,
     PanelLeft,
-    Search,
-    Star,
+    Settings,
     Sun,
-    TriangleAlert,
 } from '@lucide/vue';
 import { onClickOutside } from '@vueuse/core';
 import { computed, ref } from 'vue';
 import { useAppearance } from '@/composables/useAppearance';
 import { useCrmShell } from '@/composables/useCrmShell';
-import { ssColor } from '@/crm/nav';
-import type { Role, User } from '@/types/auth';
+import { logout } from '@/routes';
+import { edit as profileEdit } from '@/routes/profile';
+import type { User } from '@/types/auth';
 
-const props = defineProps<{ title: string; user: User; effectiveRole: Role }>();
+const props = defineProps<{ title: string; user: User }>();
 
-const { toggleSidebar, setPreviewRole } = useCrmShell();
+const { toggleSidebar } = useCrmShell();
 const { resolvedAppearance, updateAppearance } = useAppearance();
 
 function toggleTheme(): void {
@@ -36,75 +35,19 @@ const initials = computed(() =>
         .toUpperCase(),
 );
 
-// ---- Signals dropdown (illustrative; live wiring is a later phase) ----------
-const signalsOpen = ref(false);
-const signalsRef = ref<HTMLElement | null>(null);
-onClickOutside(signalsRef, () => (signalsOpen.value = false));
-
-const signals = [
-    {
-        type: 'VIP online',
-        text: 'Devin (VIP · $418 lifetime) is online now.',
-        time: '2m',
-        icon: Star,
-        color: 'accent',
-    },
-    {
-        type: 'High potential',
-        text: 'Marcus is showing strong buying signals.',
-        time: '8m',
-        icon: Flame,
-        color: 'pos',
-    },
-    {
-        type: 'SLA breach',
-        text: 'Theo has waited 6m — over the 3m target.',
-        time: '11m',
-        icon: Clock,
-        color: 'warn',
-    },
-    {
-        type: 'Flagged',
-        text: 'A blacklisted word was blocked in Ray’s thread.',
-        time: '20m',
-        icon: TriangleAlert,
-        color: 'neg',
-    },
-];
-
-// ---- Role switcher (admin-only preview) -------------------------------------
-const roleOpen = ref(false);
-const roleRef = ref<HTMLElement | null>(null);
-onClickOutside(roleRef, () => (roleOpen.value = false));
-
-const roleOptions: { key: Role; label: string; desc: string }[] = [
-    {
-        key: 'admin',
-        label: 'Admin · Owner',
-        desc: 'Full access incl. profit & cut',
-    },
-    {
-        key: 'manager',
-        label: 'Manager',
-        desc: 'Team & analytics · no profit/cut',
-    },
-    {
-        key: 'chatter',
-        label: 'Chatter / VA',
-        desc: 'Only assigned conversations',
-    },
-];
-
-function pickRole(role: Role): void {
-    setPreviewRole(role);
-    roleOpen.value = false;
-}
-
 const roleLabel = computed(
-    () =>
-        props.effectiveRole.charAt(0).toUpperCase() +
-        props.effectiveRole.slice(1),
+    () => props.user.role.charAt(0).toUpperCase() + props.user.role.slice(1),
 );
+
+// ---- Profile dropdown -------------------------------------------------------
+const profileOpen = ref(false);
+const profileRef = ref<HTMLElement | null>(null);
+onClickOutside(profileRef, () => (profileOpen.value = false));
+
+function handleLogout(): void {
+    profileOpen.value = false;
+    router.flushAll();
+}
 </script>
 
 <template>
@@ -121,74 +64,16 @@ const roleLabel = computed(
 
         <h1 class="text-sm font-semibold text-ss-text">{{ title }}</h1>
 
-        <!-- Search -->
-        <div class="relative ml-4 hidden max-w-sm flex-1 items-center md:flex">
-            <Search :size="15" class="absolute left-3 text-ss-text-3" />
-            <input
-                type="text"
-                placeholder="Search fans, messages…"
-                class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg pr-12 pl-9 text-sm text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
-            />
-            <kbd
-                class="absolute right-3 font-ss-mono text-[10px] text-ss-text-3"
-                >⌘K</kbd
-            >
-        </div>
-
         <div class="ml-auto flex items-center gap-1.5">
-            <!-- Signals -->
-            <div ref="signalsRef" class="relative">
-                <button
-                    type="button"
-                    class="relative grid h-9 w-9 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
-                    @click="signalsOpen = !signalsOpen"
-                >
-                    <Bell :size="18" />
-                    <span
-                        class="absolute top-2 right-2.5 h-1.5 w-1.5 rounded-full bg-ss-neg"
-                    />
-                </button>
-                <div
-                    v-if="signalsOpen"
-                    class="absolute right-0 z-20 mt-1 w-80 rounded-xl border border-ss-border bg-ss-surface p-2 shadow-xl"
-                >
-                    <div class="flex items-center justify-between px-2 py-1.5">
-                        <span class="text-sm font-semibold text-ss-text"
-                            >Signals</span
-                        >
-                        <span class="text-[11px] text-ss-text-3"
-                            >4 need attention</span
-                        >
-                    </div>
-                    <div
-                        v-for="(a, i) in signals"
-                        :key="i"
-                        class="flex gap-2.5 rounded-lg px-2 py-2 hover:bg-ss-surface-2"
-                    >
-                        <component
-                            :is="a.icon"
-                            :size="17"
-                            :style="{ color: ssColor(a.color) }"
-                            class="mt-0.5 shrink-0"
-                        />
-                        <div class="min-w-0 flex-1">
-                            <div class="flex justify-between gap-2">
-                                <span
-                                    class="text-[13px] font-medium text-ss-text"
-                                    >{{ a.type }}</span
-                                >
-                                <span
-                                    class="shrink-0 text-[11px] text-ss-text-3"
-                                    >{{ a.time }}</span
-                                >
-                            </div>
-                            <p class="text-[12px] text-ss-text-2">
-                                {{ a.text }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <!-- Signals — coming soon -->
+            <button
+                type="button"
+                disabled
+                class="grid h-9 w-9 cursor-not-allowed place-items-center rounded-lg text-ss-text-3 opacity-60"
+                title="Notifications — coming soon"
+            >
+                <Bell :size="18" />
+            </button>
 
             <!-- Theme -->
             <button
@@ -204,12 +89,11 @@ const roleLabel = computed(
             </button>
 
             <!-- Role / user -->
-            <div ref="roleRef" class="relative">
+            <div ref="profileRef" class="relative">
                 <button
                     type="button"
                     class="flex items-center gap-2 rounded-lg py-1 pr-2 pl-1 hover:bg-ss-surface-2"
-                    :class="{ 'cursor-default': user.role !== 'admin' }"
-                    @click="user.role === 'admin' && (roleOpen = !roleOpen)"
+                    @click="profileOpen = !profileOpen"
                 >
                     <span
                         class="grid h-8 w-8 place-items-center rounded-lg bg-ss-accent-soft text-[11px] font-semibold text-ss-accent-text"
@@ -226,42 +110,42 @@ const roleLabel = computed(
                         }}</span>
                     </span>
                     <ChevronDown
-                        v-if="user.role === 'admin'"
                         :size="15"
-                        class="text-ss-text-3"
+                        class="text-ss-text-3 transition-transform"
+                        :class="{ 'rotate-180': profileOpen }"
                     />
                 </button>
-
                 <div
-                    v-if="roleOpen"
-                    class="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-ss-border bg-ss-surface p-2 shadow-xl"
+                    v-if="profileOpen"
+                    class="absolute right-0 z-20 mt-1 w-56 rounded-xl border border-ss-border bg-ss-surface p-2 shadow-xl"
                 >
-                    <div class="px-2 py-1.5 text-[11px] text-ss-text-3">
-                        Viewing as · preview permissions
-                    </div>
-                    <button
-                        v-for="o in roleOptions"
-                        :key="o.key"
-                        type="button"
-                        class="block w-full rounded-lg px-2 py-2 text-left hover:bg-ss-surface-2"
-                        :class="
-                            o.key === effectiveRole ? 'bg-ss-accent-soft' : ''
-                        "
-                        @click="pickRole(o.key)"
-                    >
-                        <span
-                            class="block text-[13px] font-medium"
-                            :class="
-                                o.key === effectiveRole
-                                    ? 'text-ss-accent-text'
-                                    : 'text-ss-text'
-                            "
-                            >{{ o.label }}</span
-                        >
-                        <span class="block text-[11px] text-ss-text-3">{{
-                            o.desc
+                    <div class="px-2 py-1.5">
+                        <span class="block text-[13px] font-medium text-ss-text">{{
+                            user.name
                         }}</span>
-                    </button>
+                        <span class="block truncate text-[11px] text-ss-text-3">{{
+                            user.email
+                        }}</span>
+                    </div>
+                    <div class="my-1 border-t border-ss-border" />
+                    <Link
+                        :href="profileEdit()"
+                        class="flex items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] text-ss-text hover:bg-ss-surface-2"
+                        @click="profileOpen = false"
+                    >
+                        <Settings :size="16" class="text-ss-text-2" />
+                        Settings
+                    </Link>
+                    <Link
+                        :href="logout()"
+                        as="button"
+                        class="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] text-ss-neg hover:bg-ss-surface-2"
+                        data-test="logout-button"
+                        @click="handleLogout"
+                    >
+                        <LogOut :size="16" />
+                        Log out
+                    </Link>
                 </div>
             </div>
         </div>

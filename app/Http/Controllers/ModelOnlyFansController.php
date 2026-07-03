@@ -31,6 +31,22 @@ class ModelOnlyFansController extends Controller
             : $this->forward($res);
     }
 
+    /** AI profile summary for a fan (poll after generate). */
+    public function fanSummary(AichModel $model, string $fan): JsonResponse
+    {
+        $res = $this->of->getFanSummary($this->account($model), $fan);
+
+        return $res->successful() ? response()->json($res->json()) : $this->forward($res);
+    }
+
+    /** Queue (re)generation of a fan's AI profile summary — 200 credits, async. */
+    public function generateFanSummary(Request $request, AichModel $model, string $fan): JsonResponse
+    {
+        $res = $this->of->generateFanSummary($this->account($model), $fan, $request->boolean('regenerate'));
+
+        return $res->successful() ? response()->json($res->json()) : $this->forward($res);
+    }
+
     public function fans(Request $request, AichModel $model): JsonResponse
     {
         $acct = $this->account($model);
@@ -524,6 +540,75 @@ class ModelOnlyFansController extends Controller
         return $res->successful()
             ? response()->json(['tags' => array_values(data_get($res->json(), 'data.tags', []))])
             : $this->forward($res);
+    }
+
+    // ---- Promotions -------------------------------------------------------
+
+    public function promotions(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($model);
+        $res = $this->of->listPromotions($acct, $request->only(['limit', 'offset']));
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+        $j = $res->json();
+
+        return response()->json([
+            'promotions' => collect(data_get($j, 'data.items', []))->map(fn ($p) => $this->of->normalizePromotion($p))->values(),
+            'hasMore' => (bool) data_get($j, 'data.hasMore', false),
+        ]);
+    }
+
+    public function createPromotion(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($model);
+        $data = $this->validateJson($request, [
+            'type' => 'required|string|in:new,expired,new_and_expired',
+            'discount' => 'required|integer|min:0|max:100',
+            'offerLimit' => 'required|integer|min:0',
+            'expirationDays' => 'required|integer|min:1',
+            'freeTrialDays' => 'required_if:discount,100|nullable|integer|min:0',
+            'message' => 'nullable|string|max:1000',
+        ]);
+
+        return $this->userAction($this->of->createPromotion($acct, collect($data)->filter(fn ($v) => $v !== null && $v !== '')->all()));
+    }
+
+    public function stopPromotion(AichModel $model, string $promotion): JsonResponse
+    {
+        return $this->proxyAction($this->of->stopPromotion($this->account($model), $promotion));
+    }
+
+    public function deletePromotion(AichModel $model, string $promotion): JsonResponse
+    {
+        return $this->proxyAction($this->of->deletePromotion($this->account($model), $promotion));
+    }
+
+    // ---- Subscription bundles ---------------------------------------------
+
+    public function bundles(AichModel $model): JsonResponse
+    {
+        $res = $this->of->listBundles($this->account($model));
+
+        return $res->successful()
+            ? response()->json(['bundles' => collect(data_get($res->json(), 'data', []))->map(fn ($b) => $this->of->normalizeBundle($b))->values()])
+            : $this->forward($res);
+    }
+
+    public function createBundle(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($model);
+        $data = $this->validateJson($request, [
+            'discount' => 'required|integer|in:0,5,10,15,20,25,30,35,40,45,50',
+            'duration' => 'required|integer|in:3,6,12',
+        ]);
+
+        return $this->userAction($this->of->createBundle($acct, $data));
+    }
+
+    public function deleteBundle(AichModel $model, string $bundle): JsonResponse
+    {
+        return $this->proxyAction($this->of->deleteBundle($this->account($model), $bundle));
     }
 
     // ---- helpers ----------------------------------------------------------

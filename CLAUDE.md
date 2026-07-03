@@ -121,17 +121,39 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - **Engine extras** — post-message analysis (`runAnalysis` / engine `/analyze`), PPV
   price suggestion, and the optional PHP port of the pipeline.
 - **CRM views** — DONE: app shell + Overview dashboard (Phase 2), **Conversations**
-  + **Creator Models** (Phase 4). The remaining design views (Chatting Performance,
-  AI Usage, Smart Links, Channels, Creative, Content, Whales/Churn) are each their
-  own spec — inert sidebar placeholders today.
+  + **Creator Models** (Phase 4), **AI Usage** (`/analytics/ai-usage`). The remaining design
+  views (Chatting Performance, Smart Links, Channels, Creative, Content, Whales/Churn) are each
+  their own spec — inert sidebar placeholders today.
+  - **AI Usage** (`/analytics/ai-usage`, manager/admin via `can:manage-team`) — restores the legacy
+    `js/api.js` cost telemetry (`_ssaiCostLog` / `$/msg · Cache` card / cost-diagnostic modal). The
+    engine now records a per-LLM-call usage ledger (`engine/callModel.js` → `makeRealCallApi`/`Mistral`
+    take a ledger; `runGenerate` returns `usage[]`) with the exact legacy cost math (Sonnet $3/$15, Opus
+    $5/$25, cacheRead 0.1×, cacheWrite 2×; Mistral uses OpenRouter's exact `usage.cost`). Both generate
+    paths (`OnlyFansChatController::generate` live, `GenerationController` dev) persist it via
+    `AiUsageRecorder` into **`aich_usage_events`** — **metadata only, NO message text** (token counts,
+    cost, cache hit, duration, call_type, model, creator, chat id, grouped by `generation_id`). The page
+    (`AiUsageService` → `AiUsageController` → `AiUsage.vue`) reproduces the legacy `$/msg` + cache-hit%
+    summary (green ≥70 / red <40, "—" under 3 calls) and the last-25 cost-diagnostic table (cache
+    HIT/MISS/NO CACHE, r·cR·cW token breakdown, sys-block sizes with the `<1024`-prefix ⚠ warning,
+    Copy-JSON). Period filter Today/7d/30d. Guards: `node engine/usage_check.js`.
   - **Conversations** (`/conversations`) — a **live OnlyFans proxy; NOTHING is persisted**
     (Phase 6 replaced the old DB-backed version). The sidebar "Conversations" item is a
     **dropdown of creator models** (shared `creators` prop from `HandleInertiaRequests`);
     picking one opens `/conversations?creator=<name>`. The Vue page fetches everything LIVE
     client-side (`resources/js/lib/onlyfans.ts`) via `OnlyFansChatController` (`/onlyfans/{model}/…`):
-    list chats, list/get/search messages, chat media gallery, send (text-only), delete,
-    like/unlike, fan details, and AI `generate` (a transient engine session built from the
-    live thread — no DB row). Access is scoped in the controller (chatter → assigned creators).
+    list chats, list/get/search messages, chat media gallery, send (text + optional **GIF**),
+    delete, like/unlike, fan details, GIF picker (Giphy trending/search), and AI `generate`
+    (a transient engine session built from the live thread — no DB row). Access is scoped in the
+    controller (chatter → assigned creators).
+    **GIF sending:** `SsComposer` has a **GIF** button opening `SsGifPicker` (a popover over the
+    Giphy proxy — `GET /onlyfans/{model}/giphy/{trending,search?q&limit&offset}` →
+    `OnlyFansService::listGiphyTrending`/`searchGiphy` → `normalizeGif`). Picking a GIF attaches it
+    above the typing bar (per-chat `ComposerState.gif`); Send posts `{ text?, giphyId }` to the same
+    send endpoint (`sendGif` adds the `giphyId` body param; text stays optional). The optimistic
+    bubble previews the Giphy CDN url directly via a new `OfMedia.direct` flag that bypasses the
+    OF media proxy in `SsMessageMedia`/`SsMediaLightbox` (Giphy urls aren't IP-locked, unlike OF CDN);
+    the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
+    PPV/tip + file-media sends remain deferred.
     **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
     (`normalizeMedia`: type/canView/thumb/preview/full/duration/dims) instead of only `mediaCount`;
     `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ + duration,
@@ -163,7 +185,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     when an OF account is mapped — a tabbed panel of **live** OnlyFans account data (nothing
     persisted) served by `ModelOnlyFansController` under `models/{model}/of/*` (also manage-team
     gated, so no per-creator assignment scope, unlike the chatter-facing `OnlyFansChatController`).
-    Six tabs (`resources/js/components/crm/models/`, client via `lib/onlyfansModel.ts` → `ofModel`):
+    Seven tabs (`resources/js/components/crm/models/`, client via `lib/onlyfansModel.ts` → `ofModel`):
     **Fans** (`SsModelFans` — active list / top spenders + per-fan subscription history, read-only),
     **OnlyFans Settings** (`SsModelSettings` — editable profile name/bio/location/website/wishlist +
     subscription price, read-only account flags), **Welcome Message** (`SsModelWelcome` — text edit +
@@ -174,7 +196,12 @@ engine uses its in-process copy. Provider keys live in the engine's env
     **Links** (`SsModelLinks` — a 4-way subswitch: **Free trial** + **Tracking** (`list`/`create`/
     `delete`/per-link `stats`), **Smart links** (`SsModelSmartLinks` — list/create/delete + an
     expandable per-link detail with inner tabs: Stats, Conversions, Fans, Spenders, Clicks, Tags
-    add/remove), **Link tags** (`SsModelLinkTags` — agency-wide tag list, optional type filter)).
+    add/remove), **Link tags** (`SsModelLinkTags` — agency-wide tag list, optional type filter)),
+    **Promotions** (`SsModelPromotions` — a 2-way subswitch over account-level `{acct}/promotions`
+    + `{acct}/bundles`: **Promotions** (`list` paginated via `data.items`/`data.hasMore` + `create`
+    [type new|expired|new_and_expired, discount, offerLimit, expirationDays, freeTrialDays required when
+    discount=100, optional message] + per-promo `stop` + `delete`) and **Subscription bundles** (`list`
+    flat `data[]` + `create` [discount 0–50 step 5, duration 3|6|12 months] + `delete`)).
     Smart links are an **agency-level** OF resource (`/smart-links`, no `{acct}` path segment): list is
     scoped to the creator via `account_ids=<of_account_id>`, create injects `account_id`; per-link ops
     (`/smart-links/{id}/…`) address the smart-link id directly (still `manage-team` gated).
@@ -184,8 +211,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
     get/update/toggle, `listNotifications`/`getNotificationCounts`/`markAllNotificationsRead`,
     `block`/`restrict`/`subscribe` (+ un* via DELETE), tracking/trial `list*`/`create*`/`delete*`/
     `get*Stats`, smart-link `listSmartLinks`/`createSmartLink`/`deleteSmartLink`/`getSmartLinkStats`/
-    `listSmartLink{Fans,Spenders,Clicks,Conversions,Tags}`/`add|removeSmartLinkTags`, `listLinkTags`
-    (+ matching `normalizeSmartLink*`). **Note:** these `models/{model}/of/*` routes are not under
+    `listSmartLink{Fans,Spenders,Clicks,Conversions,Tags}`/`add|removeSmartLinkTags`, `listLinkTags`,
+    `listPromotions`/`createPromotion`/`stopPromotion`/`deletePromotion`, `listBundles`/`createBundle`/
+    `deleteBundle` (+ matching `normalizeSmartLink*`/`normalizePromotion`/`normalizeBundle`). **Note:** these `models/{model}/of/*` routes are not under
     `api/*`, so `bootstrap/app.php`'s `shouldRenderJsonWhen` would turn a `ValidationException` into a
     302 redirect — `ModelOnlyFansController::validateJson()` throws an `HttpResponseException` to force
     a real JSON 422 for the `fetch` client. Deferred (read-but-not-built): social buttons,
@@ -193,11 +221,13 @@ engine uses its in-process copy. Provider keys live in the engine's env
     **smart-link cohort-ARPS** (no 200 response shape is documented, so left unimplemented) +
     smart-link postbacks, shared/stored link variants, notification tabs-order.
 - **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
-  is the proxy for chats/messages/media/send/delete/like/unlike/users; send is text-only (PPV
-  blocked, v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id` per creator. Confirmed
+  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text + optional
+  GIF (`giphyId`); PPV/paid still blocked (v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
+  per creator. Confirmed
   paths: `GET {acct}/chats`, `GET {acct}/chats/{chat}/messages[/{id}|/search]`, `GET {acct}/chats/{chat}/media`,
-  `POST {acct}/chats/{chat}/messages` (send), `DELETE …/messages/{id}`, `POST …/messages/{id}/like|unlike`,
-  `GET {acct}/users/{id}`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
+  `POST {acct}/chats/{chat}/messages` (send; `{text}` or `{giphyId,text?}`), `DELETE …/messages/{id}`,
+  `POST …/messages/{id}/like|unlike`, `GET {acct}/users/{id}`, `GET {acct}/giphy/trending`,
+  `GET {acct}/giphy/search?q&limit&offset`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
   Conversations (kept only for the Dashboard + future analytics). STILL deferred: **PPV/tip +
   media sends**.
 - **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`

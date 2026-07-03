@@ -23,7 +23,9 @@ async function load() {
     error.value = null;
 
     try {
-        tags.value = (await ofModel.linkTags(props.modelId, filter.value || undefined)).tags;
+        tags.value = (
+            await ofModel.linkTags(props.modelId, filter.value || undefined)
+        ).tags;
     } catch (e) {
         error.value = e instanceof Error ? e.message : 'Failed to load tags.';
     } finally {
@@ -45,7 +47,10 @@ onMounted(load);
 
 <template>
     <div class="space-y-3">
-        <p class="text-[12px] text-ss-text-3">Every tag used across this account's free-trial, tracking and Smart links — handy when naming a new link.</p>
+        <p class="text-[12px] text-ss-text-3">
+            Every tag used across this account's free-trial, tracking and Smart
+            links — handy when naming a new link.
+        </p>
 
         <div class="flex flex-wrap items-center gap-1.5">
             <button
@@ -53,23 +58,46 @@ onMounted(load);
                 :key="f.key"
                 type="button"
                 class="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
-                :class="filter === f.key ? 'bg-ss-surface-2 text-ss-text' : 'text-ss-text-3 hover:text-ss-text-2'"
+                :class="
+                    filter === f.key
+                        ? 'bg-ss-surface-2 text-ss-text'
+                        : 'text-ss-text-3 hover:text-ss-text-2'
+                "
                 @click="switchFilter(f.key)"
             >
                 {{ f.label }}
             </button>
         </div>
 
-        <p v-if="error" class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg">{{ error }}</p>
+        <p
+            v-if="error"
+            class="rounded-lg border border-ss-border bg-ss-surface p-4 text-center text-[12px] text-ss-neg"
+        >
+            {{ error }}
+        </p>
 
-        <div v-if="loading" class="flex justify-center py-6"><LoaderCircle :size="18" class="animate-spin text-ss-text-3" /></div>
+        <div v-if="loading" class="flex justify-center py-6">
+            <LoaderCircle :size="18" class="animate-spin text-ss-text-3" />
+        </div>
 
-        <div v-else-if="tags.length" class="flex flex-wrap gap-1.5 rounded-xl border border-ss-border bg-ss-surface p-4">
-            <span v-for="t in tags" :key="t" class="flex items-center gap-1 rounded-full bg-ss-surface-2 px-2.5 py-1 text-[12px] text-ss-text-2">
+        <div
+            v-else-if="tags.length"
+            class="flex flex-wrap gap-1.5 rounded-xl border border-ss-border bg-ss-surface p-4"
+        >
+            <span
+                v-for="t in tags"
+                :key="t"
+                class="flex items-center gap-1 rounded-full bg-ss-surface-2 px-2.5 py-1 text-[12px] text-ss-text-2"
+            >
                 <Tag :size="11" class="text-ss-text-3" /> {{ t }}
             </span>
         </div>
 
-        <p v-else class="rounded-xl border border-dashed border-ss-border p-8 text-center text-[13px] text-ss-text-3">No tags found for this link type.</p>
+        <p
+            v-else
+            class="rounded-xl border border-dashed border-ss-border p-8 text-center text-[13px] text-ss-text-3"
+        >
+            No tags found for this link type.
+        </p>
     </div>
 </template>

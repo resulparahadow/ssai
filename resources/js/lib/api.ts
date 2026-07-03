@@ -8,7 +8,11 @@ function cookie(name: string): string {
 }
 
 /** Generic same-origin JSON request (GET/POST/PUT/PATCH/DELETE) with the XSRF header. */
-export async function reqJson<T = unknown>(method: string, url: string, body?: unknown): Promise<T> {
+export async function reqJson<T = unknown>(
+    method: string,
+    url: string,
+    body?: unknown,
+): Promise<T> {
     const res = await fetch(url, {
         method,
         credentials: 'same-origin',
@@ -23,7 +27,9 @@ export async function reqJson<T = unknown>(method: string, url: string, body?: u
     if (!res.ok) {
         const b = await res.json().catch(() => ({}));
 
-        throw new Error(b.error || b.message || `Request failed (${res.status})`);
+        throw new Error(
+            b.error || b.message || `Request failed (${res.status})`,
+        );
     }
 
     return res.json();

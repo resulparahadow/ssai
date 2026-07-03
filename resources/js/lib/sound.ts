@@ -12,7 +12,9 @@ function audioContext(): AudioContext | null {
         return null;
     }
 
-    const Ctor = (window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext) as AudioCtor | undefined;
+    const Ctor = (window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: AudioCtor })
+            .webkitAudioContext) as AudioCtor | undefined;
 
     if (!Ctor) {
         return null;

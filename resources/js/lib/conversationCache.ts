@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { AiStrategy, OfChat, OfFan, OfMessage } from '@/types/crm';
+import type { AiStrategy, OfChat, OfFan, OfGif, OfMessage } from '@/types/crm';
 
 // Module-scoped stale-while-revalidate caches for the live Conversations view.
 // Living outside the Vue component means they survive Inertia page transitions
@@ -19,17 +19,28 @@ export const fanCache = new Map<string, OfFan>();
 export interface ComposerState {
     draft: string; // what's in the typing bar (unsent) — drives the list "Draft:" badge
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
+    gif: OfGif | null; // a Giphy GIF attached to the next send
     generating: boolean;
     sending: boolean;
     error: string | null;
     strategy: AiStrategy | null;
+    strategyGeneratedAt: string | null; // ISO time the strategy was generated (for "generated X ago")
 }
 
 const composerStore = reactive<Record<string, ComposerState>>({});
 
 export function chatComposer(chatId: string): ComposerState {
     if (!composerStore[chatId]) {
-        composerStore[chatId] = { draft: '', suggestion: null, generating: false, sending: false, error: null, strategy: null };
+        composerStore[chatId] = {
+            draft: '',
+            suggestion: null,
+            gif: null,
+            generating: false,
+            sending: false,
+            error: null,
+            strategy: null,
+            strategyGeneratedAt: null,
+        };
     }
 
     return composerStore[chatId];

@@ -13,7 +13,23 @@ class CustomerProfile extends Model
 {
     protected $table = 'customer_profiles';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'creator_model',
+        'customer_username',
+        'customer_name',
+        'archetype',
+        'trust_level',
+        'temperature',
+        'is_timewaster',
+        'tw_auto_cleared_at',
+        'subscription_status',
+        'total_spend',
+        'tips_spend',
+        'time_on_page',
+        'key_details',
+        'crm_notes',
+        'last_seen_at',
+    ];
 
     protected static function booted(): void
     {

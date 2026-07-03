@@ -11,7 +11,12 @@ export interface InboundPayload {
     creatorId: number;
     chatId: string;
     message: OfMessage;
-    fan: { id: string; name: string | null; username: string | null; avatar: string | null };
+    fan: {
+        id: string;
+        name: string | null;
+        username: string | null;
+        avatar: string | null;
+    };
 }
 
 type Handler = (payload: InboundPayload) => void;
@@ -46,7 +51,9 @@ export function ensureSubscribed(creatorIds: number[]): void {
 
         echo()
             .private(`creator.${id}`)
-            .listen('.message.received', (e: unknown) => dispatch(e as InboundPayload));
+            .listen('.message.received', (e: unknown) =>
+                dispatch(e as InboundPayload),
+            );
         joined.add(id);
     }
 }
@@ -66,8 +73,12 @@ export function onInboundMessage(handler: Handler): () => void {
 
 let activeChat: { creatorId: number; chatId: string } | null = null;
 
-export function setActiveChat(creatorId: number | null, chatId: string | null): void {
-    activeChat = creatorId != null && chatId != null ? { creatorId, chatId } : null;
+export function setActiveChat(
+    creatorId: number | null,
+    chatId: string | null,
+): void {
+    activeChat =
+        creatorId != null && chatId != null ? { creatorId, chatId } : null;
 }
 
 export function isViewingChat(creatorId: number, chatId: string): boolean {

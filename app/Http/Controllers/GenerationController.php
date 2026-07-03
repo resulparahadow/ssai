@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\AichMessage;
 use App\Models\AichSession;
+use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Runs the legacy engine for a conversation and persists the draft. The heavy
@@ -15,7 +17,7 @@ use Illuminate\Http\Request;
  */
 class GenerationController extends Controller
 {
-    public function generate(Request $request, AichSession $session, EngineClient $engine): JsonResponse
+    public function generate(Request $request, AichSession $session, EngineClient $engine, AiUsageRecorder $usage): JsonResponse
     {
         $data = $request->validate([
             'context' => 'nullable|string',
@@ -24,6 +26,14 @@ class GenerationController extends Controller
         ]);
 
         $result = $engine->generateForSession($session, $data);
+
+        $usage->record($result['usage'] ?? [], [
+            'generation_id' => (string) Str::ulid(),
+            'user_id' => $request->user()->id,
+            'creator_model' => $session->creator_model,
+            'session_id' => $session->id,
+            'source' => 'session',
+        ]);
 
         AichMessage::create([
             'session_id' => $session->id,

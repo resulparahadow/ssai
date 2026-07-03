@@ -4,7 +4,10 @@ import { ChevronRight, Plus, Trash2, Users } from '@lucide/vue';
 import { ref } from 'vue';
 import type { ChatterOption, CreatorModel } from '@/types/crm';
 
-const props = defineProps<{ models: CreatorModel[]; chatters: ChatterOption[] }>();
+const props = defineProps<{
+    models: CreatorModel[];
+    chatters: ChatterOption[];
+}>();
 
 const newName = ref('');
 const adding = ref(false);
@@ -49,7 +52,9 @@ function addModel() {
 }
 
 function destroy(m: CreatorModel) {
-    if (!confirm(`Delete ${m.name}? This also removes its chatter assignments.`)) {
+    if (
+        !confirm(`Delete ${m.name}? This also removes its chatter assignments.`)
+    ) {
         return;
     }
 
@@ -64,7 +69,10 @@ function destroy(m: CreatorModel) {
         <div class="flex flex-wrap items-end justify-between gap-3">
             <div>
                 <h2 class="text-xl font-bold text-ss-text">Creator Models</h2>
-                <p class="text-sm text-ss-text-2">Persona, content library, learned rules, OnlyFans account, and chatter assignments.</p>
+                <p class="text-sm text-ss-text-2">
+                    Persona, content library, learned rules, OnlyFans account,
+                    and chatter assignments.
+                </p>
             </div>
             <div class="flex items-center gap-2">
                 <input
@@ -85,19 +93,32 @@ function destroy(m: CreatorModel) {
             </div>
         </div>
 
-        <div v-if="models.length" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div
+            v-if="models.length"
+            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        >
             <div
                 v-for="m in models"
                 :key="m.id"
                 class="group flex flex-col rounded-xl border border-ss-border bg-ss-surface p-5 transition-colors hover:border-ss-accent/40"
             >
                 <div class="flex items-start gap-3">
-                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ss-surface-2 text-[13px] font-bold text-ss-text-2">
+                    <span
+                        class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ss-surface-2 text-[13px] font-bold text-ss-text-2"
+                    >
                         {{ initials(m.name) }}
                     </span>
                     <div class="min-w-0 flex-1">
-                        <div class="truncate text-base font-semibold text-ss-text">{{ m.name }}</div>
-                        <span v-if="m.tier" class="mt-0.5 inline-block rounded-full bg-ss-surface-2 px-2 py-0.5 text-[11px] font-medium text-ss-text-3 capitalize">{{ m.tier }}</span>
+                        <div
+                            class="truncate text-base font-semibold text-ss-text"
+                        >
+                            {{ m.name }}
+                        </div>
+                        <span
+                            v-if="m.tier"
+                            class="mt-0.5 inline-block rounded-full bg-ss-surface-2 px-2 py-0.5 text-[11px] font-medium text-ss-text-3 capitalize"
+                            >{{ m.tier }}</span
+                        >
                     </div>
                     <button
                         type="button"
@@ -112,20 +133,45 @@ function destroy(m: CreatorModel) {
                 <!-- OnlyFans connection -->
                 <div class="mt-4 flex items-center gap-2 text-[12px]">
                     <span class="relative flex h-2 w-2">
-                        <span v-if="m.of_account_id" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ss-pos opacity-60" />
-                        <span class="relative inline-flex h-2 w-2 rounded-full" :class="m.of_account_id ? 'bg-ss-pos' : 'bg-ss-text-3/40'" />
+                        <span
+                            v-if="m.of_account_id"
+                            class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ss-pos opacity-60"
+                        />
+                        <span
+                            class="relative inline-flex h-2 w-2 rounded-full"
+                            :class="
+                                m.of_account_id
+                                    ? 'bg-ss-pos'
+                                    : 'bg-ss-text-3/40'
+                            "
+                        />
                     </span>
-                    <span :class="m.of_account_id ? 'font-medium text-ss-pos' : 'text-ss-text-3'">
-                        {{ m.of_account_id ? 'OnlyFans connected' : 'Not connected' }}
+                    <span
+                        :class="
+                            m.of_account_id
+                                ? 'font-medium text-ss-pos'
+                                : 'text-ss-text-3'
+                        "
+                    >
+                        {{
+                            m.of_account_id
+                                ? 'OnlyFans connected'
+                                : 'Not connected'
+                        }}
                     </span>
                 </div>
 
                 <!-- Assignments -->
-                <div class="mt-2 flex items-center gap-1.5 text-[12px] text-ss-text-3">
+                <div
+                    class="mt-2 flex items-center gap-1.5 text-[12px] text-ss-text-3"
+                >
                     <Users :size="13" />
                     <span v-if="m.assigned.length" class="truncate">
-                        {{ m.assigned.length }} chatter{{ m.assigned.length === 1 ? '' : 's' }} ·
-                        {{ m.assigned.slice(0, 2).map(chatterName).join(', ') }}{{ m.assigned.length > 2 ? '…' : '' }}
+                        {{ m.assigned.length }} chatter{{
+                            m.assigned.length === 1 ? '' : 's'
+                        }}
+                        · {{ m.assigned.slice(0, 2).map(chatterName).join(', ')
+                        }}{{ m.assigned.length > 2 ? '…' : '' }}
                     </span>
                     <span v-else>No chatters assigned</span>
                 </div>
@@ -139,7 +185,10 @@ function destroy(m: CreatorModel) {
             </div>
         </div>
 
-        <p v-else class="rounded-xl border border-ss-border bg-ss-surface p-8 text-center text-[13px] text-ss-text-3">
+        <p
+            v-else
+            class="rounded-xl border border-ss-border bg-ss-surface p-8 text-center text-[13px] text-ss-text-3"
+        >
             No models yet. Add one above.
         </p>
     </div>

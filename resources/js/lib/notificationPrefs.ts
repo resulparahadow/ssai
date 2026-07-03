@@ -30,7 +30,12 @@ function load(): NotificationPrefs {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
 
-        return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<NotificationPrefs>) } : { ...DEFAULTS };
+        return raw
+            ? {
+                  ...DEFAULTS,
+                  ...(JSON.parse(raw) as Partial<NotificationPrefs>),
+              }
+            : { ...DEFAULTS };
     } catch {
         return { ...DEFAULTS };
     }

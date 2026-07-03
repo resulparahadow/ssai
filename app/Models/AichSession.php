@@ -17,7 +17,33 @@ class AichSession extends Model
 
     protected $table = 'aich_sessions';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'creator_model',
+        'customer_name',
+        'customer_username',
+        'status',
+        'current_posture',
+        'ladder_state',
+        'story_framework_step',
+        'promise_status',
+        'free_msg_count',
+        'unpaid_cta_count',
+        'total_spend',
+        'tips_spend',
+        'is_flagged',
+        'crm_notes',
+        'draft',
+        'messages',
+        'messages_input',
+        'vn_used',
+        'aftercare_context',
+        'input_mode',
+        'of_chat_id',
+        'last_active_at',
+        'session_closed_at',
+        'session_closed_at_msg_count',
+    ];
 
     protected $casts = [
         'ladder_state' => 'array',

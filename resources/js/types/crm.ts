@@ -66,6 +66,16 @@ export interface DashboardData {
 
 // ---- Conversations (live OnlyFans shapes) ----
 
+/** Kind of a chat's last message when it has no text — drives the conversation-list indicator. */
+export type OfPreviewKind =
+    | 'gif'
+    | 'photo'
+    | 'video'
+    | 'audio'
+    | 'tip'
+    | 'locked'
+    | 'media';
+
 export interface OfChat {
     id: string; // fan user id (= chat id)
     name: string;
@@ -73,6 +83,7 @@ export interface OfChat {
     avatar: string | null;
     initials: string;
     preview: string;
+    previewKind?: OfPreviewKind | null; // set when preview text is empty (GIF/photo/video/…)
     time: string | null;
     unread: number;
     canSend: boolean;
@@ -88,6 +99,17 @@ export interface OfMedia {
     duration: number | null; // seconds, video
     width: number | null;
     height: number | null;
+    direct?: boolean; // url is browser-loadable as-is (e.g. optimistic Giphy preview) — skip the OF media proxy
+}
+
+/** A Giphy result from the OF Giphy proxy. Preview/url are Giphy CDN (browser-loadable). */
+export interface OfGif {
+    id: string | null;
+    title: string | null;
+    preview: string | null;
+    url: string | null;
+    width: number;
+    height: number;
 }
 
 export interface OfMessage {
@@ -104,6 +126,7 @@ export interface OfMessage {
     media: OfMedia[];
     pending?: boolean; // optimistic: shown while the send is in flight
     failed?: boolean; // optimistic: the send failed
+    liking?: boolean; // transient: a like/unlike request is in flight
 }
 
 export interface OfFan {
@@ -169,6 +192,18 @@ export interface ChatterOption {
     id: number;
     name: string;
     role: string;
+}
+
+// ---- Team & roles (user management) ----
+
+export interface TeamUser {
+    id: number;
+    name: string;
+    email: string;
+    role: Role;
+    must_change_password: boolean;
+    assigned: string[]; // creator model names
+    is_self: boolean;
 }
 
 // ---- Creator Model · live OnlyFans account data (show page) ----
@@ -307,6 +342,28 @@ export interface OfLinkStats {
     spenders: number;
 }
 
+export interface OfPromotion {
+    id: string | null;
+    message: string | null;
+    type: string | null;
+    price: number;
+    subscribeCounts: number;
+    subscribeDays: number;
+    claimsCount: number;
+    canClaim: boolean;
+    createdAt: string | null;
+    finishedAt: string | null;
+    isFinished: boolean;
+}
+
+export interface OfBundle {
+    id: string | null;
+    discount: number;
+    duration: number;
+    price: number;
+    canBuy: boolean;
+}
+
 export interface OfSmartLink {
     id: string | null;
     name: string | null;
@@ -318,7 +375,11 @@ export interface OfSmartLink {
     subscribers: number;
     spenders: number;
     revenue: number;
-    account: { id: string | null; displayName: string | null; username: string | null };
+    account: {
+        id: string | null;
+        displayName: string | null;
+        username: string | null;
+    };
     createdAt: string | null;
 }
 
@@ -358,7 +419,12 @@ export interface OfSmartLinkConversion {
     amountGross: number;
     amountNet: number;
     conversionAt: string | null;
-    fan: { onlyfansId: string | null; username: string | null; name: string | null; avatar: string | null };
+    fan: {
+        onlyfansId: string | null;
+        username: string | null;
+        name: string | null;
+        avatar: string | null;
+    };
 }
 
 export interface OfSmartLinkFansSummary {
@@ -371,4 +437,114 @@ export interface OfSmartLinkConversionsSummary {
     conversionsTotal: number;
     subscribersTotal: number;
     revenueTotal: number;
+}
+
+// ---- Analytics dashboard (live OnlyFansAPI Analytics endpoints) ------------
+
+/** A connected creator the Analytics dashboard can query. */
+export interface OfAnalyticsAccount {
+    id: number;
+    name: string;
+    accountId: string;
+}
+
+export interface OfEarningsOverview {
+    total_earnings: number;
+    subscriptions: number;
+    posts: number;
+    messages: number;
+    tips: number;
+    streams: number;
+    total_accounts: number;
+    total_messages: number;
+    total_images: number;
+    total_videos: number;
+}
+
+export interface OfHistoricalPoint {
+    period: string;
+    value: number;
+}
+
+export interface OfComparison {
+    summary: {
+        period_a_total: number;
+        period_b_total: number;
+        change: number;
+        change_percentage: number;
+    };
+    breakdown: unknown[];
+    chart_data: unknown[];
+    period_a_label: string;
+    period_b_label: string;
+}
+
+export interface OfTxnSummary {
+    succeeded_count: number;
+    refunded_count: number;
+    disputed_count: number;
+    total_gross: number;
+    total_net: number;
+    total_fees: number;
+}
+
+export interface OfTxnByType {
+    type: string;
+    count: number;
+    total: number;
+}
+
+export interface OfForecastPoint {
+    date: string;
+    value: number;
+}
+
+export interface OfForecast {
+    metric: string;
+    model: string;
+    historical: OfForecastPoint[];
+    forecast: OfForecastPoint[];
+}
+
+export interface OfProfitabilityRow {
+    creator_id: number;
+    name: string;
+    gross_revenue: number;
+    net_revenue: number;
+    total_costs: number;
+    commission: number;
+    profit: number;
+    margin: number;
+}
+
+export interface OfProfitabilityHistoryRow {
+    year: number;
+    month: number;
+    gross_revenue: number;
+    net_revenue: number;
+    profit: number;
+    margin: number;
+}
+
+/** AI-generated fan profile summary (Fans - AI Summary). */
+export interface OfFanSummaryData {
+    name: string;
+    preferred_name: string;
+    family_pets: string;
+    travel_plans: string;
+    kinks: string;
+    hobbies: string;
+    content_preferences: string;
+    themes: string;
+    requests: string;
+    interests: string;
+    other_notes: string;
+}
+
+export interface OfFanSummary {
+    status: string; // 'completed' | 'processing' | 'failed' | ''
+    summary_data: OfFanSummaryData | null;
+    analyzed_message_count: number | null;
+    last_analyzed_at: string | null;
+    error_message: string | null;
 }

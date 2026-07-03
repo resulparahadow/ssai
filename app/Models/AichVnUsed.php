@@ -14,7 +14,12 @@ class AichVnUsed extends Model
 {
     protected $table = 'aich_vn_used';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'creator_model',
+        'customer_username',
+        'session_id',
+        'voice_note_label',
+    ];
 
     protected static function booted(): void
     {

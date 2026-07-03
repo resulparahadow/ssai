@@ -422,3 +422,79 @@ it('blocks chatters from smart link endpoints', function () {
         ->getJson("/models/{$this->model->id}/of/smart-links")
         ->assertForbidden();
 });
+
+it('lists, creates, stops and deletes promotions', function () {
+    Http::fake(['app.onlyfansapi.com/api/acct_cam/promotions*' => Http::response([
+        'data' => ['hasMore' => false, 'items' => [[
+            'id' => 12, 'message' => 'Limited offer', 'type' => 'new', 'price' => 4.99,
+            'subscribeCounts' => 10, 'subscribeDays' => 7, 'claimsCount' => 3, 'canClaim' => true,
+            'createdAt' => '2026-06-01T00:00:00+00:00', 'finishedAt' => null, 'isFinished' => false,
+        ]]],
+    ])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)
+        ->getJson("/models/{$this->model->id}/of/promotions")
+        ->assertOk()
+        ->assertJsonPath('promotions.0.message', 'Limited offer')
+        ->assertJsonPath('promotions.0.claimsCount', 3)
+        ->assertJsonPath('promotions.0.canClaim', true)
+        ->assertJsonPath('hasMore', false);
+
+    // invalid type → 422
+    $this->actingAs($admin)
+        ->postJson("/models/{$this->model->id}/of/promotions", ['type' => 'everyone', 'discount' => 50, 'offerLimit' => 0, 'expirationDays' => 7])
+        ->assertStatus(422);
+
+    // 100% discount requires freeTrialDays
+    $this->actingAs($admin)
+        ->postJson("/models/{$this->model->id}/of/promotions", ['type' => 'new', 'discount' => 100, 'offerLimit' => 0, 'expirationDays' => 7])
+        ->assertStatus(422);
+
+    $this->actingAs($admin)
+        ->postJson("/models/{$this->model->id}/of/promotions", ['type' => 'new', 'discount' => 50, 'offerLimit' => 0, 'expirationDays' => 7])
+        ->assertOk()->assertJsonPath('ok', true);
+
+    $this->actingAs($admin)->postJson("/models/{$this->model->id}/of/promotions/12/stop")->assertOk()->assertJsonPath('ok', true);
+    $this->actingAs($admin)->deleteJson("/models/{$this->model->id}/of/promotions/12")->assertOk();
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/acct_cam/promotions') && $r['type'] === 'new' && $r['discount'] === 50);
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/promotions/12/stop'));
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/promotions/12'));
+});
+
+it('lists, creates and deletes subscription bundles with validation', function () {
+    Http::fake(['app.onlyfansapi.com/api/acct_cam/bundles*' => Http::response([
+        'data' => [['id' => 5, 'discount' => 15, 'duration' => 12, 'price' => 84.99, 'canBuy' => true]],
+    ])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)
+        ->getJson("/models/{$this->model->id}/of/bundles")
+        ->assertOk()
+        ->assertJsonPath('bundles.0.discount', 15)
+        ->assertJsonPath('bundles.0.duration', 12)
+        ->assertJsonPath('bundles.0.price', 84.99);
+
+    // invalid duration → 422
+    $this->actingAs($admin)
+        ->postJson("/models/{$this->model->id}/of/bundles", ['discount' => 15, 'duration' => 4])
+        ->assertStatus(422);
+
+    $this->actingAs($admin)
+        ->postJson("/models/{$this->model->id}/of/bundles", ['discount' => 15, 'duration' => 12])
+        ->assertOk()->assertJsonPath('ok', true);
+
+    $this->actingAs($admin)->deleteJson("/models/{$this->model->id}/of/bundles/5")->assertOk();
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/acct_cam/bundles') && $r['discount'] === 15 && $r['duration'] === 12);
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/bundles/5'));
+});
+
+it('blocks chatters from promotions and bundles endpoints', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => []])]);
+    $chatter = User::factory()->chatter()->create();
+
+    $this->actingAs($chatter)->getJson("/models/{$this->model->id}/of/promotions")->assertForbidden();
+    $this->actingAs($chatter)->getJson("/models/{$this->model->id}/of/bundles")->assertForbidden();
+});

@@ -66,6 +66,7 @@ export interface NavNode {
 }
 
 export const NAV: NavNode[] = [
+    // --- Built / working views (kept on top) ---------------------------------
     {
         key: 'overview',
         label: 'Overview',
@@ -74,8 +75,53 @@ export const NAV: NavNode[] = [
         href: '/dashboard',
         alwaysOn: true,
     },
-    { key: 'chat', label: 'Conversations', icon: MessageSquare, cap: 'chat', dynamic: 'creators' },
-    { key: 'models', label: 'Creator Models', icon: Users, cap: 'manageTeam', href: '/models' },
+    {
+        key: 'chat',
+        label: 'Conversations',
+        icon: MessageSquare,
+        cap: 'chat',
+        dynamic: 'creators',
+    },
+    {
+        key: 'models',
+        label: 'Creator Models',
+        icon: Users,
+        cap: 'manageTeam',
+        href: '/models',
+    },
+    {
+        key: 'analytics',
+        label: 'Analytics',
+        icon: ChartColumnBig,
+        cap: 'analytics',
+        children: [
+            { key: 'an-overview', label: 'Overview', href: '/analytics/overview' },
+            { key: 'an-chatting', label: 'Chatting performance' },
+            { key: 'an-ai', label: 'AI usage', href: '/analytics/ai-usage' },
+            { key: 'an-qa', label: 'Conversation QA' },
+            { key: 'an-content', label: 'Content performance' },
+            { key: 'an-pl', label: 'Creator P&L' },
+        ],
+    },
+    {
+        key: 'team',
+        label: 'Team & roles',
+        icon: Shield,
+        cap: 'manageTeam',
+        href: '/team',
+    },
+    {
+        key: 'settings',
+        label: 'Settings',
+        icon: SlidersHorizontal,
+        cap: 'manageTeam',
+        href: '/settings/profile',
+        // Every user manages their own profile/password/notification prefs (the server
+        // settings routes are per-user, not team-gated), so show it to all roles.
+        alwaysOn: true,
+    },
+
+    // --- Coming soon (not built yet) -----------------------------------------
     { key: 'whales', label: 'Whales & churn', icon: Crown, cap: 'analytics' },
     { key: 'playbooks', label: 'Playbooks', icon: BookOpen, cap: 'analytics' },
     { key: 'automations', label: 'Automations', icon: Zap, cap: 'analytics' },
@@ -91,19 +137,6 @@ export const NAV: NavNode[] = [
         ],
     },
     {
-        key: 'analytics',
-        label: 'Analytics',
-        icon: ChartColumnBig,
-        cap: 'analytics',
-        children: [
-            { key: 'an-chatting', label: 'Chatting performance' },
-            { key: 'an-ai', label: 'AI usage' },
-            { key: 'an-qa', label: 'Conversation QA' },
-            { key: 'an-content', label: 'Content performance' },
-            { key: 'an-pl', label: 'Creator P&L' },
-        ],
-    },
-    {
         key: 'planned',
         label: 'Planned · roadmap',
         icon: Sparkles,
@@ -115,14 +148,6 @@ export const NAV: NavNode[] = [
             { key: 'stories', label: 'Stories planner' },
             { key: 'ssai', label: 'SSAI assistant' },
         ],
-    },
-    { key: 'team', label: 'Team & roles', icon: Shield, cap: 'manageTeam' },
-    {
-        key: 'settings',
-        label: 'Settings',
-        icon: SlidersHorizontal,
-        cap: 'manageTeam',
-        href: '/settings/profile',
     },
 ];
 
