@@ -136,8 +136,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     summary (green ≥70 / red <40, "—" under 3 calls) and the last-25 cost-diagnostic table (cache
     HIT/MISS/NO CACHE, r·cR·cW token breakdown, sys-block sizes with the `<1024`-prefix ⚠ warning,
     Copy-JSON). Period filter Today/7d/30d. Guards: `node engine/usage_check.js`.
-  - **Conversations** (`/conversations`) — a **live OnlyFans proxy; NOTHING is persisted**
-    (Phase 6 replaced the old DB-backed version). The sidebar "Conversations" item is a
+  - **Conversations** (`/conversations`) — a **live OnlyFans proxy; no message text is persisted**
+    (Phase 6 replaced the old DB-backed version). The only server-side persistence is metadata-only
+    carve-outs: AI Intel (`AichChatIntel`, strategy-only), the usage ledger (`aich_usage_events`), and
+    **fan memory** (`customer_profiles` — trust/archetype/memory/toggles, see the Fan-tab card below). The sidebar "Conversations" item is a
     **dropdown of creator models** (shared `creators` prop from `HandleInertiaRequests`);
     picking one opens `/conversations?creator=<name>`. The Vue page fetches everything LIVE
     client-side (`resources/js/lib/onlyfans.ts`) via `OnlyFansChatController` (`/onlyfans/{model}/…`):
@@ -169,6 +171,22 @@ engine uses its in-process copy. Provider keys live in the engine's env
     Message Purpose, Next Move, Warning) straight from the `generate` response's `strategy` object
     (the legacy "analysis" is folded into the strategy — no separate `/analyze` call); `SsComposer`
     emits the strategy up via `@result`, which auto-switches the rail to AI Intel. Reset per chat.
+    **Persisted fan memory (carve-out — metadata only, NO message text):** the Fan tab's
+    "Memory & controls" card restores the legacy `customer_profiles` contribution to AI generation
+    (`FanProfileService` over the revived `customer_profiles`, keyed by `(creator_model, of_fan_id)`
+    where **of_fan_id = the chat id**). On `generate`, `OnlyFansChatController` loads-or-creates the
+    fan's profile, refreshes lifetime spend/tips/subscription from OnlyFans (`getUser` →
+    `OnlyFansService::extractFanSpend`, non-blocking), feeds the legacy `_profile` + spend + per-fan
+    toggles into `EngineClient::generateFromLive` (so the brain sees a returning customer, not a $0
+    lurker), then **folds the returned analysis back** into the record (`trust_level`/`archetype`/
+    `temperature`/`key_details`). Merge is **per-field lock**: a human edit pins that field in
+    `locked_fields` so auto-analysis won't clobber it; the card's lock button un-pins ("let AI manage").
+    Human-owned (no lock): `crm_notes`, `is_timewaster`, `sexting_mode`, `tip_mode` (AUTO/FORCE_ON/
+    FORCE_OFF). OF-owned (always overwritten): spend + `subscription_status`. Endpoints
+    `GET|PATCH onlyfans/{model}/chats/{chat}/profile` (`account()`-scoped, JSON-422 via `validateJson`);
+    client `ofApi.getProfile`/`saveProfile`. Spec: `docs/superpowers/specs/2026-07-03-fan-customer-profile-design.md`.
+    STILL deferred: per-message PPV/`opened`/`price` mapping (wall/ladder) + multi-turn forcing-move
+    continuation (`_promiseStatus`/`_storyFrameworkStep`).
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.

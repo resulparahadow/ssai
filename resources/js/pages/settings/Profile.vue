@@ -30,9 +30,7 @@ const user = computed(() => page.props.auth.user);
                 v-slot="{ errors, processing }"
             >
                 <div class="grid gap-1.5">
-                    <label
-                        for="name"
-                        class="text-sm font-medium text-ss-text-2"
+                    <label for="name" class="text-sm font-medium text-ss-text-2"
                         >Name</label
                     >
                     <input

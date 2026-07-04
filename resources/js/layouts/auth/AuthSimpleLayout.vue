@@ -67,9 +67,7 @@ const ssTokenOverrides = {
             </Link>
 
             <div class="relative max-w-md">
-                <h2
-                    class="text-3xl leading-tight font-semibold text-[#eef1f6]"
-                >
+                <h2 class="text-3xl leading-tight font-semibold text-[#eef1f6]">
                     AI-powered creator operations.
                 </h2>
                 <p class="mt-4 text-sm leading-relaxed text-[#9aa4b5]">

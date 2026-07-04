@@ -1,8 +1,10 @@
 import { postJson } from '@/lib/api';
 import type {
     AiStrategy,
+    OfFanProfile,
     OfFanSummary,
     OfGif,
+    OfLockableField,
     OfMessage,
     OfPreviewKind,
 } from '@/types/crm';
@@ -159,5 +161,34 @@ export const ofApi = {
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(
             'GET',
             `${base(m)}/chats/${chat}/intel`,
+        ),
+    /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). */
+    getProfile: (m: number, chat: string) =>
+        req<{ profile: OfFanProfile }>(
+            'GET',
+            `${base(m)}/chats/${chat}/profile`,
+        ),
+    /** Edit fan memory/toggles. Sending an AI-owned field pins it; `unlock` re-opens fields. */
+    saveProfile: (
+        m: number,
+        chat: string,
+        payload: Partial<
+            Pick<
+                OfFanProfile,
+                | 'archetype'
+                | 'trust_level'
+                | 'temperature'
+                | 'key_details'
+                | 'crm_notes'
+                | 'is_timewaster'
+                | 'sexting_mode'
+                | 'tip_mode'
+            >
+        > & { unlock?: OfLockableField[] },
+    ) =>
+        req<{ profile: OfFanProfile }>(
+            'PATCH',
+            `${base(m)}/chats/${chat}/profile`,
+            payload,
         ),
 };

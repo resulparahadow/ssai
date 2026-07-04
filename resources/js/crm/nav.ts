@@ -95,7 +95,11 @@ export const NAV: NavNode[] = [
         icon: ChartColumnBig,
         cap: 'analytics',
         children: [
-            { key: 'an-overview', label: 'Overview', href: '/analytics/overview' },
+            {
+                key: 'an-overview',
+                label: 'Overview',
+                href: '/analytics/overview',
+            },
             { key: 'an-chatting', label: 'Chatting performance' },
             { key: 'an-ai', label: 'AI usage', href: '/analytics/ai-usage' },
             { key: 'an-qa', label: 'Conversation QA' },

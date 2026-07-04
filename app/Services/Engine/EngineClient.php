@@ -39,6 +39,10 @@ class EngineClient
             ->where('creator_model', $model->name)
             ->latest('created_at')->take(8)->get();
 
+        // Persisted fan memory (see FanProfileService). When absent the path stays
+        // fully transient with legacy defaults — nothing here is required.
+        $profile = $opts['profile'] ?? null;
+
         return $this->call([
             'model' => [
                 'name' => $model->name,
@@ -51,17 +55,17 @@ class EngineClient
                 'creator_model' => $model->name,
                 'customer_name' => $customer['name'] ?? ($customer['username'] ?? 'Fan'),
                 'customer_username' => $customer['username'] ?? ('of_'.($customer['id'] ?? '')),
-                'subscription_status' => 'subscribed',
+                'subscription_status' => $opts['subscription_status'] ?? 'subscribed',
                 'time_on_page' => '?',
-                'total_spend' => '$0',
-                'tips_spend' => '$0',
-                'crm_notes' => '',
+                'total_spend' => '$'.$this->num($opts['total_spend'] ?? 0),
+                'tips_spend' => '$'.$this->num($opts['tips_spend'] ?? 0),
+                'crm_notes' => (string) ($opts['crm_notes'] ?? ''),
                 'vn_used' => [],
                 'inputMode' => 'chat',
                 'messages' => array_values($messages),
-                '_profile' => null, // intel is live-only; no persisted CRM record
-                '_sextingModeToggle' => 'AUTO',
-                '_tipModeToggle' => 'AUTO',
+                '_profile' => $profile, // populated from CustomerProfile when present, else null
+                '_sextingModeToggle' => $opts['sexting'] ?? 'AUTO',
+                '_tipModeToggle' => $opts['tipMode'] ?? 'AUTO',
                 '_promiseStatus' => 'not_started',
                 '_storyFrameworkStep' => 0,
             ],

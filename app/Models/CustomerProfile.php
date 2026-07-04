@@ -16,6 +16,7 @@ class CustomerProfile extends Model
     protected $fillable = [
         'creator_model',
         'customer_username',
+        'of_fan_id',
         'customer_name',
         'archetype',
         'trust_level',
@@ -28,8 +29,19 @@ class CustomerProfile extends Model
         'time_on_page',
         'key_details',
         'crm_notes',
+        'locked_fields',
+        'sexting_mode',
+        'tip_mode',
         'last_seen_at',
     ];
+
+    /** AI-owned fields the folded analysis writes; each can be pinned in locked_fields. */
+    public const AI_FIELDS = ['archetype', 'trust_level', 'temperature', 'key_details'];
+
+    public function isLocked(string $field): bool
+    {
+        return in_array($field, $this->locked_fields ?? [], true);
+    }
 
     protected static function booted(): void
     {
@@ -43,7 +55,7 @@ class CustomerProfile extends Model
         'total_spend' => 'decimal:2',
         'tips_spend' => 'decimal:2',
         'time_on_page' => 'integer',
-        'key_details' => 'array',
+        'locked_fields' => 'array',
         'last_seen_at' => 'datetime',
     ];
 }

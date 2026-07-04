@@ -6,12 +6,15 @@ use App\Models\AichChatIntel;
 use App\Models\AichModel;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
+use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -27,6 +30,7 @@ class OnlyFansChatController extends Controller
         protected OnlyFansService $of,
         protected EngineClient $engine,
         protected AiUsageRecorder $usage,
+        protected FanProfileService $profiles,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -268,10 +272,10 @@ class OnlyFansChatController extends Controller
         return $res->successful() ? response()->json($res->json()) : $this->forward($res);
     }
 
-    /** AI draft from the LIVE thread (no persistence). */
+    /** AI draft from the LIVE thread. Only derived fan memory is persisted, never message text. */
     public function generate(Request $request, AichModel $model, string $chat): JsonResponse
     {
-        $this->account($request, $model); // authorise only
+        $account = $this->account($request, $model);
         $data = $request->validate([
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
@@ -287,15 +291,35 @@ class OnlyFansChatController extends Controller
             'ts_iso' => $m['time'] ?? now()->toIso8601String(),
         ])->values()->all();
 
+        // Load-or-create the persisted fan memory (refreshes spend from OnlyFans) and
+        // feed it to the engine so the brain sees a returning customer, not a $0 lurker.
+        $customer = $data['customer'] ?? ['id' => $chat];
+        $profile = $this->profiles->loadForGenerate($model, $account, $chat, $customer);
+
         try {
-            $out = $this->engine->generateFromLive($model, $messages, $data['customer'] ?? ['id' => $chat], [
+            $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $data['context'] ?? '',
                 'api' => $data['api'] ?? 'claude',
+                // OnlyFans spend is LIFETIME — it belongs on _profile (drives trust cap / tier /
+                // depth gate / sexting+tip detection). SESSION spend (this conversation) stays $0:
+                // it's only derivable from per-message PPV/tip data, which isn't mapped yet. Feeding
+                // lifetime as session spend would wrongly trip the ACTIVE-BUYER / session-spender
+                // anti-exit guards for anyone who has ever spent.
+                'profile' => $this->profiles->toEngineProfile($profile),
+                'subscription_status' => $profile->subscription_status ?? 'subscribed',
+                'crm_notes' => (string) ($profile->crm_notes ?? ''),
+                'sexting' => $profile->sexting_mode ?? 'AUTO',
+                'tipMode' => $profile->tip_mode ?? 'AUTO',
             ]);
         } catch (ConnectionException $e) {
             return response()->json(['error' => 'AI engine is not reachable — start it with `node engine/server.js` (port 8787).'], 503);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'AI engine error: '.$e->getMessage()], 502);
+        }
+
+        // Folded-analysis write-back: auto-fill unlocked memory fields (skips human-pinned ones).
+        if (! empty($out['strategy'])) {
+            $this->profiles->applyAnalysis($profile, $out['strategy']);
         }
 
         $this->usage->record($out['usage'] ?? [], [
@@ -340,14 +364,52 @@ class OnlyFansChatController extends Controller
         ]);
     }
 
+    /** The persisted fan memory + toggles + read-only OF spend for a chat (of_fan_id = chat). */
+    public function profile(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+
+        return response()->json([
+            'profile' => $this->profiles->toPanel($this->profiles->find($model, $chat)),
+        ]);
+    }
+
+    /** Manual edit: edited AI fields get pinned, toggles/notes set, `unlock[]` re-opens fields. */
+    public function updateProfile(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+        $data = $this->validateJson($request, [
+            'archetype' => 'sometimes|nullable|string|max:120',
+            'trust_level' => 'sometimes|integer|min:0|max:5',
+            'temperature' => 'sometimes|nullable|string|max:20',
+            'key_details' => 'sometimes|nullable|string|max:5000',
+            'crm_notes' => 'sometimes|nullable|string|max:5000',
+            'is_timewaster' => 'sometimes|boolean',
+            'sexting_mode' => 'sometimes|in:AUTO,FORCE_ON,FORCE_OFF',
+            'tip_mode' => 'sometimes|in:AUTO,FORCE_ON,FORCE_OFF',
+            'unlock' => 'sometimes|array',
+            'unlock.*' => 'string',
+        ]);
+
+        $profile = $this->profiles->applyManualEdit($this->profiles->findOrNew($model, $chat), $data);
+
+        return response()->json(['profile' => $this->profiles->toPanel($profile)]);
+    }
+
     // ---- helpers ----------------------------------------------------------
 
-    private function account(Request $request, AichModel $model): string
+    /** Row-level access check shared by the OnlyFans + memory endpoints (chatter → assigned only). */
+    private function authorizeCreator(Request $request, AichModel $model): void
     {
         $user = $request->user();
         if (! $user->canSeeAllCreators() && ! in_array($model->name, $user->assignedCreatorModels(), true)) {
             abort(403, 'You are not assigned to this creator.');
         }
+    }
+
+    private function account(Request $request, AichModel $model): string
+    {
+        $this->authorizeCreator($request, $model);
         if (! $this->of->enabled()) {
             abort(503, 'OnlyFans API key is not configured.');
         }
@@ -369,5 +431,25 @@ class OnlyFansChatController extends Controller
             $res->successful() ? ['ok' => true] : ($res->json() ?: ['error' => 'OnlyFans request failed']),
             $res->successful() ? 200 : $res->status(),
         );
+    }
+
+    /**
+     * Validate and force a JSON 422 on failure. These routes aren't under `api/*`,
+     * so a ValidationException would otherwise 302-redirect (bootstrap/app.php
+     * shouldRenderJsonWhen) — an HttpResponseException guarantees JSON for the fetch client.
+     *
+     * @param  array<string, mixed>  $rules
+     * @return array<string, mixed>
+     */
+    private function validateJson(Request $request, array $rules): array
+    {
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            throw new HttpResponseException(
+                response()->json(['error' => $validator->errors()->first(), 'errors' => $validator->errors()->toArray()], 422)
+            );
+        }
+
+        return $validator->validated();
     }
 }

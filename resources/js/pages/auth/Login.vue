@@ -29,10 +29,7 @@ defineProps<{
 <template>
     <Head title="Log in" />
 
-    <div
-        v-if="status"
-        class="mb-4 text-center text-sm font-medium text-ss-pos"
-    >
+    <div v-if="status" class="mb-4 text-center text-sm font-medium text-ss-pos">
         {{ status }}
     </div>
 

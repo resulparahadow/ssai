@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { LoaderCircle, Sparkles } from '@lucide/vue';
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { Lock, LockOpen, LoaderCircle, Sparkles } from '@lucide/vue';
+import { onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ofApi } from '@/lib/onlyfans';
-import type { OfFan, OfFanSummary } from '@/types/crm';
+import type {
+    OfFan,
+    OfFanProfile,
+    OfFanSummary,
+    OfLockableField,
+    OfToggleMode,
+} from '@/types/crm';
 
 const props = defineProps<{ fan: OfFan | null; modelId: number | null }>();
 
@@ -121,6 +127,151 @@ const SUMMARY_FIELDS: {
     { key: 'other_notes', label: 'Other notes' },
 ];
 
+// ---- Fan memory + controls (persisted customer_profiles, fed to AI) ----------
+const TEMPS = ['cold', 'warm', 'hot'];
+const MODES: OfToggleMode[] = ['AUTO', 'FORCE_ON', 'FORCE_OFF'];
+
+const profile = ref<OfFanProfile | null>(null); // last-saved server state
+const profileLoading = ref(false);
+const profileSaving = ref(false);
+const profileError = ref<string | null>(null);
+
+// Editable mirror; only fields that differ from `profile` are sent on save.
+const form = reactive({
+    archetype: '',
+    trust_level: 0,
+    temperature: '',
+    key_details: '',
+    crm_notes: '',
+    is_timewaster: false,
+    sexting_mode: 'AUTO' as OfToggleMode,
+    tip_mode: 'AUTO' as OfToggleMode,
+});
+
+function syncForm(p: OfFanProfile): void {
+    profile.value = p;
+    form.archetype = p.archetype ?? '';
+    form.trust_level = p.trust_level;
+    form.temperature = p.temperature ?? '';
+    form.key_details = p.key_details ?? '';
+    form.crm_notes = p.crm_notes ?? '';
+    form.is_timewaster = p.is_timewaster;
+    form.sexting_mode = p.sexting_mode;
+    form.tip_mode = p.tip_mode;
+}
+
+function isLocked(field: OfLockableField): boolean {
+    return profile.value?.locked_fields.includes(field) ?? false;
+}
+
+async function fetchProfile(): Promise<void> {
+    if (!props.fan || props.modelId == null) {
+        return;
+    }
+
+    const fanId = props.fan.id;
+    profileLoading.value = true;
+    profileError.value = null;
+
+    try {
+        const { profile: p } = await ofApi.getProfile(props.modelId, fanId);
+
+        if (props.fan?.id === fanId) {
+            syncForm(p);
+        }
+    } catch (e) {
+        profileError.value =
+            e instanceof Error ? e.message : 'Failed to load memory.';
+    } finally {
+        profileLoading.value = false;
+    }
+}
+
+/** Send only edited fields — editing an AI-owned field pins it server-side. */
+async function saveProfile(): Promise<void> {
+    if (!props.fan || props.modelId == null || !profile.value) {
+        return;
+    }
+
+    const p = profile.value;
+    const payload: Record<string, unknown> = {};
+
+    if (form.archetype !== (p.archetype ?? '')) {
+        payload.archetype = form.archetype;
+    }
+
+    if (form.trust_level !== p.trust_level) {
+        payload.trust_level = form.trust_level;
+    }
+
+    if (form.temperature !== (p.temperature ?? '')) {
+        payload.temperature = form.temperature;
+    }
+
+    if (form.key_details !== (p.key_details ?? '')) {
+        payload.key_details = form.key_details;
+    }
+
+    if (form.crm_notes !== (p.crm_notes ?? '')) {
+        payload.crm_notes = form.crm_notes;
+    }
+
+    if (form.is_timewaster !== p.is_timewaster) {
+        payload.is_timewaster = form.is_timewaster;
+    }
+
+    if (form.sexting_mode !== p.sexting_mode) {
+        payload.sexting_mode = form.sexting_mode;
+    }
+
+    if (form.tip_mode !== p.tip_mode) {
+        payload.tip_mode = form.tip_mode;
+    }
+
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+
+    profileSaving.value = true;
+    profileError.value = null;
+
+    try {
+        const { profile: next } = await ofApi.saveProfile(
+            props.modelId,
+            props.fan.id,
+            payload,
+        );
+        syncForm(next);
+    } catch (e) {
+        profileError.value = e instanceof Error ? e.message : 'Failed to save.';
+    } finally {
+        profileSaving.value = false;
+    }
+}
+
+/** Hand a pinned field back to the AI (clears + un-pins on the server). */
+async function unlockField(field: OfLockableField): Promise<void> {
+    if (!props.fan || props.modelId == null) {
+        return;
+    }
+
+    profileSaving.value = true;
+
+    try {
+        const { profile: next } = await ofApi.saveProfile(
+            props.modelId,
+            props.fan.id,
+            { unlock: [field] },
+        );
+        syncForm(next);
+    } catch (e) {
+        profileError.value =
+            e instanceof Error ? e.message : 'Failed to unlock.';
+    } finally {
+        profileSaving.value = false;
+    }
+}
+
 watch(
     () => props.fan?.id,
     () => {
@@ -128,9 +279,12 @@ watch(
         summary.value = null;
         generating.value = false;
         error.value = null;
+        profile.value = null;
+        profileError.value = null;
 
         if (props.fan && props.modelId != null) {
             fetchSummary();
+            fetchProfile();
         }
     },
     { immediate: true },
@@ -270,6 +424,225 @@ onBeforeUnmount(stopPolling);
                     No summary yet — generate one from this fan's messages (uses
                     200 API credits).
                 </p>
+            </div>
+
+            <!-- Memory & Controls (persisted; fed to AI generation) ------------->
+            <div
+                v-if="fan"
+                class="space-y-3 rounded-lg border border-ss-border bg-ss-bg-2 p-3"
+            >
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-[12px] font-semibold text-ss-text"
+                        >Memory &amp; controls</span
+                    >
+                    <button
+                        type="button"
+                        class="rounded-md bg-ss-accent px-2.5 py-1 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        :disabled="profileSaving || profileLoading"
+                        @click="saveProfile"
+                    >
+                        {{ profileSaving ? 'Saving…' : 'Save' }}
+                    </button>
+                </div>
+
+                <p v-if="profileError" class="text-[11px] text-ss-neg">
+                    {{ profileError }}
+                </p>
+
+                <div
+                    v-if="profileLoading"
+                    class="flex items-center gap-2 py-1 text-[11px] text-ss-text-3"
+                >
+                    <LoaderCircle :size="13" class="animate-spin" /> Loading
+                    memory…
+                </div>
+
+                <template v-else>
+                    <!-- Read-only spend from OnlyFans -->
+                    <div
+                        class="grid grid-cols-3 gap-2 rounded-lg bg-ss-surface-2 p-2 text-center"
+                    >
+                        <div>
+                            <div class="text-[10px] text-ss-text-3">Spent</div>
+                            <div class="text-[12px] font-semibold text-ss-text">
+                                ${{ profile?.total_spend ?? 0 }}
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-ss-text-3">Tips</div>
+                            <div class="text-[12px] font-semibold text-ss-text">
+                                ${{ profile?.tips_spend ?? 0 }}
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-ss-text-3">Sub</div>
+                            <div class="text-[12px] font-semibold text-ss-text">
+                                {{ profile?.subscription_status ?? '—' }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI-owned memory fields (each pinnable) -->
+                    <div>
+                        <div
+                            class="mb-1 flex items-center justify-between text-[10px]"
+                        >
+                            <span class="text-ss-text-3">Archetype</span>
+                            <button
+                                v-if="isLocked('archetype')"
+                                type="button"
+                                class="flex items-center gap-1 text-ss-accent"
+                                @click="unlockField('archetype')"
+                            >
+                                <Lock :size="10" /> pinned · let AI manage
+                            </button>
+                            <span
+                                v-else
+                                class="flex items-center gap-1 text-ss-text-3"
+                                ><LockOpen :size="10" /> AI</span
+                            >
+                        </div>
+                        <input
+                            v-model="form.archetype"
+                            type="text"
+                            placeholder="e.g. Explorer, Whale"
+                            class="w-full rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
+                        />
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <div
+                                class="mb-1 flex items-center justify-between text-[10px]"
+                            >
+                                <span class="text-ss-text-3">Trust</span>
+                                <button
+                                    v-if="isLocked('trust_level')"
+                                    type="button"
+                                    class="flex items-center gap-1 text-ss-accent"
+                                    @click="unlockField('trust_level')"
+                                >
+                                    <Lock :size="10" />
+                                </button>
+                            </div>
+                            <select
+                                v-model.number="form.trust_level"
+                                class="w-full rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
+                            >
+                                <option
+                                    v-for="n in [0, 1, 2, 3, 4, 5]"
+                                    :key="n"
+                                    :value="n"
+                                >
+                                    L{{ n }}
+                                </option>
+                            </select>
+                        </div>
+                        <div>
+                            <div
+                                class="mb-1 flex items-center justify-between text-[10px]"
+                            >
+                                <span class="text-ss-text-3">Temperature</span>
+                                <button
+                                    v-if="isLocked('temperature')"
+                                    type="button"
+                                    class="flex items-center gap-1 text-ss-accent"
+                                    @click="unlockField('temperature')"
+                                >
+                                    <Lock :size="10" />
+                                </button>
+                            </div>
+                            <select
+                                v-model="form.temperature"
+                                class="w-full rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
+                            >
+                                <option value="">—</option>
+                                <option v-for="t in TEMPS" :key="t" :value="t">
+                                    {{ t }}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div
+                            class="mb-1 flex items-center justify-between text-[10px]"
+                        >
+                            <span class="text-ss-text-3"
+                                >Key details (AI memory)</span
+                            >
+                            <button
+                                v-if="isLocked('key_details')"
+                                type="button"
+                                class="flex items-center gap-1 text-ss-accent"
+                                @click="unlockField('key_details')"
+                            >
+                                <Lock :size="10" /> pinned · let AI manage
+                            </button>
+                        </div>
+                        <textarea
+                            v-model="form.key_details"
+                            rows="2"
+                            placeholder="Facts the AI should remember about him"
+                            class="w-full resize-y rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
+                        />
+                    </div>
+
+                    <div>
+                        <div class="mb-1 text-[10px] text-ss-text-3">Notes</div>
+                        <textarea
+                            v-model="form.crm_notes"
+                            rows="2"
+                            placeholder="Private notes (hard NOs, reminders)"
+                            class="w-full resize-y rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
+                        />
+                    </div>
+
+                    <!-- Behavior toggles -->
+                    <div
+                        v-for="t in [
+                            { key: 'sexting_mode' as const, label: 'Sexting' },
+                            { key: 'tip_mode' as const, label: 'Tip-led' },
+                        ]"
+                        :key="t.key"
+                        class="flex items-center justify-between gap-2"
+                    >
+                        <span class="text-[11px] text-ss-text-3">{{
+                            t.label
+                        }}</span>
+                        <div
+                            class="flex rounded-md border border-ss-border bg-ss-surface p-0.5"
+                        >
+                            <button
+                                v-for="mode in MODES"
+                                :key="mode"
+                                type="button"
+                                class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors"
+                                :class="
+                                    form[t.key] === mode
+                                        ? 'bg-ss-accent-soft text-ss-accent-text'
+                                        : 'text-ss-text-3 hover:text-ss-text'
+                                "
+                                @click="form[t.key] = mode"
+                            >
+                                {{
+                                    mode === 'AUTO'
+                                        ? 'Auto'
+                                        : mode === 'FORCE_ON'
+                                          ? 'On'
+                                          : 'Off'
+                                }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <label
+                        class="flex items-center gap-2 text-[11px] text-ss-text-2"
+                    >
+                        <input v-model="form.is_timewaster" type="checkbox" />
+                        Mark as timewaster
+                    </label>
+                </template>
             </div>
 
             <p v-if="!fan" class="text-ss-text-3">

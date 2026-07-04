@@ -120,12 +120,14 @@ function handleLogout(): void {
                     class="absolute right-0 z-20 mt-1 w-56 rounded-xl border border-ss-border bg-ss-surface p-2 shadow-xl"
                 >
                     <div class="px-2 py-1.5">
-                        <span class="block text-[13px] font-medium text-ss-text">{{
-                            user.name
-                        }}</span>
-                        <span class="block truncate text-[11px] text-ss-text-3">{{
-                            user.email
-                        }}</span>
+                        <span
+                            class="block text-[13px] font-medium text-ss-text"
+                            >{{ user.name }}</span
+                        >
+                        <span
+                            class="block truncate text-[11px] text-ss-text-3"
+                            >{{ user.email }}</span
+                        >
                     </div>
                     <div class="my-1 border-t border-ss-border" />
                     <Link

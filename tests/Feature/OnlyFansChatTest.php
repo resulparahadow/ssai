@@ -283,12 +283,15 @@ it('scopes access: a chatter can only reach assigned creators', function () {
 });
 
 it('persists AI Intel (strategy) on generate and returns generatedAt', function () {
-    Http::fake(['127.0.0.1:8787/*' => Http::response([
-        'draft' => 'hey you 🙈',
-        'strategy' => ['phase' => 'rapport', 'temperature' => 'warm', 'next_move' => 'tease'],
-        'telemetry' => null,
-        'usage' => [],
-    ])]);
+    Http::fake([
+        'app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101, 'isSubscribed' => true]]),
+        '127.0.0.1:8787/*' => Http::response([
+            'draft' => 'hey you 🙈',
+            'strategy' => ['phase' => 'rapport', 'temperature' => 'warm', 'next_move' => 'tease'],
+            'telemetry' => null,
+            'usage' => [],
+        ]),
+    ]);
     $admin = User::factory()->admin()->create();
 
     $this->actingAs($admin)
@@ -329,9 +332,12 @@ it('returns null intel for a chat with no saved strategy', function () {
 });
 
 it('does not persist intel when the engine returns no strategy', function () {
-    Http::fake(['127.0.0.1:8787/*' => Http::response([
-        'draft' => 'hey', 'strategy' => null, 'telemetry' => null, 'usage' => [],
-    ])]);
+    Http::fake([
+        'app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 102, 'isSubscribed' => true]]),
+        '127.0.0.1:8787/*' => Http::response([
+            'draft' => 'hey', 'strategy' => null, 'telemetry' => null, 'usage' => [],
+        ]),
+    ]);
 
     $this->actingAs(User::factory()->admin()->create())
         ->postJson("/onlyfans/{$this->model->id}/chats/102/generate", [
@@ -367,8 +373,9 @@ it('422s when the creator has no OnlyFans account', function () {
         ->assertStatus(422);
 });
 
-it('generates an AI draft from the live thread via the engine (no persistence)', function () {
+it('generates an AI draft from the live thread via the engine', function () {
     Http::fake([
+        'app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101, 'isSubscribed' => true]]),
         '127.0.0.1:8787/*' => Http::response(['draft' => 'aw that means a lot babe', 'strategy' => ['next_move' => 'qualify'], 'telemetry' => ['posture' => 'WARM_BUILD']]),
     ]);
 

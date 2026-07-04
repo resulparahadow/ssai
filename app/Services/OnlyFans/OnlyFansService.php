@@ -161,6 +161,34 @@ class OnlyFansService
         return $this->client()->get("{$account}/fans/{$userId}/subscriptions-history");
     }
 
+    /**
+     * Pull a fan's lifetime spend + subscription status out of a GET users/{id}
+     * payload, read defensively across the shapes OnlyFans returns (the fan→creator
+     * relationship lives under subscribedByData or subscribedOnData depending on
+     * endpoint/version). Any field we can't find comes back null so callers keep
+     * their last-known value rather than clobbering it with 0.
+     *
+     * @param  array<string, mixed>  $d  the `data` object from getUser
+     * @return array{total: float|null, tips: float|null, status: string|null}
+     */
+    public function extractFanSpend(array $d): array
+    {
+        $by = is_array($d['subscribedByData'] ?? null) ? $d['subscribedByData'] : [];
+        $on = is_array($d['subscribedOnData'] ?? null) ? $d['subscribedOnData'] : [];
+
+        $total = $by['totalSumm'] ?? $on['totalSumm'] ?? $d['totalSpent'] ?? null;
+        $tips = $by['tipsSumm'] ?? $on['tipsSumm'] ?? $d['tips'] ?? null;
+
+        $subscribed = $d['isSubscribed'] ?? $by['subscribed'] ?? $on['subscribed'] ?? null;
+        $status = $subscribed === null ? null : ($subscribed ? 'subscribed' : 'expired');
+
+        return [
+            'total' => $total === null ? null : (float) $total,
+            'tips' => $tips === null ? null : (float) $tips,
+            'status' => $status,
+        ];
+    }
+
     // ---- Settings ---------------------------------------------------------
 
     public function getSettings(string $account): Response

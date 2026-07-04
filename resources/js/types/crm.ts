@@ -548,3 +548,28 @@ export interface OfFanSummary {
     last_analyzed_at: string | null;
     error_message: string | null;
 }
+
+export type OfToggleMode = 'AUTO' | 'FORCE_ON' | 'FORCE_OFF';
+
+/** AI-owned memory field name that can be pinned so auto-analysis won't overwrite it. */
+export type OfLockableField =
+    | 'archetype'
+    | 'trust_level'
+    | 'temperature'
+    | 'key_details';
+
+/** Persisted per-fan memory + behavior toggles fed to AI generation (customer_profiles). */
+export interface OfFanProfile {
+    archetype: string | null;
+    trust_level: number;
+    temperature: string | null;
+    key_details: string | null;
+    crm_notes: string | null;
+    is_timewaster: boolean;
+    sexting_mode: OfToggleMode;
+    tip_mode: OfToggleMode;
+    total_spend: number; // read-only, from OnlyFans
+    tips_spend: number; // read-only, from OnlyFans
+    subscription_status: string | null;
+    locked_fields: OfLockableField[];
+}
