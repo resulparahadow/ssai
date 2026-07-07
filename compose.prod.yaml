@@ -1,0 +1,184 @@
+# SmartStars CRM — single-host production stack.
+#
+#   cp .env.docker.example .env   # then fill in secrets
+#   docker compose -f compose.prod.yaml build
+#   docker compose -f compose.prod.yaml up -d
+#
+# The app/queue/reverb/scheduler services all share one image (built once by the
+# `app` service). Put TLS termination in front of `web` (reverse proxy / Caddy).
+
+# VITE_* are compiled into the JS bundle by the shared `frontend` build stage,
+# so the same values must be passed to BOTH the app and web image builds.
+x-vite-args: &vite-args
+  VITE_APP_NAME: "${VITE_APP_NAME:-SmartStars}"
+  VITE_REVERB_APP_KEY: "${VITE_REVERB_APP_KEY:-}"
+  VITE_REVERB_HOST: "${VITE_REVERB_HOST:-localhost}"
+  VITE_REVERB_PORT: "${VITE_REVERB_PORT:-443}"
+  VITE_REVERB_SCHEME: "${VITE_REVERB_SCHEME:-https}"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+      args: *vite-args
+    image: ssai/web:latest
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      app:
+        condition: service_healthy
+      reverb:
+        condition: service_started
+    volumes:
+      # Serve the compiled assets the app image published (single source of
+      # truth — nginx can never drift from the app's manifest).
+      - assets:/var/www/html/public/build:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks: [ssai]
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+      args: *vite-args
+    image: ssai/app:latest
+    restart: unless-stopped
+    command: ["php-fpm"]
+    env_file: [.env.docker]
+    environment:
+      RUN_MIGRATIONS: "true" # migrations run once, from this service only
+      # Opt-in one-time seed of the minimal prod data (admin + Test model).
+      # Set on the app service ONLY (kept out of .env.docker so the workers
+      # don't also seed). Run once with:  RUN_SEEDERS=true docker compose up -d app
+      RUN_SEEDERS: "${RUN_SEEDERS:-false}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - storage:/var/www/html/storage
+      - assets:/var/www/html/public/build
+    networks: [ssai]
+
+  queue:
+    image: ssai/app:latest
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600", "--sleep=3"]
+    env_file: [.env.docker]
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - storage:/var/www/html/storage
+    stop_grace_period: 60s
+    # Worker has no port — the image's FPM healthcheck doesn't apply here.
+    healthcheck:
+      disable: true
+    networks: [ssai]
+
+  reverb:
+    image: ssai/app:latest
+    restart: unless-stopped
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    env_file: [.env.docker]
+    expose:
+      - "8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Override the image's FPM healthcheck: check the websocket port is listening.
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 8080) ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks: [ssai]
+
+  scheduler:
+    image: ssai/app:latest
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    env_file: [.env.docker]
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - storage:/var/www/html/storage
+    # Scheduler has no port — the image's FPM healthcheck doesn't apply here.
+    healthcheck:
+      disable: true
+    networks: [ssai]
+
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: engine
+    image: ssai/engine:latest
+    restart: unless-stopped
+    environment:
+      ENGINE_HOST: "0.0.0.0"
+      ENGINE_PORT: "8787"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-sonnet-4-6}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-mistralai/mistral-nemo}"
+    expose:
+      - "8787"
+    networks: [ssai]
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:-change-me-root}"
+      MYSQL_DATABASE: "${DB_DATABASE:-ssai_crm}"
+      MYSQL_USER: "${DB_USERNAME:-ssai}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:-change-me}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASSWORD:-change-me-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [ssai]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [ssai]
+
+volumes:
+  mysql-data:
+  redis-data:
+  storage:
+  assets:
+
+networks:
+  ssai:
+    driver: bridge

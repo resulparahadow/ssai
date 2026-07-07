@@ -1,0 +1,194 @@
+import { postJson } from '@/lib/api';
+import type {
+    AiStrategy,
+    OfFanProfile,
+    OfFanSummary,
+    OfGif,
+    OfLockableField,
+    OfMessage,
+    OfPreviewKind,
+} from '@/types/crm';
+
+/**
+ * Classify a (text-less) message for the conversation-list preview indicator. Mirrors
+ * OnlyFansService::lastMessageKind on the backend so live inbound messages get the same
+ * GIF/photo/video/… label the listed chats do. Returns null when text is present.
+ */
+export function messagePreviewKind(m: OfMessage): OfPreviewKind | null {
+    if (m.text.trim() !== '') {
+        return null;
+    }
+
+    const media = m.media ?? [];
+
+    if (media.length === 0) {
+        if (m.mediaCount > 0) {
+            return 'media';
+        }
+
+        return m.isTip ? 'tip' : null;
+    }
+
+    const types = new Set(media.map((x) => x.type));
+
+    if (types.has('gif')) {
+        return 'gif';
+    }
+
+    if (!media.some((x) => x.canView)) {
+        return 'locked';
+    }
+
+    return (
+        (['video', 'audio', 'photo'] as const).find((t) => types.has(t)) ??
+        'media'
+    );
+}
+
+/** Live OnlyFans proxy client. All calls hit /onlyfans/{model}/… and return the
+ *  controller's normalised JSON. Nothing is cached/persisted. */
+
+function cookie(name: string): string {
+    const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+
+    return m ? decodeURIComponent(m[2]) : '';
+}
+
+async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+    const res = await fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+
+        throw new Error(
+            b.error || b.message || `Request failed (${res.status})`,
+        );
+    }
+
+    return res.json();
+}
+
+const base = (modelId: number) => `/onlyfans/${modelId}`;
+
+export const ofApi = {
+    chats: (m: number, params: Record<string, string> = {}) =>
+        req<{ chats: unknown[]; next: Record<string, string> | null }>(
+            'GET',
+            `${base(m)}/chats?${new URLSearchParams(params)}`,
+        ),
+    messages: (m: number, chat: string, params: Record<string, string> = {}) =>
+        req<{ messages: unknown[]; next: Record<string, string> | null }>(
+            'GET',
+            `${base(m)}/chats/${chat}/messages?${new URLSearchParams(params)}`,
+        ),
+    search: (m: number, chat: string, query: string) =>
+        req<{ messages: unknown[] }>(
+            'GET',
+            `${base(m)}/chats/${chat}/messages/search?query=${encodeURIComponent(query)}`,
+        ),
+    media: (m: number, chat: string) =>
+        req<{ items: unknown[]; hasMore: boolean; next: number | null }>(
+            'GET',
+            `${base(m)}/chats/${chat}/media`,
+        ),
+    /** Proxied URL for an IP-locked OnlyFans CDN file — safe to use as an <img>/<video> src. */
+    mediaUrl: (m: number, cdnUrl: string) =>
+        `${base(m)}/media?url=${encodeURIComponent(cdnUrl)}`,
+    send: (m: number, chat: string, text: string, giphyId?: string) =>
+        postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
+            text,
+            giphyId,
+        }),
+    giphyTrending: (m: number) =>
+        req<{ gifs: OfGif[] }>('GET', `${base(m)}/giphy/trending`),
+    giphySearch: (
+        m: number,
+        q: string,
+        params: { limit?: number; offset?: number } = {},
+    ) =>
+        req<{ gifs: OfGif[] }>(
+            'GET',
+            `${base(m)}/giphy/search?${new URLSearchParams({
+                q,
+                ...Object.fromEntries(
+                    Object.entries(params)
+                        .filter(([, v]) => v !== undefined)
+                        .map(([k, v]) => [k, String(v)]),
+                ),
+            })}`,
+        ),
+    deleteMessage: (m: number, chat: string, id: string) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/messages/${id}`,
+        ),
+    like: (m: number, chat: string, id: string) =>
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/messages/${id}/like`,
+            {},
+        ),
+    unlike: (m: number, chat: string, id: string) =>
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/messages/${id}/unlike`,
+            {},
+        ),
+    fan: (m: number, fanId: string) =>
+        req<{ fan: unknown }>('GET', `${base(m)}/users/${fanId}`),
+    fanSummary: (m: number, fanId: string) =>
+        req<OfFanSummary>('GET', `${base(m)}/fans/${fanId}/summary`),
+    generateFanSummary: (m: number, fanId: string, regenerate = false) =>
+        postJson<{ status: string; message: string }>(
+            `${base(m)}/fans/${fanId}/summary`,
+            regenerate ? { regenerate: true } : {},
+        ),
+    generate: (m: number, chat: string, payload: object) =>
+        postJson<{
+            draft: string;
+            strategy: AiStrategy | null;
+            telemetry: Record<string, unknown> | null;
+            generatedAt: string | null;
+        }>(`${base(m)}/chats/${chat}/generate`, payload),
+    intel: (m: number, chat: string) =>
+        req<{ strategy: AiStrategy | null; generatedAt: string | null }>(
+            'GET',
+            `${base(m)}/chats/${chat}/intel`,
+        ),
+    /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). */
+    getProfile: (m: number, chat: string) =>
+        req<{ profile: OfFanProfile }>(
+            'GET',
+            `${base(m)}/chats/${chat}/profile`,
+        ),
+    /** Edit fan memory/toggles. Sending an AI-owned field pins it; `unlock` re-opens fields. */
+    saveProfile: (
+        m: number,
+        chat: string,
+        payload: Partial<
+            Pick<
+                OfFanProfile,
+                | 'archetype'
+                | 'trust_level'
+                | 'temperature'
+                | 'key_details'
+                | 'crm_notes'
+                | 'is_timewaster'
+                | 'sexting_mode'
+                | 'tip_mode'
+            >
+        > & { unlock?: OfLockableField[] },
+    ) =>
+        req<{ profile: OfFanProfile }>(
+            'PATCH',
+            `${base(m)}/chats/${chat}/profile`,
+            payload,
+        ),
+};
