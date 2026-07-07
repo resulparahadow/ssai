@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Behind the Caddy → nginx edge (internal Docker network only), trust the
+        // forwarded headers so HTTPS/scheme + client IP are detected correctly.
+        $middleware->trustProxies(at: '*');
+
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         // Server-to-server webhooks present no CSRF token.
