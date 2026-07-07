@@ -84,10 +84,15 @@ and the `doctrines` table (unused by the running app; the engine has its own cop
 
 ## TLS / public exposure
 
-`web` listens on plain HTTP :80. Terminate TLS in front of it with your existing
-reverse proxy (or add a Caddy/Traefik service). Because Laravel Echo connects to
-`wss://<VITE_REVERB_HOST>:443/app/...`, the TLS proxy must forward `/app` (and its
-websocket `Upgrade`) through to `web`, which proxies it on to the `reverb` container.
+`web` listens on plain HTTP :80. The repo ships a ready TLS edge — **`compose.caddy.yaml`**
+(+ `docker/caddy/Caddyfile`) — that adds a Caddy service (automatic Let's Encrypt) in
+front of `web` and stops `web` from host-publishing (`ports: !reset []`). Apply both
+files: `docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d`.
+Caddy `reverse_proxy`s everything to `web:80` and upgrades websockets transparently, so
+the existing nginx `/app` → `reverb` split keeps working with no extra Caddy config.
+Full fresh-server walkthrough: [`../docs/DEPLOY-ubuntu.md`](../docs/DEPLOY-ubuntu.md).
+(To use your own upstream proxy instead, skip the overlay and forward `/app`'s websocket
+`Upgrade` through to `web`, which proxies it on to `reverb`.)
 
 ## Common operations
 

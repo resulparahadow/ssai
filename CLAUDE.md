@@ -58,8 +58,13 @@ Later phases build the other CRM views and may port the engine to PHP. See
 │   ├── runGenerate.js                ← driver: payload → real generate() → draft/strategy/telemetry
 │   └── server.js                     ← HTTP /generate, /health  (smoke.js, parity.js next to it)
 ├── app/Services/Engine/EngineClient.php  ← maps MySQL → legacy session shape, calls the engine
+├── Dockerfile · compose.prod.yaml    ← prod stack: 3 image targets (app/web/engine) + 8 services
+├── compose.caddy.yaml                ← TLS overlay: Caddy auto-HTTPS edge in front of nginx `web`
+├── docker/                           ← entrypoint.sh, nginx/, php*/, caddy/Caddyfile (+ README runbook)
+├── deploy.sh                         ← on-server update helper (git pull → build app → up -d)
 ├── legacy/                           ← the ENTIRE old vanilla-JS app, archived read-only
 │                                       (legacy/package.json restores CommonJS for tests/harness.js)
+├── docs/DEPLOY-ubuntu.md             ← fresh-Ubuntu-24.04 deploy runbook
 ├── docs/superpowers/specs/           ← phase specs
 └── SSAI-new-design.html              ← the design prototype (visual reference for Phase 2)
 ```
@@ -271,6 +276,40 @@ engine uses its in-process copy. Provider keys live in the engine's env
   browser/system (Notification API) alerts.
 - **Production data migration** from the old Supabase project.
 
+## Deployment (production — Docker + Caddy, DONE)
+
+Single-host **Docker** stack, HTTPS-terminated by **Caddy**. One multi-stage
+`Dockerfile` builds three targets — `app` (PHP-FPM; also runs queue/reverb/
+scheduler), `web` (nginx serving `public/` + proxying PHP→`app:9000` and the
+`/app` websocket→`reverb:8080`), `engine` (Node sidecar). `compose.prod.yaml`
+wires 8 services (web/app/queue/reverb/scheduler/engine/mysql/redis); the `app`
+entrypoint waits for MySQL, runs `migrate --force` + `storage:link` + `optimize`
+on boot. **`compose.caddy.yaml` is the TLS overlay** (apply BOTH files together):
+it adds a `caddy` service (auto Let's Encrypt) publishing 80/443 that
+`reverse_proxy`s everything to `web:80`, and drops `web`'s host port via
+`ports: !reset []` so only Caddy is internet-facing. nginx already splits `/app`
+→ reverb internally, so Caddy needs no websocket config (it upgrades transparently).
+`bootstrap/app.php` sets **`trustProxies(at: '*')`** so Laravel detects HTTPS behind
+the edge (correct URLs, secure cookies, Reverb auth) — safe because app/web are
+reachable only over the internal Docker network.
+
+- **Env:** lives in **`.env.docker`** (git-ignored; template `.env.docker.example`
+  with **blank** placeholders — never commit real secrets). `SITE_ADDRESS` +
+  `APP_URL` = the public domain. Build-time `VITE_REVERB_*` point at the domain
+  over 443/https; server-side `REVERB_HOST=reverb`/`8080`/`http` stays internal —
+  **don't collapse them**. **Changing any `VITE_*` (or build-time var) requires
+  rebuilding `app` + `web`.**
+- **Run:** `docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d`
+  (or `export COMPOSE_FILE=compose.prod.yaml:compose.caddy.yaml COMPOSE_ENV_FILES=.env.docker`).
+  Seed the first admin with `ProductionSeeder` (`ADMIN_PASSWORD`). `deploy.sh` is the
+  on-server update helper (git pull → build `app` → `up -d`).
+- **Docs:** fresh-server runbook `docs/DEPLOY-ubuntu.md`; per-service detail
+  `docker/README.md`; design/plan under `docs/superpowers/{specs,plans}/
+  2026-07-07-ubuntu-2404-docker-deploy-*.md`. **First live deploy done 2026-07-07.**
+- **Note:** the repo currently has ~194 **pre-existing** phpstan errors in unrelated
+  files (`ModelOnlyFansController`, `AnalyticsController`, …), so `composer run ci:check`
+  fails on `types:check` even though `php artisan test` is green — separate cleanup.
+
 ## Workflow
 
 - **Run**: `composer run dev` (serves app + vite + queue) or `php artisan serve` + `npm run dev`.
@@ -285,6 +324,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - **DB**: `php artisan migrate` (MySQL `ssai_crm`). Tests use in-memory SQLite.
 - **Test**: `php artisan test` (Pest) · engine: `node engine/parity.js` + `node legacy/tests/harness.js`.
 - **Build**: `npm run build`.
+- **Deploy** (prod): single-host Docker + Caddy TLS — see the Deployment section above and
+  `docs/DEPLOY-ubuntu.md`. Build/run:
+  `docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d`.
 - **Lint/format**: Pint (PHP), ESLint + Prettier (JS/Vue).
 
 ## Conventions
