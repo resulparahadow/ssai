@@ -85,6 +85,34 @@ it('lists messages and tags sender by fan id', function () {
         ->assertJsonPath('messages.1.from', 'creator');
 });
 
+it('surfaces the first_id pagination cursor for loading older messages', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [
+            ['id' => 5, 'text' => 'newest', 'fromUser' => ['id' => 101], 'createdAt' => '2026-06-24T10:00:00Z'],
+        ],
+        '_pagination' => [
+            'next_page' => 'https://app.onlyfansapi.com/api/acct_x/chats/101/messages?limit=100&first_id=5',
+        ],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/messages")
+        ->assertOk()
+        ->assertJsonPath('next.first_id', '5')
+        ->assertJsonPath('next.limit', '100');
+});
+
+it('forwards the id/first_id cursor params to OnlyFans when paging', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => []])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/messages?first_id=5&limit=100")
+        ->assertOk();
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'first_id=5')
+        && str_contains($request->url(), 'limit=100'));
+});
+
 it('normalises message media (image, video poster, locked ppv)', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response([
         'data' => [[

@@ -31,23 +31,22 @@ export interface SeriesPoint {
 export interface CreatorRow {
     name: string;
     initials: string;
-    revenue: string;
-    revenueRaw: number;
-    newPaid: number;
-    newFree: number;
-    salesRevenue: string;
-    chatRatio: string;
-    avgSpend: string;
+    generations: number;
+    calls: number;
+    cost: string;
+    costRaw: number;
+    perMsg: string;
+    cachePct: string;
 }
 
 export interface ChatterRow {
     name: string;
     initials: string;
     role: string;
-    revenue: string;
-    revenueRaw: number;
-    sentMessages: number;
-    conversations: number;
+    generations: number;
+    cost: string;
+    costRaw: number;
+    cachePct: string;
 }
 
 export interface DashboardData {
@@ -55,11 +54,8 @@ export interface DashboardData {
     periodOptions: string[];
     role: Role;
     canViewAllCreators: boolean;
-    canViewAgencyProfit: boolean;
-    kpis: KpiCard[];
-    targets: TargetRow[];
-    attribution: AttributionSlice[];
-    revenueSeries: SeriesPoint[];
+    aiKpis: KpiCard[];
+    aiSeries: SeriesPoint[];
     creators: CreatorRow[];
     chatters: ChatterRow[];
 }

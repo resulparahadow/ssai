@@ -2,9 +2,7 @@
 
 namespace App\Services\Dashboard;
 
-use App\Models\AichMessage;
-use App\Models\AichSession;
-use App\Models\CustomerProfile;
+use App\Models\AichUsageEvent;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -33,33 +31,152 @@ class DashboardService
         $days = self::PERIOD_DAYS[$period];
         $start = $period === 'Today' ? Carbon::today() : Carbon::today()->subDays($days - 1);
 
-        $sessions = AichSession::query()
-            ->where('created_at', '>=', $start)
-            ->get(['user_id', 'creator_model', 'customer_username', 'total_spend', 'tips_spend', 'created_at']);
+        // Revenue/subscriber metrics are OFF: their source tables (aich_sessions,
+        // aich_messages, customer_profiles) have no live writer, so they read as
+        // zeros/fake. The dormant kpis()/targets()/attribution()/revenueSeries()/
+        // creators()/chatters() methods below are kept for revival once a real
+        // revenue source exists. See docs/superpowers/specs/2026-07-07-dashboard-ai-operations-design.md.
 
-        $profiles = CustomerProfile::query()
+        // AI generation telemetry is the one live, accurate source. Chatters see
+        // only their own generations; managers/admins see all.
+        $events = AichUsageEvent::query()
             ->where('created_at', '>=', $start)
-            ->get(['creator_model', 'subscription_status', 'created_at']);
-
-        $messages = AichMessage::query()
-            ->where('created_at', '>=', $start)
-            ->where('was_sent', true)
-            ->get(['user_id', 'creator_model', 'session_id', 'created_at']);
+            ->when(! $user->canSeeAllCreators(), fn ($q) => $q->where('user_id', $user->id))
+            ->get(['generation_id', 'user_id', 'creator_model', 'cost', 'cache_read_tokens', 'created_at']);
 
         return [
             'period' => $period,
             'periodOptions' => array_keys(self::PERIOD_DAYS),
             'role' => $user->role->value,
             'canViewAllCreators' => $user->canSeeAllCreators(),
-            'canViewAgencyProfit' => $user->role->canViewAgencyProfit(),
-            'kpis' => $this->kpis($sessions, $profiles, $start, $days, $period),
-            'targets' => $this->targets($sessions),
-            'attribution' => $this->attribution($sessions),
-            'revenueSeries' => $this->revenueSeries($sessions, $start, $days, $period),
-            'creators' => $this->creators($sessions, $profiles),
-            'chatters' => $this->chatters($sessions, $messages),
+            'aiKpis' => $this->aiKpis($events, $start, $days, $period),
+            'aiSeries' => $this->aiSeries($events, $start, $days, $period),
+            'creators' => $this->creatorActivity($events),
+            'chatters' => $this->chatterActivity($events),
         ];
     }
+
+    /**
+     * @param  Collection<int, object>  $events
+     * @return list<array<string, mixed>>
+     */
+    private function aiKpis(Collection $events, Carbon $start, int $days, string $period): array
+    {
+        $cost = (float) $events->sum('cost');
+        $generations = $events->pluck('generation_id')->unique()->count();
+        $calls = $events->count();
+        $cachedCalls = $events->where('cache_read_tokens', '>', 0)->count();
+        $perMsg = $generations > 0 ? $cost / $generations : 0.0;
+        $hitPct = $calls > 0 ? (int) round($cachedCalls / $calls * 100) : 0;
+
+        // Legacy rule: "—" under 3 calls; green ≥70%, red <40%, else neutral.
+        $cacheLabel = $calls < 3 ? '—' : $hitPct.'%';
+        $cacheColor = $calls < 3 ? 'text-3' : ($hitPct >= 70 ? 'pos' : ($hitPct >= 40 ? 'text-3' : 'neg'));
+
+        $buckets = $this->dailyBuckets($start, $days, $period);
+        $costSpark = $this->seriesValues($events, $buckets, $period, fn ($e) => (float) $e->cost);
+
+        return [
+            ['key' => 'cost', 'label' => 'AI cost', 'value' => $this->money($cost), 'color' => 'accent', 'spark' => $costSpark],
+            ['key' => 'generations', 'label' => 'Generations', 'value' => number_format($generations), 'color' => 'msg',
+                'spark' => $this->seriesDistinct($events, $buckets, $period, 'generation_id')],
+            ['key' => 'perMsg', 'label' => 'Avg $/msg', 'value' => $this->money($perMsg), 'color' => 'tip', 'spark' => $costSpark],
+            ['key' => 'cache', 'label' => 'Cache hit', 'value' => $cacheLabel, 'color' => $cacheColor,
+                'spark' => $this->seriesCount($events->where('cache_read_tokens', '>', 0), $buckets, $period)],
+        ];
+    }
+
+    /**
+     * @param  Collection<int, object>  $events
+     * @return list<array<string, mixed>>
+     */
+    private function aiSeries(Collection $events, Carbon $start, int $days, string $period): array
+    {
+        $buckets = $this->dailyBuckets($start, $days, $period);
+        $values = $this->seriesValues($events, $buckets, $period, fn ($e) => (float) $e->cost);
+
+        return collect($buckets)->values()->map(fn ($bucket, $i) => [
+            'label' => $bucket['label'],
+            'value' => $values[$i] ?? 0,
+        ])->all();
+    }
+
+    /**
+     * @param  Collection<int, object>  $events
+     * @return list<array<string, mixed>>
+     */
+    private function creatorActivity(Collection $events): array
+    {
+        return $events->groupBy('creator_model')->map(function (Collection $rows, $name) {
+            $name = (string) ($name === '' ? '—' : $name);
+            $cost = (float) $rows->sum('cost');
+            $generations = $rows->pluck('generation_id')->unique()->count();
+            $calls = $rows->count();
+            $cached = $rows->where('cache_read_tokens', '>', 0)->count();
+
+            return [
+                'name' => $name,
+                'initials' => mb_strtoupper(mb_substr($name, 0, 2)),
+                'generations' => $generations,
+                'calls' => $calls,
+                'cost' => $this->money($cost),
+                'costRaw' => round($cost, 4),
+                'perMsg' => $generations > 0 ? $this->money($cost / $generations) : '—',
+                'cachePct' => $calls > 0 ? round($cached / $calls * 100).'%' : '—',
+            ];
+        })->sortByDesc('costRaw')->values()->all();
+    }
+
+    /**
+     * @param  Collection<int, object>  $events
+     * @return list<array<string, mixed>>
+     */
+    private function chatterActivity(Collection $events): array
+    {
+        $userIds = $events->pluck('user_id')->filter()->unique();
+        $users = User::query()->whereIn('id', $userIds)->get(['id', 'name', 'role'])->keyBy('id');
+
+        return $events->whereNotNull('user_id')->groupBy('user_id')->map(function (Collection $rows, $uid) use ($users) {
+            $u = $users->get($uid);
+            $name = $u?->name ?? 'Unknown';
+            $cost = (float) $rows->sum('cost');
+            $generations = $rows->pluck('generation_id')->unique()->count();
+            $calls = $rows->count();
+            $cached = $rows->where('cache_read_tokens', '>', 0)->count();
+
+            return [
+                'name' => $name,
+                'initials' => collect(explode(' ', $name))->map(fn ($w) => mb_substr($w, 0, 1))->take(2)->implode(''),
+                'role' => $u ? ucfirst($u->role->value) : '—',
+                'generations' => $generations,
+                'cost' => $this->money($cost),
+                'costRaw' => round($cost, 4),
+                'cachePct' => $calls > 0 ? round($cached / $calls * 100).'%' : '—',
+            ];
+        })->sortByDesc('costRaw')->values()->all();
+    }
+
+    /**
+     * Count distinct values of $field per bucket (e.g. distinct generation_id).
+     *
+     * @param  Collection<int, object>  $rows
+     * @param  list<array{key:string,label:string}>  $buckets
+     * @return list<int>
+     */
+    private function seriesDistinct(Collection $rows, array $buckets, string $period, string $field): array
+    {
+        $byBucket = [];
+        foreach ($rows as $r) {
+            $k = $this->bucketKey(Carbon::parse($r->created_at), $period);
+            $byBucket[$k][$r->{$field}] = true;
+        }
+
+        return collect($buckets)->map(fn ($b) => count($byBucket[$b['key']] ?? []))->all();
+    }
+
+    // ---- DORMANT: revenue/subscriber metrics (no live data source yet) -------
+    // Kept intact for revival when a real revenue source exists. Not called by
+    // build(). See docs/superpowers/specs/2026-07-07-dashboard-ai-operations-design.md.
 
     private function effective(object $row): float
     {

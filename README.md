@@ -36,6 +36,25 @@ composer run dev              # app + vite + queue listener
 php artisan test             # Pest; uses in-memory SQLite
 ```
 
+## Deploy with Docker
+
+A production single-host stack (nginx + PHP-FPM, queue, Reverb, the Node engine,
+MySQL, Redis) ships as one multi-stage [`Dockerfile`](Dockerfile) +
+[`compose.prod.yaml`](compose.prod.yaml):
+
+```bash
+cp .env.docker.example .env.docker   # fill in APP_KEY, DB/Reverb secrets, provider keys
+docker compose --env-file .env.docker -f compose.prod.yaml build
+docker compose --env-file .env.docker -f compose.prod.yaml up -d
+```
+
+The stack uses a dedicated `.env.docker` so it never collides with the local-dev
+`.env`. Tip: `export COMPOSE_FILE=compose.prod.yaml COMPOSE_ENV_FILES=.env.docker`
+to drop the flags and just run `docker compose up -d`.
+
+Full runbook — services, TLS, first-run, and gotchas — in
+[`docker/README.md`](docker/README.md).
+
 ## Layout
 
 | Path | What |

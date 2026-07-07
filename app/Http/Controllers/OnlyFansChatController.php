@@ -51,7 +51,7 @@ class OnlyFansChatController extends Controller
     public function messages(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
-        $res = $this->of->listMessages($acct, $chat, $request->only(['limit', 'last_id', 'first_id', 'order']));
+        $res = $this->of->listMessages($acct, $chat, $request->only(['limit', 'last_id', 'first_id', 'order', 'id']));
         if (! $res->successful()) {
             return $this->forward($res);
         }

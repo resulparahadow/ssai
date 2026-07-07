@@ -20,12 +20,16 @@ const props = defineProps<{
     messages: OfMessage[];
     loading: boolean;
     error: string | null;
+    hasMore: boolean;
+    loadingMore: boolean;
+    loadMoreError: string | null;
 }>();
 
 const emit = defineEmits<{
     like: [m: OfMessage];
     delete: [m: OfMessage];
     resend: [m: OfMessage];
+    loadMore: [];
 }>();
 
 // ---- search (server, with client-filter fallback) ----
@@ -59,8 +63,14 @@ function clearSearch() {
 
 const shown = computed(() => searchResults.value ?? props.messages);
 
-// Open/refresh at the newest message (bottom), like any chat app.
+// Open/refresh at the newest message (bottom), like any chat app — except right after the
+// user clicks "Load older messages", where we hold the viewport steady on what they were
+// reading. `prependAnchor` records the distance from the bottom at click time (set just
+// before we emit); since prepending only adds height above the viewport, restoring that
+// same distance keeps the previously-visible messages in place.
 const threadEl = ref<HTMLElement | null>(null);
+const prependAnchor = ref<number | null>(null);
+
 function scrollToBottom() {
     const el = threadEl.value;
 
@@ -68,9 +78,46 @@ function scrollToBottom() {
         el.scrollTop = el.scrollHeight;
     }
 }
+
+function onLoadMore() {
+    const el = threadEl.value;
+    prependAnchor.value = el ? el.scrollHeight - el.scrollTop : null;
+    emit('loadMore');
+}
+
 watch(
     () => props.messages,
-    () => nextTick(scrollToBottom),
+    () => {
+        const el = threadEl.value;
+        const anchor = prependAnchor.value;
+        prependAnchor.value = null; // consume on any change so it can't go stale
+
+        // This change came from a "Load older" click → hold the from-bottom anchor. This
+        // must apply even when the page added nothing (end of history): scrollHeight is
+        // unchanged, so restoring the anchor keeps the exact position instead of jumping
+        // to the newest message.
+        if (anchor != null && el) {
+            nextTick(() => {
+                el.scrollTop = el.scrollHeight - anchor;
+            });
+
+            return;
+        }
+
+        nextTick(scrollToBottom);
+    },
+);
+
+// If a "Load older" fetch ends without changing the thread (a network error — the messages
+// watcher above never fires to consume the anchor), drop the stale anchor so the next real
+// update (e.g. a live inbound) still scrolls to the newest message as usual.
+watch(
+    () => props.loadingMore,
+    (loading) => {
+        if (!loading) {
+            prependAnchor.value = null;
+        }
+    },
 );
 
 function fmtTime(t: string | null): string {
@@ -201,6 +248,25 @@ function thumb(item: Record<string, unknown>): string | null {
             ref="threadEl"
             class="flex-1 scrollbar-gutter-stable space-y-3 overflow-y-auto p-4"
         >
+            <!-- Older-history pagination: only when there's a next page and we're not showing search results -->
+            <div v-if="hasMore && !searchResults" class="flex flex-col items-center gap-1 pb-1">
+                <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-ss-border bg-ss-surface-2 px-3 py-1 text-[12px] font-medium text-ss-text-2 transition-colors hover:text-ss-text disabled:cursor-default disabled:opacity-60"
+                    :disabled="loadingMore"
+                    @click="onLoadMore"
+                >
+                    <LoaderCircle
+                        v-if="loadingMore"
+                        :size="12"
+                        class="animate-spin"
+                    />
+                    {{ loadingMore ? 'Loading…' : 'Load older messages' }}
+                </button>
+                <span v-if="loadMoreError" class="text-[11px] text-ss-neg">{{
+                    loadMoreError
+                }}</span>
+            </div>
             <p
                 v-if="searchResults"
                 class="text-center text-[11px] text-ss-text-3"

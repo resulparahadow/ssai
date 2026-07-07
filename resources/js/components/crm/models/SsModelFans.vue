@@ -105,17 +105,39 @@ const SUMMARY_FIELDS: {
     { key: 'other_notes', label: 'Other notes' },
 ];
 
+// Cap polling so a slow/stuck OnlyFans job can't spin forever (~60s), and
+// surface a `failed` result instead of silently reverting to "No summary yet".
+const POLL_INTERVAL = 3000;
+const MAX_POLLS = 20;
+const pollAttempts: Record<string, number> = {};
+
+function applyResult(fanId: string, s: OfFanSummary): void {
+    summaries.value[fanId] = s;
+
+    if (s.status === 'processing') {
+        pollSummary(fanId);
+
+        return;
+    }
+
+    // Terminal state — stop the spinner and report a failure if OnlyFans gave one.
+    generating.value[fanId] = false;
+    delete pollAttempts[fanId];
+
+    if (s.status === 'failed') {
+        summaryError.value[fanId] =
+            s.error_message ||
+            'OnlyFans could not generate a summary — the fan may have no analyzed messages.';
+    }
+}
+
 async function loadSummary(fanId: string): Promise<void> {
     summaries.value[fanId] = 'loading';
     delete summaryError.value[fanId];
+    delete pollAttempts[fanId];
 
     try {
-        const s = await ofModel.fanSummary(props.modelId, fanId);
-        summaries.value[fanId] = s;
-
-        if (s.status === 'processing') {
-            pollSummary(fanId);
-        }
+        applyResult(fanId, await ofModel.fanSummary(props.modelId, fanId));
     } catch (e) {
         summaries.value[fanId] = null;
         summaryError.value[fanId] =
@@ -125,29 +147,35 @@ async function loadSummary(fanId: string): Promise<void> {
 
 function pollSummary(fanId: string): void {
     generating.value[fanId] = true;
+    pollAttempts[fanId] = (pollAttempts[fanId] ?? 0) + 1;
+
+    if (pollAttempts[fanId] > MAX_POLLS) {
+        generating.value[fanId] = false;
+        delete pollAttempts[fanId];
+        summaryError.value[fanId] =
+            'Still generating on OnlyFans — refresh the page in a minute to check (no extra credits).';
+
+        return;
+    }
+
     clearTimeout(pollTimers[fanId]);
     pollTimers[fanId] = setTimeout(async () => {
         try {
-            const s = await ofModel.fanSummary(props.modelId, fanId);
-            summaries.value[fanId] = s;
-
-            if (s.status === 'processing') {
-                pollSummary(fanId);
-            } else {
-                generating.value[fanId] = false;
-            }
+            applyResult(fanId, await ofModel.fanSummary(props.modelId, fanId));
         } catch (e) {
             generating.value[fanId] = false;
+            delete pollAttempts[fanId];
             summaryError.value[fanId] =
                 e instanceof Error ? e.message : 'Summary poll failed.';
         }
-    }, 3000);
+    }, POLL_INTERVAL);
 }
 
 async function generateSummary(fanId: string): Promise<void> {
     const cur = summaries.value[fanId];
     const regenerate = cur && cur !== 'loading' && cur.status === 'completed';
     delete summaryError.value[fanId];
+    pollAttempts[fanId] = 0;
     generating.value[fanId] = true;
 
     try {
@@ -156,7 +184,7 @@ async function generateSummary(fanId: string): Promise<void> {
     } catch (e) {
         generating.value[fanId] = false;
         summaryError.value[fanId] =
-            e instanceof Error ? e.message : 'Failed to queue summary.';
+            e instanceof Error ? e.message : 'Failed to start summary generation.';
     }
 }
 

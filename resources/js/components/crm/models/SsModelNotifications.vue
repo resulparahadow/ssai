@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { CheckCheck, LoaderCircle } from '@lucide/vue';
+import { BadgeCheck, CheckCheck, LoaderCircle, UserRound } from '@lucide/vue';
 import { onMounted, ref } from 'vue';
 import { ofModel } from '@/lib/onlyfansModel';
-import type { OfNotification, OfNotificationCounts } from '@/types/crm';
+import type {
+    OfNotification,
+    OfNotificationCounts,
+    OfUserDetail,
+} from '@/types/crm';
 
 const props = defineProps<{ modelId: number }>();
 
@@ -35,8 +39,46 @@ const hasMore = ref(false);
 const fromId = ref<string | null>(null);
 const marking = ref(false);
 
+// On-demand fan lookup per notification userId (fetched only when the button is
+// clicked, then cached so revisiting the row doesn't re-hit the OnlyFans API).
+const users = ref<Record<string, OfUserDetail | 'loading' | null>>({});
+const userError = ref<Record<string, string>>({});
+
 function countFor(key: string): number {
     return counts.value[COUNT_KEY[key] ?? key] ?? 0;
+}
+
+async function showUser(userId: string | null): Promise<void> {
+    if (!userId || users.value[userId] === 'loading' || subscriber(userId)) {
+        return;
+    }
+
+    users.value[userId] = 'loading';
+    delete userError.value[userId];
+
+    try {
+        users.value[userId] = (
+            await ofModel.lookupUser(props.modelId, userId)
+        ).user;
+    } catch (e) {
+        users.value[userId] = null;
+        userError.value[userId] =
+            e instanceof Error ? e.message : 'Failed to load user.';
+    }
+}
+
+function subscriber(userId: string | null): OfUserDetail | null {
+    const s = userId ? users.value[userId] : null;
+
+    return s && s !== 'loading' ? s : null;
+}
+
+function isLoadingUser(userId: string | null): boolean {
+    return !!userId && users.value[userId] === 'loading';
+}
+
+function userErr(userId: string | null): string | null {
+    return userId ? (userError.value[userId] ?? null) : null;
 }
 
 async function load(reset = true) {
@@ -179,6 +221,75 @@ onMounted(async () => {
                     <p class="mt-0.5 text-[11px] text-ss-text-3">
                         {{ fmtTime(n.createdAt) }}
                     </p>
+
+                    <!-- Who is this fan? (lazy OnlyFans user lookup, cached) -->
+                    <div v-if="n.userId" class="mt-2">
+                        <div
+                            v-if="subscriber(n.userId)"
+                            class="flex items-center gap-2 rounded-lg border border-ss-border bg-ss-bg p-2"
+                        >
+                            <span
+                                class="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-ss-surface-2 text-[11px] font-semibold text-ss-text-2"
+                            >
+                                <img
+                                    v-if="subscriber(n.userId)?.avatar"
+                                    :src="subscriber(n.userId)?.avatar ?? ''"
+                                    :alt="subscriber(n.userId)?.name ?? ''"
+                                    class="h-full w-full object-cover"
+                                />
+                                <template v-else>{{
+                                    subscriber(n.userId)?.initials
+                                }}</template>
+                            </span>
+                            <div class="min-w-0 flex-1">
+                                <div
+                                    class="flex items-center gap-1 text-[12px] font-medium text-ss-text"
+                                >
+                                    <span class="truncate">{{
+                                        subscriber(n.userId)?.name ||
+                                        subscriber(n.userId)?.username
+                                    }}</span>
+                                    <BadgeCheck
+                                        v-if="subscriber(n.userId)?.isVerified"
+                                        :size="12"
+                                        class="shrink-0 text-ss-accent"
+                                    />
+                                </div>
+                                <div class="text-[11px] text-ss-text-3">
+                                    @{{ subscriber(n.userId)?.username }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <p
+                            v-else-if="isLoadingUser(n.userId)"
+                            class="flex items-center gap-1.5 text-[11px] text-ss-text-3"
+                        >
+                            <LoaderCircle :size="12" class="animate-spin" />
+                            Loading…
+                        </p>
+
+                        <template v-else>
+                            <p
+                                v-if="userErr(n.userId)"
+                                class="mb-1 text-[11px] text-ss-neg"
+                            >
+                                {{ userErr(n.userId) }}
+                            </p>
+                            <button
+                                type="button"
+                                class="flex items-center gap-1 rounded-md border border-ss-border px-2 py-1 text-[11px] font-medium text-ss-text-2 hover:bg-ss-surface-2"
+                                @click="showUser(n.userId)"
+                            >
+                                <UserRound :size="12" />
+                                {{
+                                    n.type === 'subscribed'
+                                        ? 'Who subscribed?'
+                                        : 'Show user'
+                                }}
+                            </button>
+                        </template>
+                    </div>
                 </div>
             </div>
         </div>

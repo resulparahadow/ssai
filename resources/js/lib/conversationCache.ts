@@ -11,6 +11,13 @@ export const chatsCache = new Map<number, OfChat[]>();
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
 
+// The pagination cursor for loading OLDER messages in a chat (the OnlyFans
+// `_pagination.next_page` params, normalised to `{ id, order, … }`). Keyed by
+// chat id alongside msgCache; `null` once the oldest page has been reached, and
+// absent until the chat's first page has loaded. Drives the thread's "Load
+// older messages" button.
+export const nextCache = new Map<string, Record<string, string> | null>();
+
 // Per-chat composer state, keyed by chat id. Each chat keeps its own draft,
 // loading/sending flags, error, and AI strategy — so generating in chat A and
 // switching to chat B no longer bleeds A's spinner/result into B, and an

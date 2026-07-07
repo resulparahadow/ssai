@@ -28,6 +28,9 @@ const { loadEngine } = require('./loadEngine');
 })();
 
 const PORT = parseInt(process.env.ENGINE_PORT || '8787', 10);
+// Bind host: localhost by default (safe for local dev); in Docker set
+// ENGINE_HOST=0.0.0.0 so sibling containers can reach the engine.
+const HOST = process.env.ENGINE_HOST || '127.0.0.1';
 
 function readBody(req) {
     return new Promise((resolve, reject) => {
@@ -79,7 +82,7 @@ if (require.main === module) {
         throw e;
     });
 
-    server.listen(PORT, '127.0.0.1', () => console.log(`SSAI engine listening on http://127.0.0.1:${PORT}`));
+    server.listen(PORT, HOST, () => console.log(`SSAI engine listening on http://${HOST}:${PORT}`));
 }
 
 module.exports = { server };

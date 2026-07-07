@@ -11,6 +11,7 @@ import {
     chatsCache,
     fanCache,
     msgCache,
+    nextCache,
 } from '@/lib/conversationCache';
 import { messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
@@ -46,6 +47,12 @@ const activeModelId = ref<number | null>(null);
 const messages = ref<OfMessage[]>([]);
 const msgsLoading = ref(false);
 const msgsError = ref<string | null>(null);
+// Cursor + state for loading OLDER messages (pagination). `msgsNext` mirrors
+// nextCache for the open chat: a cursor to fetch the next older page, or null
+// when the oldest page has been reached.
+const msgsNext = ref<Record<string, string> | null>(null);
+const msgsLoadingMore = ref(false);
+const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
 
 // Right rail: Fan / AI Intel tabs.
@@ -350,6 +357,37 @@ async function loadChats() {
     }
 }
 
+// How many messages to pull per page (OnlyFans caps this at 100).
+const MSG_PAGE = '100';
+
+/**
+ * Merge a freshly-fetched newest page into the already-loaded thread. The server page is
+ * authoritative for its own window (so likes/edits/remote deletes within it reflect), while
+ * anything OLDER than the window — history previously pulled via "Load older messages" — is
+ * kept, as are unconfirmed optimistic bubbles (which are newer than the window). Without this
+ * a background revalidate would shrink the thread back to the newest page and drop the
+ * history the user just loaded.
+ */
+function reconcileNewest(existing: OfMessage[], fresh: OfMessage[]): OfMessage[] {
+    if (!fresh.length) {
+        return existing;
+    }
+
+    const windowStart = fresh[0].time ?? ''; // fresh is sorted oldest→newest
+    const freshIds = new Set(fresh.map((m) => m.id));
+
+    const older = existing.filter(
+        (m) =>
+            !m.pending &&
+            !m.failed &&
+            !freshIds.has(m.id) &&
+            (m.time ?? '') < windowStart,
+    );
+    const optimistic = existing.filter((m) => m.pending || m.failed);
+
+    return [...older, ...fresh, ...optimistic];
+}
+
 async function fetchMessages(chatId: string, background = false) {
     if (!model.value) {
         return;
@@ -361,12 +399,29 @@ async function fetchMessages(chatId: string, background = false) {
     }
 
     try {
-        const r = await ofApi.messages(model.value.id, chatId);
-        const list = r.messages as OfMessage[];
-        msgCache.set(chatId, list);
+        const r = await ofApi.messages(model.value.id, chatId, {
+            limit: MSG_PAGE,
+        });
+        const fresh = r.messages as OfMessage[];
+        const existing = msgCache.get(chatId) ?? [];
+        const merged = existing.length
+            ? reconcileNewest(existing, fresh)
+            : fresh;
+        msgCache.set(chatId, merged);
+
+        // Establish the "load older" cursor on the first fetch of a chat (empty cache, or a
+        // cache seeded by realtime inbound before we ever paged it). Don't reset it on later
+        // revalidates — loadMore() has since advanced it deeper into the history.
+        if (!existing.length || !nextCache.has(chatId)) {
+            nextCache.set(chatId, r.next);
+
+            if (selected.value?.id === chatId) {
+                msgsNext.value = r.next;
+            }
+        }
 
         if (selected.value?.id === chatId) {
-            messages.value = list; // ignore if the user already moved on
+            messages.value = merged; // ignore if the user already moved on
 
             // The freshest thread (incl. any new inbound message) is now loaded and on
             // screen — the fan's messages have been seen, so clear the unread badge.
@@ -382,6 +437,50 @@ async function fetchMessages(chatId: string, background = false) {
         if (!background) {
             msgsLoading.value = false;
         }
+    }
+}
+
+/** Load the next OLDER page and prepend it (older messages sort before the current oldest). */
+async function loadMore() {
+    const m = model.value;
+    const chat = selected.value;
+
+    if (!m || !chat || !msgsNext.value || msgsLoadingMore.value) {
+        return;
+    }
+
+    const chatId = chat.id;
+    const cursor = msgsNext.value;
+    msgsLoadingMore.value = true;
+    msgsMoreError.value = null;
+
+    try {
+        const r = await ofApi.messages(m.id, chatId, {
+            ...cursor,
+            limit: MSG_PAGE,
+        });
+        const older = r.messages as OfMessage[];
+
+        const base = msgCache.get(chatId) ?? [];
+        const baseIds = new Set(base.map((x) => x.id));
+        const fresh = older.filter((x) => !baseIds.has(x.id));
+        const merged = [...fresh, ...base];
+        msgCache.set(chatId, merged);
+
+        // OnlyFans keeps handing back a `next_page` even at the end of a thread, so a page
+        // that adds nothing new IS the end — drop the cursor to retire the button. Otherwise
+        // advance to the next older page.
+        const cursorNext = fresh.length ? r.next : null;
+        nextCache.set(chatId, cursorNext);
+
+        if (selected.value?.id === chatId) {
+            messages.value = merged; // reassign even when empty so the child consumes its anchor
+            msgsNext.value = cursorNext;
+        }
+    } catch (e) {
+        msgsMoreError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+        msgsLoadingMore.value = false;
     }
 }
 
@@ -414,6 +513,10 @@ function openChat(chat: OfChat) {
 
     // Show AI Intel if this chat already has a generated strategy, else the Fan tab.
     rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
+
+    // Load-older cursor: restore instantly from cache (revalidated by fetchMessages).
+    msgsNext.value = nextCache.get(chat.id) ?? null;
+    msgsMoreError.value = null;
 
     // Messages — serve cache instantly, then revalidate in the background.
     if (msgCache.has(chat.id)) {
@@ -650,9 +753,13 @@ onBeforeUnmount(() => {
                 :messages="messages"
                 :loading="msgsLoading"
                 :error="msgsError"
+                :has-more="!!msgsNext"
+                :loading-more="msgsLoadingMore"
+                :load-more-error="msgsMoreError"
                 @like="onLike"
                 @delete="onDelete"
                 @resend="resend"
+                @load-more="loadMore"
             >
                 <template v-if="cur" #composer>
                     <SsComposer

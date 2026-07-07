@@ -948,7 +948,9 @@ class OnlyFansService
         $out = [];
         if (is_string($next) && str_contains($next, '?')) {
             parse_str(parse_url($next, PHP_URL_QUERY) ?: '', $q);
-            foreach (['limit', 'offset', 'id', 'order'] as $k) {
+            // Chat messages paginate on first_id (order=desc) / last_id (order=asc); other
+            // list endpoints use id/offset — carry through whichever the next_page URL sets.
+            foreach (['limit', 'offset', 'id', 'order', 'first_id', 'last_id'] as $k) {
                 if (isset($q[$k]) && $q[$k] !== '') {
                     $out[$k] = $q[$k];
                 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Lock, Play } from '@lucide/vue';
+import { ImageOff, LoaderCircle, Lock, Play } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { ofApi } from '@/lib/onlyfans';
 import type { OfMedia } from '@/types/crm';
@@ -25,6 +25,27 @@ function poster(m: OfMedia): string | null {
 
 function usable(m: OfMedia): boolean {
     return m.canView && !!poster(m);
+}
+
+// Per-tile load state so each proxied image shows a skeleton while it downloads
+// and a failure state if it errors (defaults to 'loading' until @load/@error).
+type LoadState = 'loading' | 'loaded' | 'error';
+const imgState = ref<Record<string, LoadState>>({});
+
+function tileKey(m: OfMedia, i: number): string {
+    return String(m.id ?? i);
+}
+
+function loadState(m: OfMedia, i: number): LoadState {
+    return imgState.value[tileKey(m, i)] ?? 'loading';
+}
+
+function markLoaded(m: OfMedia, i: number): void {
+    imgState.value[tileKey(m, i)] = 'loaded';
+}
+
+function markError(m: OfMedia, i: number): void {
+    imgState.value[tileKey(m, i)] = 'error';
 }
 
 function fmtDuration(s: number | null): string {
@@ -69,7 +90,9 @@ function open(i: number) {
                 class="group relative block overflow-hidden rounded-lg bg-ss-surface-2"
                 :class="[
                     media.length === 1
-                        ? 'max-w-[260px]'
+                        ? usable(m) && loadState(m, i) !== 'loaded'
+                            ? 'aspect-3/4 w-[240px]'
+                            : 'max-w-[260px]'
                         : 'aspect-square w-full',
                     usable(m) ? 'cursor-zoom-in' : 'cursor-default',
                 ]"
@@ -80,36 +103,70 @@ function open(i: number) {
                     <img
                         :src="poster(m)!"
                         :alt="m.type"
-                        class="h-full w-full transition-transform group-hover:scale-[1.02]"
-                        :class="
+                        class="h-full w-full transition-[transform,opacity] duration-200 group-hover:scale-[1.02]"
+                        :class="[
                             media.length === 1
                                 ? 'max-h-[320px] w-full object-cover'
-                                : 'object-cover'
-                        "
+                                : 'object-cover',
+                            loadState(m, i) === 'loaded'
+                                ? 'opacity-100'
+                                : 'opacity-0',
+                        ]"
+                        @load="markLoaded(m, i)"
+                        @error="markError(m, i)"
                     />
-                    <!-- video affordances -->
+
+                    <!-- loading skeleton -->
                     <span
-                        v-if="m.type === 'video'"
-                        class="absolute inset-0 grid place-items-center"
+                        v-if="loadState(m, i) === 'loading'"
+                        class="absolute inset-0 grid animate-pulse place-items-center bg-ss-surface-2"
                     >
-                        <span
-                            class="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm"
-                        >
-                            <Play :size="18" fill="currentColor" />
+                        <LoaderCircle
+                            :size="18"
+                            class="animate-spin text-ss-text-3"
+                        />
+                    </span>
+
+                    <!-- failed to load -->
+                    <span
+                        v-else-if="loadState(m, i) === 'error'"
+                        class="absolute inset-0 grid place-items-center bg-ss-surface-2 p-3 text-center text-ss-text-3"
+                    >
+                        <span>
+                            <ImageOff :size="20" class="mx-auto mb-1" />
+                            <span class="block text-[10px] font-medium"
+                                >Couldn't load
+                                {{ m.type === 'video' ? 'video' : 'image' }}</span
+                            >
                         </span>
                     </span>
-                    <span
-                        v-if="m.type === 'video' && m.duration"
-                        class="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"
-                    >
-                        {{ fmtDuration(m.duration) }}
-                    </span>
-                    <!-- "+N more" on the last visible tile -->
-                    <span
-                        v-if="i === 3 && extra > 0"
-                        class="absolute inset-0 grid place-items-center bg-black/55 text-lg font-semibold text-white"
-                        >+{{ extra }}</span
-                    >
+
+                    <!-- affordances only once the poster is in -->
+                    <template v-if="loadState(m, i) === 'loaded'">
+                        <!-- video affordances -->
+                        <span
+                            v-if="m.type === 'video'"
+                            class="absolute inset-0 grid place-items-center"
+                        >
+                            <span
+                                class="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+                            >
+                                <Play :size="18" fill="currentColor" />
+                            </span>
+                        </span>
+                        <span
+                            v-if="m.type === 'video' && m.duration"
+                            class="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                        >
+                            {{ fmtDuration(m.duration) }}
+                        </span>
+                        <!-- "+N more" on the last visible tile -->
+                        <span
+                            v-if="i === 3 && extra > 0"
+                            class="absolute inset-0 grid place-items-center bg-black/55 text-lg font-semibold text-white"
+                            >+{{ extra }}</span
+                        >
+                    </template>
                 </template>
 
                 <!-- locked / pay-to-view -->
