@@ -39,6 +39,7 @@ export COMPOSE_ENV_FILES=.env.docker
   sudo ufw allow OpenSSH
   sudo ufw allow 80/tcp
   sudo ufw allow 443/tcp
+  sudo ufw allow 443/udp   # HTTP/3 (QUIC) — Caddy also publishes 443/udp
   sudo ufw enable
   ```
 
