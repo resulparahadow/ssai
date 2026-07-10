@@ -10,6 +10,11 @@ cd /var/www/html
 mkdir -p storage/framework/cache/data storage/framework/sessions \
     storage/framework/views storage/logs storage/app/public bootstrap/cache
 
+# Dev runs as root; the php-fpm pool workers run as www-data (docker/php-fpm/www.conf).
+# Own the runtime-writable dirs to the workers — a no-op on macOS bind mounts, but
+# required on Linux hosts or the workers get permission-denied on sessions/views/logs.
+chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+
 if [ "${DEV_BOOTSTRAP:-false}" = "true" ]; then
     if [ ! -f vendor/autoload.php ]; then
         echo "[dev] composer install (first run may take a minute)..."
