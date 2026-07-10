@@ -40,4 +40,10 @@ enum UserRole: string
     {
         return $this === self::Admin;
     }
+
+    /** True for the top (owner) tier. */
+    public function isAdmin(): bool
+    {
+        return $this === self::Admin;
+    }
 }

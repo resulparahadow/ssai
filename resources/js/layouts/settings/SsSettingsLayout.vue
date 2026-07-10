@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 
 // Rendered as the inner layout of [SmartStarsLayout, SsSettingsLayout]. The outer
@@ -8,12 +9,27 @@ import { useCurrentUrl } from '@/composables/useCurrentUrl';
 // prop Inertia might spread onto the layout chain.
 defineOptions({ inheritAttrs: false });
 
-const items = [
-    { title: 'Profile', href: '/settings/profile' },
-    { title: 'Security', href: '/settings/security' },
-    { title: 'Appearance', href: '/settings/appearance' },
-    { title: 'Notifications', href: '/settings/notifications' },
-];
+const page = usePage();
+
+// Global Training is the agency-wide AI brain — admin only (matches the
+// edit-global-training gate that guards the route).
+const items = computed(() => {
+    const base = [
+        { title: 'Profile', href: '/settings/profile' },
+        { title: 'Security', href: '/settings/security' },
+        { title: 'Appearance', href: '/settings/appearance' },
+        { title: 'Notifications', href: '/settings/notifications' },
+    ];
+
+    if (page.props.auth?.user?.role === 'admin') {
+        base.push({
+            title: 'Global Training',
+            href: '/settings/global-training',
+        });
+    }
+
+    return base;
+});
 
 const { isCurrentUrl } = useCurrentUrl();
 </script>

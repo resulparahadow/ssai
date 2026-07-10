@@ -19,3 +19,9 @@ it('gates all-creators and team management to managers and up', function () {
             ->and(Gate::forUser(User::factory()->chatter()->create())->allows($ability))->toBeFalse();
     }
 });
+
+it('gates editing global training to admins only', function () {
+    expect(Gate::forUser(User::factory()->admin()->create())->allows('edit-global-training'))->toBeTrue()
+        ->and(Gate::forUser(User::factory()->manager()->create())->allows('edit-global-training'))->toBeFalse()
+        ->and(Gate::forUser(User::factory()->chatter()->create())->allows('edit-global-training'))->toBeFalse();
+});

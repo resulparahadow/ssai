@@ -39,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('view-all-creators', fn (User $user): bool => $user->role->canSeeAllCreators());
         Gate::define('manage-team', fn (User $user): bool => $user->role->canManageTeam());
         Gate::define('view-agency-profit', fn (User $user): bool => $user->role->canViewAgencyProfit());
+        Gate::define('edit-global-training', fn (User $user): bool => $user->role->isAdmin());
     }
 
     /**

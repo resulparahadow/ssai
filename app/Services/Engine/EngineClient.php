@@ -6,15 +6,17 @@ use App\Models\AichModel;
 use App\Models\AichSession;
 use App\Models\CreatorStatus;
 use App\Models\CustomerProfile;
+use App\Services\Doctrine\DoctrineService;
 use Illuminate\Support\Facades\Http;
 
 /**
  * Talks to the Node engine sidecar (engine/server.js), which runs the REAL
  * legacy generate(). This class maps a MySQL AichSession (+ persona, profile,
  * creator status) into the legacy session shape the engine expects, calls it,
- * and returns the draft + strategy + telemetry. The doctrine is intentionally
- * NOT sent — the engine uses its in-process DEFAULT_TRAINING constant (the exact
- * canonical brain), which the doctrines table mirrors for the integrity layer.
+ * and returns the draft + strategy + telemetry. When an admin has saved a custom
+ * doctrine (an active row in the doctrines table) it is sent as the `doctrine`
+ * override; otherwise the key is omitted and the engine uses its in-process
+ * canonical DEFAULT_TRAINING (also exposed via GET /doctrine).
  */
 class EngineClient
 {
@@ -43,7 +45,7 @@ class EngineClient
         // fully transient with legacy defaults — nothing here is required.
         $profile = $opts['profile'] ?? null;
 
-        return $this->call([
+        return $this->call($this->withDoctrine([
             'model' => [
                 'name' => $model->name,
                 'prompt' => (string) ($model->prompt ?? ''),
@@ -77,7 +79,7 @@ class EngineClient
             'api' => $opts['api'] ?? 'claude',
             'sender' => $opts['sender'] ?? 'customer',
             'context' => $opts['context'] ?? '',
-        ]);
+        ]));
     }
 
     /** @return array<string, mixed> */
@@ -92,7 +94,7 @@ class EngineClient
             ->where('creator_model', $session->creator_model)
             ->latest('created_at')->take(8)->get();
 
-        return [
+        return $this->withDoctrine([
             'model' => [
                 'name' => $model?->name ?? $session->creator_model,
                 'prompt' => (string) ($model?->prompt ?? ''),
@@ -133,6 +135,50 @@ class EngineClient
             'api' => $opts['api'] ?? 'claude',
             'sender' => $opts['sender'] ?? 'customer',
             'context' => $opts['context'] ?? '',
+        ]);
+    }
+
+    /**
+     * Attach the active custom doctrine (if any) as the engine's `doctrine`
+     * override. When no override is active the key is omitted so the engine uses
+     * its in-process canonical DEFAULT_TRAINING.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function withDoctrine(array $payload): array
+    {
+        $prompt = app(DoctrineService::class)->active()?->prompt;
+
+        if ($prompt !== null) {
+            $payload['doctrine'] = $prompt;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * The canonical default doctrine, fetched live from the engine (GET /doctrine).
+     * The PHP container has no Node, so the engine is the source of truth for the
+     * in-process DEFAULT_TRAINING.
+     *
+     * @return array{version: string, sha256: string, prompt: string}
+     */
+    public function defaultDoctrine(): array
+    {
+        $base = rtrim((string) config('services.engine.url'), '/');
+
+        $res = Http::timeout((int) config('services.engine.timeout', 60))
+            ->acceptJson()
+            ->get($base.'/doctrine');
+
+        $res->throw();
+        $data = $res->json();
+
+        return [
+            'version' => (string) ($data['version'] ?? ''),
+            'sha256' => (string) ($data['sha256'] ?? ''),
+            'prompt' => (string) ($data['prompt'] ?? ''),
         ];
     }
 

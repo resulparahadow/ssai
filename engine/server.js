@@ -53,6 +53,17 @@ const server = http.createServer(async (req, res) => {
             const { eng } = loadEngine();
             return json(res, 200, { ok: true, doctrineLen: (eng.get('DEFAULT_TRAINING') || '').length });
         }
+        if (req.method === 'GET' && req.url === '/doctrine') {
+            // Canonical default doctrine (in-process DEFAULT_TRAINING). Laravel's PHP
+            // container has no Node, so this is the source of truth for the default brain
+            // shown in the Global Training settings page.
+            const { eng } = loadEngine();
+            const prompt = eng.get('DEFAULT_TRAINING') || '';
+            const sha256 = eng.get('DEFAULT_TRAINING_SHA256') || '';
+            const m = prompt.match(/\(v([0-9.]+)\)/);
+            const version = 'v' + (m ? m[1] : '0.0.0');
+            return json(res, 200, { ok: true, version, sha256, len: prompt.length, prompt });
+        }
         if (req.method === 'POST' && req.url === '/generate') {
             const input = JSON.parse((await readBody(req)) || '{}');
             const out = await generateDraft(input);
