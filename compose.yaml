@@ -43,20 +43,21 @@ services:
     networks: [ssai-dev]
 
   vite:
-    image: node:22-alpine
-    restart: unless-stopped
-    working_dir: /var/www/html
+    # Runs in the dev image (php + node), NOT plain node: the Wayfinder Vite
+    # plugin shells out to `php artisan wayfinder:generate` on startup, which
+    # needs php + vendor/. The dev entrypoint also makes it wait for vendor/.
+    <<: *php-dev
     # npm ci only when node_modules is empty; then start Vite with HMR.
     command: ["sh", "-c", "[ -f node_modules/.bin/vite ] || npm ci; exec npm run dev -- --host 0.0.0.0"]
     environment:
       VITE_DOCKER: "1"
     volumes:
       - .:/var/www/html
+      - vendor:/var/www/html/vendor
       - node_modules:/var/www/html/node_modules
       - ./.env.docker.dev:/var/www/html/.env:ro
     ports:
       - "5173:5173"
-    networks: [ssai-dev]
 
   engine:
     image: node:22-alpine

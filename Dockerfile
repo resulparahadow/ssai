@@ -122,7 +122,10 @@ CMD ["node", "engine/server.js"]
 # disabled via zzz-dev.ini. NOT built by prod (compose.prod.yaml targets
 # app/web/engine only) — this stage never affects the production images.
 FROM php-base AS dev
-RUN apk add --no-cache git unzip
+# node/npm are here too so the `vite` dev service can run in this image: the
+# Wayfinder Vite plugin shells out to `php artisan wayfinder:generate`, so the
+# Vite process needs BOTH php and node (same reason the prod `build` stage does).
+RUN apk add --no-cache git unzip nodejs npm
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 COPY docker/dev/php-dev.ini "$PHP_INI_DIR/conf.d/zzz-dev.ini"
 COPY docker/dev/entrypoint.sh /usr/local/bin/dev-entrypoint.sh
