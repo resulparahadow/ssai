@@ -30,6 +30,24 @@ composer run dev              # app + vite + queue listener
 # or: php artisan serve  +  npm run dev
 ```
 
+## Local dev with Docker
+
+A full-stack local environment in containers with live reload — separate from the
+prod stack, so it never touches `compose.prod.yaml` / `.env.docker`:
+
+```bash
+cp .env.docker.dev.example .env.docker.dev   # required (git-ignored); add AI keys if wanted
+docker compose up -d --build                 # first run: builds the dev image, installs deps
+docker compose logs -f vite                   # watch HMR / build output
+```
+
+App → http://localhost:8000 · Vite HMR → :5173 · MySQL → :3306 · Reverb → :8080.
+Edit a `.vue` file and the browser hot-reloads; PHP edits apply on the next
+request; `engine/*` edits restart the engine. `docker compose down` stops the
+stack and **keeps** the dev DB; `docker compose down -v` resets it. The stack is
+`name: ssai-dev`, fully isolated from prod
+(`docker compose -f compose.prod.yaml -f compose.caddy.yaml …`).
+
 ## Tests
 
 ```bash

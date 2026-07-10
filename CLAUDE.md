@@ -313,6 +313,9 @@ reachable only over the internal Docker network.
 ## Workflow
 
 - **Run**: `composer run dev` (serves app + vite + queue) or `php artisan serve` + `npm run dev`.
+- **Run (Docker)**: `docker compose up -d --build` — full stack in containers with live
+  reload (`compose.yaml`, `name: ssai-dev`), isolated from prod. See `README.md` → "Local
+  dev with Docker". Requires `cp .env.docker.dev.example .env.docker.dev` first.
 - **Engine**: `node engine/server.js` (port 8787) — it auto-loads `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`
   (+ `*_MODEL`) from `.env` if unset, so no manual export is needed; exercise it at `/dev/generate`.
   Without keys the pipeline runs but returns an empty draft. On `EADDRINUSE` it means an engine is
