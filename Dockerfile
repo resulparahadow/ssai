@@ -115,3 +115,17 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8787/health >/dev/null 2>&1 || exit 1
 CMD ["node", "engine/server.js"]
+
+##########################  Stage 6: dev (local development)  #################
+# Local dev PHP-FPM: prod php-base extensions + composer + git. Source is
+# bind-mounted at runtime (no COPY), so code changes reflect live. Opcache is
+# disabled via zzz-dev.ini. NOT built by prod (compose.prod.yaml targets
+# app/web/engine only) — this stage never affects the production images.
+FROM php-base AS dev
+RUN apk add --no-cache git unzip
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY docker/dev/php-dev.ini "$PHP_INI_DIR/conf.d/zzz-dev.ini"
+COPY docker/dev/entrypoint.sh /usr/local/bin/dev-entrypoint.sh
+RUN chmod +x /usr/local/bin/dev-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/dev-entrypoint.sh"]
+CMD ["php-fpm"]
