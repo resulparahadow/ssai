@@ -9,6 +9,7 @@ const props = defineProps<{
     media: OfMedia[];
     price?: number;
     modelId: number;
+    hidePrice?: boolean; // caller renders its own price (e.g. the chat bubble's pay pill)
 }>();
 
 // CDN urls are IP-locked, so the thumbnail must load through our proxy. `direct`
@@ -181,7 +182,7 @@ function open(i: number) {
                             m.type === 'video' ? 'Locked video' : 'Locked photo'
                         }}</span>
                         <span
-                            v-if="price"
+                            v-if="price && !hidePrice"
                             class="mt-1 inline-block rounded-full bg-ss-accent px-2 py-0.5 text-[11px] font-semibold text-white"
                             >${{ price }}</span
                         >

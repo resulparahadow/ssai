@@ -83,7 +83,9 @@ class ModelOnlyFansController extends Controller
         $data = $this->validateJson($request, ['floor' => 'nullable|numeric|min:0']);
         $floor = (int) ($data['floor'] ?? 200);
 
-        $key = "of_spenders:{$acct}:{$floor}";
+        // Bump the version tag whenever the cached payload shape changes (e.g. new
+        // normalizeFan fields) so warm caches don't serve stale-shaped rows.
+        $key = "of_spenders:v2:{$acct}:{$floor}";
         if ($request->boolean('fresh')) {
             Cache::forget($key);
         }

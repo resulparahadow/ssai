@@ -484,6 +484,9 @@ class OnlyFansService
             'time' => $lastMessage['createdAt'] ?? null,
             'unread' => (int) ($chat['unreadMessagesCount'] ?? 0),
             'canSend' => (bool) ($chat['canSendMessage'] ?? true),
+            // Lifetime spend is embedded in the listed fan object, so the list can flag
+            // spenders without a per-fan getUser call. null when the payload omits it.
+            'totalSpent' => $this->extractFanSpend($fan)['total'],
         ];
     }
 
@@ -710,6 +713,8 @@ class OnlyFansService
             'durationLabel' => $f['subscribedOnDuration'] ?? null,
             'totalSpent' => (float) ($sub['totalSumm'] ?? 0),
             'tips' => (float) ($sub['tipsSumm'] ?? 0),
+            'ppv' => (float) ($sub['messagesSumm'] ?? 0),
+            'subs' => (float) ($sub['subscribesSumm'] ?? 0),
             'subscribePrice' => isset($sub['regularPrice']) ? (float) $sub['regularPrice'] : (isset($sub['price']) ? (float) $sub['price'] : null),
             'subscribedAt' => $sub['subscribeAt'] ?? null,
             'expiresAt' => $sub['expiredAt'] ?? null,

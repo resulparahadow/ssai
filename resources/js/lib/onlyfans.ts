@@ -45,6 +45,27 @@ export function messagePreviewKind(m: OfMessage): OfPreviewKind | null {
     );
 }
 
+/** Money state of a single message, or null if it carries no price. */
+export type MessagePay = { kind: 'tip' | 'ppv'; price: number; paid: boolean };
+
+/**
+ * Classify the money state of a message for the bubble status pill:
+ *  - a fan-sent tip is money already received (always "paid");
+ *  - a creator-sent PPV is paid once the fan has opened it (opening requires purchase).
+ * Everything else (free messages, optimistic sends with price 0) returns null.
+ */
+export function messagePayInfo(m: OfMessage): MessagePay | null {
+    if (m.isTip && m.price > 0) {
+        return { kind: 'tip', price: m.price, paid: true };
+    }
+
+    if (!m.isTip && !m.isFree && m.price > 0) {
+        return { kind: 'ppv', price: m.price, paid: m.isOpened };
+    }
+
+    return null;
+}
+
 /** Live OnlyFans proxy client. All calls hit /onlyfans/{model}/… and return the
  *  controller's normalised JSON. Nothing is cached/persisted. */
 

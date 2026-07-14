@@ -15,6 +15,7 @@ import { computed, ref } from 'vue';
 import type { Component } from 'vue';
 import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
 import { chatDraft } from '@/lib/conversationCache';
+import { usd } from '@/lib/money';
 import type { OfChat, OfPreviewKind } from '@/types/crm';
 
 const props = defineProps<{
@@ -142,28 +143,43 @@ const filtered = computed(() => {
                             >{{ c.unread }}</span
                         >
                     </span>
-                    <span class="mt-0.5 block truncate text-[12px]">
-                        <template v-if="chatDraft(c.id)">
-                            <span class="font-medium text-ss-neg">Draft:</span>
-                            <span class="text-ss-text-3">
-                                {{ chatDraft(c.id) }}</span
+                    <span
+                        class="mt-0.5 flex items-center justify-between gap-2 text-[12px]"
+                    >
+                        <span class="min-w-0 flex-1 truncate">
+                            <template v-if="chatDraft(c.id)">
+                                <span class="font-medium text-ss-neg"
+                                    >Draft:</span
+                                >
+                                <span class="text-ss-text-3">
+                                    {{ chatDraft(c.id) }}</span
+                                >
+                            </template>
+                            <span
+                                v-else-if="c.preview"
+                                class="text-ss-text-3"
+                                >{{ c.preview }}</span
                             >
-                        </template>
-                        <span v-else-if="c.preview" class="text-ss-text-3">{{
-                            c.preview
-                        }}</span>
-                        <span
-                            v-else-if="c.previewKind"
-                            class="inline-flex items-center gap-1 text-ss-text-3"
-                        >
-                            <component
-                                :is="previewMeta(c.previewKind).icon"
-                                :size="12"
-                                class="shrink-0"
-                            />
-                            {{ previewMeta(c.previewKind).label }}
+                            <span
+                                v-else-if="c.previewKind"
+                                class="inline-flex items-center gap-1 text-ss-text-3"
+                            >
+                                <component
+                                    :is="previewMeta(c.previewKind).icon"
+                                    :size="12"
+                                    class="shrink-0"
+                                />
+                                {{ previewMeta(c.previewKind).label }}
+                            </span>
+                            <span v-else class="text-ss-text-3">—</span>
                         </span>
-                        <span v-else class="text-ss-text-3">—</span>
+                        <!-- lifetime spend, bottom-right; only for fans who've spent -->
+                        <span
+                            v-if="c.totalSpent && c.totalSpent > 0"
+                            class="shrink-0 text-[11px] font-semibold text-ss-pos"
+                            title="Total lifetime spend"
+                            >{{ usd(c.totalSpent) }}</span
+                        >
                     </span>
                 </span>
             </button>

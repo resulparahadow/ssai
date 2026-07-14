@@ -42,6 +42,22 @@ it('lists chats live and normalises them', function () {
     Http::assertSent(fn ($r) => str_contains($r->url(), '/acct_cam/chats') && $r->hasHeader('Authorization', 'Bearer test-key'));
 });
 
+it('surfaces per-fan lifetime spend on listed chats (no extra API call)', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [['fan' => [
+            'id' => 101, 'name' => 'Jake', 'username' => 'jake_w',
+            'subscribedByData' => ['totalSumm' => 1234.5],
+        ], 'lastMessage' => ['text' => 'hey']]],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertOk()
+        ->assertJsonPath('chats.0.id', '101')
+        ->assertJsonPath('chats.0.totalSpent', 1234.5);
+});
+
 it('classifies a text-less last message for the list indicator', function () {
     $svc = app(OnlyFansService::class);
 
@@ -289,6 +305,21 @@ it('proxies like, unlike and delete to the right method+path', function () {
     Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/messages/9/like'));
     Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/messages/9/unlike'));
     Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/messages/9'));
+});
+
+it('returns fan details with live lifetime spend + tips', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
+        'id' => 101, 'name' => 'Jake', 'username' => 'jake_w',
+        'subscribedByData' => ['totalSumm' => 1234.5, 'tipsSumm' => 80],
+    ]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/users/101")
+        ->assertOk()
+        ->assertJsonPath('fan.id', '101')
+        ->assertJsonPath('fan.name', 'Jake')
+        ->assertJsonPath('fan.totalSpent', 1234.5)
+        ->assertJsonPath('fan.tips', 80);
 });
 
 it('forwards an OnlyFans error status through the proxy', function () {

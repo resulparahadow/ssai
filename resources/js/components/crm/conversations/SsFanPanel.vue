@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Lock, LockOpen, LoaderCircle, Sparkles } from '@lucide/vue';
 import { onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
 import type {
     OfFan,
@@ -465,13 +466,25 @@ onBeforeUnmount(stopPolling);
                         <div>
                             <div class="text-[10px] text-ss-text-3">Spent</div>
                             <div class="text-[12px] font-semibold text-ss-text">
-                                ${{ profile?.total_spend ?? 0 }}
+                                {{
+                                    usd(
+                                        fan?.totalSpent ??
+                                            profile?.total_spend ??
+                                            null,
+                                    )
+                                }}
                             </div>
                         </div>
                         <div>
                             <div class="text-[10px] text-ss-text-3">Tips</div>
                             <div class="text-[12px] font-semibold text-ss-text">
-                                ${{ profile?.tips_spend ?? 0 }}
+                                {{
+                                    usd(
+                                        fan?.tips ??
+                                            profile?.tips_spend ??
+                                            null,
+                                    )
+                                }}
                             </div>
                         </div>
                         <div>

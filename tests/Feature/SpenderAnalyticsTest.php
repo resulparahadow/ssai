@@ -68,6 +68,33 @@ it('aggregates spenders across pages filtered by the floor', function () {
     Http::assertSent(fn ($r) => str_contains(urldecode($r->url()), 'offset=20'));
 });
 
+it('surfaces the PPV and subscription spend split per fan', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [
+            'list' => [[
+                'id' => 1, 'name' => 'Whale', 'username' => 'whale',
+                'subscribedOnData' => [
+                    'totalSumm' => 5000,
+                    'tipsSumm' => 800,
+                    'messagesSumm' => 3500,
+                    'subscribesSumm' => 500,
+                    'postsSumm' => 200,
+                ],
+            ]],
+            'hasMore' => false,
+        ],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/models/{$this->model->id}/of/spenders?floor=200")
+        ->assertOk()
+        ->assertJsonPath('spenders.0.totalSpent', 5000)
+        ->assertJsonPath('spenders.0.ppv', 3500)
+        ->assertJsonPath('spenders.0.tips', 800)
+        ->assertJsonPath('spenders.0.subs', 500);
+});
+
 it('defaults the floor to 200 when none is given', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response([
         'data' => ['list' => [], 'hasMore' => false],

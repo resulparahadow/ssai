@@ -241,6 +241,8 @@ class OnlyFansChatController extends Controller
             return $this->forward($res);
         }
         $d = $res->json('data') ?? [];
+        // Lifetime spend/tips come from the same getUser payload (no extra API call).
+        $spend = $this->of->extractFanSpend($d);
 
         return response()->json(['fan' => [
             'id' => $user,
@@ -252,6 +254,8 @@ class OnlyFansChatController extends Controller
             'subscribePrice' => data_get($d, 'subscribedByData.subscribePrice') ?? data_get($d, 'subscribePrice'),
             'lastSeen' => $d['lastSeen'] ?? null,
             'canEarn' => $d['canEarn'] ?? null,
+            'totalSpent' => $spend['total'],
+            'tips' => $spend['tips'],
         ]]);
     }
 

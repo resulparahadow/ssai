@@ -83,6 +83,7 @@ export interface OfChat {
     time: string | null;
     unread: number;
     canSend: boolean;
+    totalSpent: number | null; // fan's lifetime spend on this creator (embedded in the list)
 }
 
 export interface OfMedia {
@@ -136,6 +137,8 @@ export interface OfFan {
     subscribePrice: number | null;
     lastSeen: string | null;
     canEarn: boolean | null;
+    totalSpent: number | null; // lifetime spend on this creator (live from getUser)
+    tips: number | null; // lifetime tips
 }
 
 export interface SidebarCreator {
@@ -226,6 +229,8 @@ export interface OfFanRow {
     durationLabel: string | null;
     totalSpent: number;
     tips: number;
+    ppv: number;
+    subs: number;
     subscribePrice: number | null;
     subscribedAt: string | null;
     expiresAt: string | null;

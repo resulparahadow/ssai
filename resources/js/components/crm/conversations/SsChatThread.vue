@@ -7,10 +7,13 @@ import {
     RefreshCw,
     Search,
     Trash2,
+    Wallet,
     X,
 } from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import SsMessageMedia from '@/components/crm/conversations/SsMessageMedia.vue';
+import SsPayPill from '@/components/crm/conversations/SsPayPill.vue';
+import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
 import type { OfChat, OfMessage } from '@/types/crm';
 
@@ -23,6 +26,7 @@ const props = defineProps<{
     hasMore: boolean;
     loadingMore: boolean;
     loadMoreError: string | null;
+    spend: number | null; // fan's live lifetime spend; null while loading
 }>();
 
 const emit = defineEmits<{
@@ -254,6 +258,15 @@ function thumb(item: Record<string, unknown>): string | null {
                     @{{ chat.username }}
                 </div>
             </div>
+            <!-- fan's total lifetime spend (currency-masked); hidden until loaded -->
+            <span
+                v-if="spend != null"
+                class="inline-flex shrink-0 items-center gap-1 rounded-full bg-ss-pos/12 px-2.5 py-1 text-[12px] font-semibold text-ss-pos"
+                title="Total lifetime spend"
+            >
+                <Wallet :size="13" />
+                {{ usd(spend) }}
+            </span>
             <div class="relative flex items-center">
                 <Search :size="13" class="absolute left-2 text-ss-text-3" />
                 <input
@@ -349,15 +362,14 @@ function thumb(item: Record<string, unknown>): string | null {
                             :media="m.media"
                             :price="m.price"
                             :model-id="modelId"
+                            hide-price
                         />
                         <span v-if="m.text">{{ m.text }}</span>
                         <!-- fallback: count-only when the API gave us no media objects (e.g. cached/locked with no preview) -->
                         <span
                             v-else-if="!m.media?.length && m.mediaCount"
                             class="text-[12px] opacity-80"
-                            >📎 {{ m.mediaCount }} media{{
-                                m.price ? ` · $${m.price}` : ''
-                            }}</span
+                            >📎 {{ m.mediaCount }} media</span
                         >
                         <span
                             v-else-if="!m.text && !m.media?.length"
@@ -403,6 +415,8 @@ function thumb(item: Record<string, unknown>): string | null {
                         </button>
                     </div>
                 </div>
+                <!-- price + paid/unpaid (PPV) or tip; renders nothing for free messages -->
+                <SsPayPill :message="m" />
                 <span
                     class="mt-1 flex items-center gap-1 px-1 text-[10px] text-ss-text-3"
                 >
@@ -427,7 +441,6 @@ function thumb(item: Record<string, unknown>): string | null {
                         </button>
                     </template>
                     <template v-else>· {{ fmtTime(m.time) }}</template>
-                    <span v-if="m.isTip" class="text-ss-tip">· tip</span>
                 </span>
             </div>
 

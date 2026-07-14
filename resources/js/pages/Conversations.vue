@@ -699,6 +699,7 @@ function applyToChatList(
         time: message.time ?? null,
         unread: isOpen ? 0 : 1,
         canSend: true,
+        totalSpent: null, // unknown from a live inbound; fills in on the next chat-list load
     });
 }
 
@@ -785,6 +786,7 @@ onBeforeUnmount(() => {
                 :has-more="!!msgsNext"
                 :loading-more="msgsLoadingMore"
                 :load-more-error="msgsMoreError"
+                :spend="fan?.totalSpent ?? null"
                 @like="onLike"
                 @delete="onDelete"
                 @resend="resend"

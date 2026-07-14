@@ -200,14 +200,66 @@ const drillList = computed<OfFanRow[]>(() => {
         .sort((a, b) => b.totalSpent - a.totalSpent);
 });
 
+/** Round to cents. */
+function r2(n: number): number {
+    return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100;
+}
+
+interface FanSplit {
+    fan: OfFanRow;
+    total: number;
+    ppv: number;
+    tips: number;
+    subs: number;
+    // "Other" (paid posts / streams) is the plug = total − ppv − tips − subs,
+    // derived from the already-rounded parts so the row reconciles to the total exactly.
+    other: number;
+}
+
+const drillRows = computed<FanSplit[]>(() =>
+    drillList.value.map((fan) => {
+        const total = r2(fan.totalSpent);
+        const ppv = r2(fan.ppv);
+        const tips = r2(fan.tips);
+        const subs = r2(fan.subs);
+
+        return { fan, total, ppv, tips, subs, other: r2(total - ppv - tips - subs) };
+    }),
+);
+const drillHasOther = computed(() =>
+    drillRows.value.some((r) => r.other !== 0),
+);
+const drillTotals = computed(() =>
+    drillRows.value.reduce(
+        (a, r) => ({
+            total: r2(a.total + r.total),
+            ppv: r2(a.ppv + r.ppv),
+            tips: r2(a.tips + r.tips),
+            subs: r2(a.subs + r.subs),
+            other: r2(a.other + r.other),
+        }),
+        { total: 0, ppv: 0, tips: 0, subs: 0, other: 0 },
+    ),
+);
+
 // ---- formatting ----
 const usd = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
 });
+const usd2 = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
 function money(n: number): string {
-    return usd.format(n);
+    return usd.format(Number.isFinite(n) ? n : 0);
+}
+/** Cents precision for the drill-down split so PPV+Tips+Subs+Other reconciles to Total. */
+function money2(n: number): string {
+    return usd2.format(Number.isFinite(n) ? n : 0);
 }
 /** Compact label for a threshold header: $200, $1k, $2.5k, $10k. */
 function bracketLabel(n: number): string {
@@ -435,29 +487,173 @@ function bracketLabel(n: number): string {
                                         ({{ drillList.length }})
                                     </div>
                                     <div
-                                        class="flex flex-wrap gap-x-6 gap-y-1"
+                                        class="overflow-x-auto rounded-lg border border-ss-border bg-ss-surface"
                                     >
-                                        <div
-                                            v-for="fan in drillList.slice(0, 50)"
-                                            :key="fan.id ?? fan.username ?? ''"
-                                            class="flex items-center gap-2 text-[12px]"
+                                        <table
+                                            class="w-full border-collapse text-[12px]"
                                         >
-                                            <span class="text-ss-text">{{
-                                                fan.name ||
-                                                fan.username ||
-                                                'Fan'
-                                            }}</span>
-                                            <span
-                                                class="font-ss-mono tabular-nums text-ss-pos"
-                                                >{{ money(fan.totalSpent) }}</span
+                                            <thead
+                                                class="text-left text-[10px] tracking-wide text-ss-text-3 uppercase"
                                             >
-                                        </div>
+                                                <tr>
+                                                    <th
+                                                        class="px-3 py-2 font-medium"
+                                                    >
+                                                        Fan
+                                                    </th>
+                                                    <th
+                                                        class="px-3 py-2 text-right font-medium"
+                                                    >
+                                                        Total
+                                                    </th>
+                                                    <th
+                                                        class="px-3 py-2 text-right font-medium"
+                                                    >
+                                                        PPV
+                                                    </th>
+                                                    <th
+                                                        class="px-3 py-2 text-right font-medium"
+                                                    >
+                                                        Tips
+                                                    </th>
+                                                    <th
+                                                        class="px-3 py-2 text-right font-medium"
+                                                    >
+                                                        Subs
+                                                    </th>
+                                                    <th
+                                                        v-if="drillHasOther"
+                                                        class="px-3 py-2 text-right font-medium"
+                                                    >
+                                                        Other
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr
+                                                    v-for="sr in drillRows.slice(
+                                                        0,
+                                                        50,
+                                                    )"
+                                                    :key="
+                                                        sr.fan.id ??
+                                                        sr.fan.username ??
+                                                        ''
+                                                    "
+                                                    class="border-t border-ss-border"
+                                                >
+                                                    <td class="px-3 py-2">
+                                                        <span
+                                                            class="text-ss-text"
+                                                            >{{
+                                                                sr.fan.name ||
+                                                                sr.fan
+                                                                    .username ||
+                                                                'Fan'
+                                                            }}</span
+                                                        >
+                                                        <span
+                                                            v-if="sr.fan.username"
+                                                            class="ml-1 text-ss-text-3"
+                                                            >@{{
+                                                                sr.fan.username
+                                                            }}</span
+                                                        >
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono font-semibold tabular-nums text-ss-pos"
+                                                    >
+                                                        {{ money2(sr.total) }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                    >
+                                                        {{ money2(sr.ppv) }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                    >
+                                                        {{ money2(sr.tips) }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                    >
+                                                        {{ money2(sr.subs) }}
+                                                    </td>
+                                                    <td
+                                                        v-if="drillHasOther"
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-3"
+                                                    >
+                                                        {{ money2(sr.other) }}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                            <tfoot>
+                                                <tr
+                                                    class="border-t-2 border-ss-border font-semibold text-ss-text"
+                                                >
+                                                    <td class="px-3 py-2">
+                                                        Cohort ({{
+                                                            drillList.length
+                                                        }})
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums"
+                                                    >
+                                                        {{
+                                                            money2(
+                                                                drillTotals.total,
+                                                            )
+                                                        }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums"
+                                                    >
+                                                        {{
+                                                            money2(
+                                                                drillTotals.ppv,
+                                                            )
+                                                        }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums"
+                                                    >
+                                                        {{
+                                                            money2(
+                                                                drillTotals.tips,
+                                                            )
+                                                        }}
+                                                    </td>
+                                                    <td
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums"
+                                                    >
+                                                        {{
+                                                            money2(
+                                                                drillTotals.subs,
+                                                            )
+                                                        }}
+                                                    </td>
+                                                    <td
+                                                        v-if="drillHasOther"
+                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums"
+                                                    >
+                                                        {{
+                                                            money2(
+                                                                drillTotals.other,
+                                                            )
+                                                        }}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
                                     </div>
                                     <p
                                         v-if="drillList.length > 50"
                                         class="mt-2 text-[11px] text-ss-text-3"
                                     >
-                                        + {{ drillList.length - 50 }} more
+                                        Showing top 50 of
+                                        {{ drillList.length }} — subtotal above
+                                        covers all.
                                     </p>
                                 </td>
                             </tr>
