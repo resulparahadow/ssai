@@ -5,7 +5,7 @@
  * MySQL on its side) and the engine returns the draft + strategy + telemetry +
  * captured DB writes — without any DOM or Supabase.
  */
-const { loadEngine, makeSbCapture } = require('./loadEngine');
+const { createEngine, makeSbCapture } = require('./loadEngine');
 const { makeRealCallApi, makeRealCallMistral } = require('./callModel');
 
 /**
@@ -21,7 +21,7 @@ const { makeRealCallApi, makeRealCallMistral } = require('./callModel');
  * @param {object} [opts] { callApi, callMistral } injected for tests
  */
 async function generateDraft(input, opts = {}) {
-    const { eng, document } = loadEngine();
+    const { eng, document } = createEngine();
     if (!input || !input.session || !input.model) throw new Error('generateDraft: input.session and input.model are required');
 
     const sid = String(input.session.id || 'engine-session');

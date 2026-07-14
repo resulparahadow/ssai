@@ -129,14 +129,14 @@ function buildSandbox() {
     return { sandbox, document };
 }
 
-let cached = null;
+// The legacy bundle is read from disk and compiled ONCE (the expensive part);
+// each engine instance then just runs that precompiled script into a fresh VM
+// context (cheap). This keeps per-request setup light while giving every
+// generation its own isolated globals — see createEngine().
+let compiledScript = null;
 
-/** Load (once) and return the engine bridge. */
-function loadEngine() {
-    if (cached) return cached;
-
-    const { sandbox, document } = buildSandbox();
-    vm.createContext(sandbox);
+function compileBundle() {
+    if (compiledScript) return compiledScript;
 
     let source = '';
     for (const f of FILES) {
@@ -153,13 +153,41 @@ globalThis.__SSAI_ENGINE = {
 };
 `;
 
-    vm.runInContext(source, sandbox, { filename: 'ssai-legacy-bundle.js' });
+    compiledScript = new vm.Script(source, { filename: 'ssai-legacy-bundle.js' });
+    return compiledScript;
+}
+
+/**
+ * Build a FRESH, isolated engine instance: its own VM context with its own copy
+ * of every legacy global (models / sessions / activeId / callApi / the DOM
+ * stubs). Concurrent generations each call this, so one run can never clobber
+ * another's state mid-flight. The compiled bundle is shared and reused, so this
+ * only pays the (small) cost of running the top-level legacy code into a new
+ * context — no disk re-read, no re-compile.
+ */
+function createEngine() {
+    const script = compileBundle();
+    const { sandbox, document } = buildSandbox();
+    vm.createContext(sandbox);
+    script.runInContext(sandbox);
 
     const eng = sandbox.__SSAI_ENGINE;
     if (!eng) throw new Error('Engine bridge failed to initialize (top-level throw before epilogue).');
 
-    cached = { eng, sandbox, document, makeSbCapture };
+    return { eng, sandbox, document, makeSbCapture };
+}
+
+let cached = null;
+
+/**
+ * Cached, shared engine instance for READ-ONLY use (health/doctrine probes,
+ * parity checks, boot warmup). Do NOT use this for generate() — mutating its
+ * globals is not concurrency-safe. Generations must use createEngine().
+ */
+function loadEngine() {
+    if (cached) return cached;
+    cached = createEngine();
     return cached;
 }
 
-module.exports = { loadEngine, makeSbCapture };
+module.exports = { loadEngine, createEngine, makeSbCapture };

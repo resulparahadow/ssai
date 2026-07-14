@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -68,6 +69,68 @@ class ModelOnlyFansController extends Controller
             'hasMore' => (bool) data_get($j, 'data.hasMore', false),
             'next' => $this->of->nextCursor($j['_pagination'] ?? null),
         ]);
+    }
+
+    /**
+     * All-time spenders for the agency Spender-Brackets page: pages `fans/all` filtered
+     * to `filter[total_spent] >= floor` (so only the whales are pulled) and returns the
+     * full list for client-side bucketing. Cached briefly per (account, floor) as a cost
+     * guard; `?fresh=1` (the Refresh button) bypasses the cache.
+     */
+    public function spenders(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($model);
+        $data = $this->validateJson($request, ['floor' => 'nullable|numeric|min:0']);
+        $floor = (int) ($data['floor'] ?? 200);
+
+        $key = "of_spenders:{$acct}:{$floor}";
+        if ($request->boolean('fresh')) {
+            Cache::forget($key);
+        }
+        if (($cached = Cache::get($key)) !== null) {
+            return response()->json($cached);
+        }
+
+        $spenders = [];
+        $offset = 0;
+        $pages = 0;
+        $maxPages = 200;
+        $truncated = false;
+
+        do {
+            $res = $this->of->listFans($acct, 'all', [
+                'filter' => ['total_spent' => $floor],
+                'limit' => 20,
+                'offset' => $offset,
+            ]);
+            if (! $res->successful()) {
+                return $this->forward($res);
+            }
+
+            $j = $res->json();
+            $rows = data_get($j, 'data.list') ?? data_get($j, 'data.users') ?? [];
+            foreach ($rows as $f) {
+                $spenders[] = $this->of->normalizeFan($f);
+            }
+
+            $hasMore = (bool) data_get($j, 'data.hasMore', false);
+            $offset += 20;
+            $pages++;
+            if ($pages >= $maxPages && $hasMore) {
+                $truncated = true;
+                break;
+            }
+        } while ($hasMore);
+
+        $payload = [
+            'spenders' => $spenders,
+            'floor' => $floor,
+            'count' => count($spenders),
+            'truncated' => $truncated,
+        ];
+        Cache::put($key, $payload, 300);
+
+        return response()->json($payload);
     }
 
     public function fanHistory(AichModel $model, string $fan): JsonResponse

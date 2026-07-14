@@ -27,9 +27,9 @@ const rawSrc = computed(
 );
 const src = computed(() => (rawSrc.value ? proxy(rawSrc.value) : null));
 const isVideo = computed(() => current.value?.type === 'video');
-const isPlayable = computed(() => isVideo.value && !!current.value?.full);
+const isPlayable = computed(() => isVideo.value && !!current.value?.source);
 const videoSrc = computed(() =>
-    current.value?.full ? proxy(current.value.full) : null,
+    current.value?.source ? proxy(current.value.source) : null,
 );
 
 function go(delta: number) {
@@ -120,9 +120,12 @@ onBeforeUnmount(() => {
                         :src="src"
                         class="max-h-[85vh] max-w-[92vw] rounded-lg object-contain"
                     />
-                    <p v-if="isVideo" class="text-[12px] text-white/60">
-                        Video preview · full playback isn't available
-                        (protected)
+                    <p
+                        v-if="isVideo"
+                        class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[12px] text-white/70"
+                    >
+                        <Lock :size="12" />
+                        DRM-protected video — can't be played here
                     </p>
                 </template>
                 <div

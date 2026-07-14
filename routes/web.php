@@ -9,6 +9,7 @@ use App\Http\Controllers\GenerationController;
 use App\Http\Controllers\ModelController;
 use App\Http\Controllers\ModelOnlyFansController;
 use App\Http\Controllers\OnlyFansChatController;
+use App\Http\Controllers\SpenderAnalyticsController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\Webhooks\OnlyFansWebhookController;
 use App\Models\AichSession;
@@ -53,6 +54,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('can:manage-team')->group(function () {
         // Agency-wide OnlyFans Analytics dashboard (live proxy; nothing persisted).
         Route::get('analytics/overview', [AnalyticsController::class, 'page'])->name('analytics.overview');
+        // Agency-wide spender-brackets page (live proxy; per-creator data fetched client-side).
+        Route::get('analytics/spenders', SpenderAnalyticsController::class)->name('analytics.spenders');
         Route::prefix('analytics/of')->name('analytics.of.')->group(function () {
             Route::post('earnings', [AnalyticsController::class, 'earnings'])->name('earnings');
             Route::post('historical', [AnalyticsController::class, 'historical'])->name('historical');
@@ -75,6 +78,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::prefix('models/{model}/of')->name('models.of.')->group(function () {
             Route::get('status', [ModelOnlyFansController::class, 'status'])->name('status');
             Route::get('fans', [ModelOnlyFansController::class, 'fans'])->name('fans');
+            Route::get('spenders', [ModelOnlyFansController::class, 'spenders'])->name('spenders');
             Route::get('fans/{fan}/history', [ModelOnlyFansController::class, 'fanHistory'])->name('fan-history');
             Route::get('fans/{fan}/summary', [ModelOnlyFansController::class, 'fanSummary'])->name('fan-summary');
             Route::post('fans/{fan}/summary', [ModelOnlyFansController::class, 'generateFanSummary'])->name('fan-summary.generate');

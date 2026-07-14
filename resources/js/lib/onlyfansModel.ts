@@ -64,6 +64,15 @@ export const ofModel = {
             next: Record<string, string> | null;
         }>('GET', `${base(m)}/fans?${q}`);
     },
+    /** All-time spenders (fans with lifetime spend >= floor) for the Spender-Brackets
+     *  page. Bucketing happens client-side; `fresh` bypasses the short server cache. */
+    spenders: (m: number, floor: number, fresh = false) =>
+        reqJson<{
+            spenders: OfFanRow[];
+            floor: number;
+            count: number;
+            truncated: boolean;
+        }>('GET', `${base(m)}/spenders?${qs({ floor, fresh: fresh ? 1 : undefined })}`),
     fanHistory: (m: number, fanId: string) =>
         reqJson<{ history: OfSubscriptionRecord[] }>(
             'GET',

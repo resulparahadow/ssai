@@ -30,6 +30,7 @@ createInertiaApp({
             case name === 'Dashboard':
             case name === 'Analytics':
             case name === 'AiUsage':
+            case name === 'Spenders':
             case name === 'Conversations':
             case name === 'Models':
             case name === 'ModelShow':

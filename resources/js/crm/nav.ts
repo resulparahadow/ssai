@@ -102,6 +102,11 @@ export const NAV: NavNode[] = [
             },
             { key: 'an-chatting', label: 'Chatting performance' },
             { key: 'an-ai', label: 'AI usage', href: '/analytics/ai-usage' },
+            {
+                key: 'an-spenders',
+                label: 'Spender brackets',
+                href: '/analytics/spenders',
+            },
             { key: 'an-qa', label: 'Conversation QA' },
             { key: 'an-content', label: 'Content performance' },
             { key: 'an-pl', label: 'Creator P&L' },

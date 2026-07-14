@@ -175,6 +175,7 @@ async function send(override?: string) {
                   thumb: gif.preview,
                   preview: gif.preview,
                   full: gif.url,
+                  source: null,
                   duration: null,
                   width: gif.width || null,
                   height: gif.height || null,
@@ -322,25 +323,53 @@ async function loadChats() {
     chatsError.value = null;
 
     try {
-        const r = await ofApi.chats(m.id);
-        const list = r.chats as OfChat[];
-
+        // OnlyFans returns chats one page at a time (default 10, max 100). Follow the
+        // offset cursor (`next`) until it runs out so the list shows EVERY chat, not
+        // just the first page. Pages accumulate (deduped by id) and render
+        // progressively; the page cap is a runaway-loop guard (200 × 100 = 20k chats).
+        const list: OfChat[] = [];
+        const seen = new Set<string>();
         // The currently-open chat has been seen — keep its badge cleared even if the
         // server still reports it unread, so a background revalidation can't flash it back.
         const openId = selected.value?.id;
+        let cursor: Record<string, string> | null = { limit: '100' };
 
-        if (openId) {
-            const open = list.find((c) => c.id === openId);
+        for (let page = 0; cursor && page < 200; page++) {
+            const r = await ofApi.chats(m.id, cursor);
 
-            if (open) {
-                open.unread = 0;
+            // Bail out if the user switched creators mid-load (finally still resets state).
+            if (model.value?.id !== m.id) {
+                return;
+            }
+
+            for (const chat of r.chats as OfChat[]) {
+                if (seen.has(chat.id)) {
+                    continue;
+                }
+
+                seen.add(chat.id);
+
+                if (openId && chat.id === openId) {
+                    chat.unread = 0;
+                }
+
+                list.push(chat);
+            }
+
+            cursor = r.next;
+
+            // Render what we have so far, but never shrink a larger cached list mid-load.
+            if (list.length >= chats.value.length) {
+                chats.value = [...list];
             }
         }
 
+        // Cache and display share ONE array reference so the realtime inbound handler's
+        // in-place list mutations keep the cache in sync (see onInbound).
         chatsCache.set(m.id, list);
 
         if (model.value?.id === m.id) {
-            chats.value = list; // ignore if the user already switched creators
+            chats.value = list;
         }
     } catch (e) {
         if (model.value?.id === m.id) {
@@ -363,7 +392,7 @@ const MSG_PAGE = '100';
 /**
  * Merge a freshly-fetched newest page into the already-loaded thread. The server page is
  * authoritative for its own window (so likes/edits/remote deletes within it reflect), while
- * anything OLDER than the window — history previously pulled via "Load older messages" — is
+ * anything OLDER than the window — history pulled by scrolling toward the top — is
  * kept, as are unconfirmed optimistic bubbles (which are newer than the window). Without this
  * a background revalidate would shrink the thread back to the newest page and drop the
  * history the user just loaded.

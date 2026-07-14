@@ -63,13 +63,19 @@ function clearSearch() {
 
 const shown = computed(() => searchResults.value ?? props.messages);
 
-// Open/refresh at the newest message (bottom), like any chat app — except right after the
-// user clicks "Load older messages", where we hold the viewport steady on what they were
-// reading. `prependAnchor` records the distance from the bottom at click time (set just
-// before we emit); since prepending only adds height above the viewport, restoring that
-// same distance keeps the previously-visible messages in place.
+// Open/refresh at the newest message (bottom), like any chat app — except while paginating
+// older history (scroll-to-top auto-load), where we hold the viewport steady on what the
+// user was reading. `prependAnchor` records the distance from the bottom just before we
+// emit; since prepending only adds height above the viewport, restoring that same distance
+// keeps the previously-visible messages in place.
 const threadEl = ref<HTMLElement | null>(null);
 const prependAnchor = ref<number | null>(null);
+
+// Distance from the top (px) at which we start pulling the next older page.
+const LOAD_OLDER_THRESHOLD = 140;
+// After older messages prepend, land this far ABOVE the exact-preserve point so a slice of
+// the just-loaded messages peeks into view (confirms the load instead of sitting still).
+const REVEAL_ON_LOAD = 80;
 
 function scrollToBottom() {
     const el = threadEl.value;
@@ -79,10 +85,40 @@ function scrollToBottom() {
     }
 }
 
-function onLoadMore() {
+// Anchor the current view and ask the parent for the next older page. Also the manual retry
+// target, so it deliberately ignores loadMoreError — the auto path below gates on it.
+function requestOlder() {
     const el = threadEl.value;
-    prependAnchor.value = el ? el.scrollHeight - el.scrollTop : null;
+
+    if (
+        !el ||
+        !props.hasMore ||
+        props.loadingMore ||
+        props.loading ||
+        !props.messages.length || // never paginate before the first page exists
+        searchResults.value
+    ) {
+        return;
+    }
+
+    prependAnchor.value = el.scrollHeight - el.scrollTop;
     emit('loadMore');
+}
+
+// Auto-load older history when the user scrolls near the top. Deliberately NOT triggered by
+// an unscrollable/short thread — with 100-message pages that just means there's no real older
+// history, and firing there produced a wasteful second "loading" right after the first page.
+// Never auto-retries after an error — the user does that via the Retry button.
+function maybeAutoLoad() {
+    const el = threadEl.value;
+
+    if (!el || props.loadMoreError) {
+        return;
+    }
+
+    if (el.scrollTop <= LOAD_OLDER_THRESHOLD) {
+        requestOlder();
+    }
 }
 
 watch(
@@ -92,13 +128,16 @@ watch(
         const anchor = prependAnchor.value;
         prependAnchor.value = null; // consume on any change so it can't go stale
 
-        // This change came from a "Load older" click → hold the from-bottom anchor. This
+        // This change came from an older-history load → hold the from-bottom anchor. This
         // must apply even when the page added nothing (end of history): scrollHeight is
         // unchanged, so restoring the anchor keeps the exact position instead of jumping
         // to the newest message.
         if (anchor != null && el) {
             nextTick(() => {
-                el.scrollTop = el.scrollHeight - anchor;
+                // Land slightly ABOVE the exact-preserve point so a slice of the just-loaded
+                // older messages shows; clamp so we never scroll past the very top.
+                el.scrollTop = Math.max(0, el.scrollHeight - anchor - REVEAL_ON_LOAD);
+                maybeAutoLoad(); // a short page can still leave us near the top — keep going
             });
 
             return;
@@ -108,7 +147,7 @@ watch(
     },
 );
 
-// If a "Load older" fetch ends without changing the thread (a network error — the messages
+// If an older-history fetch ends without changing the thread (a network error — the messages
 // watcher above never fires to consume the anchor), drop the stale anchor so the next real
 // update (e.g. a live inbound) still scrolls to the newest message as usual.
 watch(
@@ -247,25 +286,35 @@ function thumb(item: Record<string, unknown>): string | null {
         <div
             ref="threadEl"
             class="flex-1 scrollbar-gutter-stable space-y-3 overflow-y-auto p-4"
+            @scroll.passive="maybeAutoLoad"
         >
-            <!-- Older-history pagination: only when there's a next page and we're not showing search results -->
-            <div v-if="hasMore && !searchResults" class="flex flex-col items-center gap-1 pb-1">
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-ss-border bg-ss-surface-2 px-3 py-1 text-[12px] font-medium text-ss-text-2 transition-colors hover:text-ss-text disabled:cursor-default disabled:opacity-60"
-                    :disabled="loadingMore"
-                    @click="onLoadMore"
+            <!-- Older-history status: a zero-height sticky overlay so it floats over the top
+                 of the thread WITHOUT shifting the messages. Scroll-driven (auto-loads as the
+                 user nears the top); shown only once a first page exists. -->
+            <div
+                v-if="!searchResults && shown.length && (loadingMore || loadMoreError)"
+                class="pointer-events-none sticky top-2 z-10 flex h-0 justify-center overflow-visible"
+            >
+                <span
+                    v-if="loadingMore"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-ss-border bg-ss-surface-2 px-4 py-1.5 text-[12px] text-ss-text-2 shadow-sm"
                 >
-                    <LoaderCircle
-                        v-if="loadingMore"
-                        :size="12"
-                        class="animate-spin"
-                    />
-                    {{ loadingMore ? 'Loading…' : 'Load older messages' }}
-                </button>
-                <span v-if="loadMoreError" class="text-[11px] text-ss-neg">{{
-                    loadMoreError
-                }}</span>
+                    <LoaderCircle :size="12" class="animate-spin" />
+                    Loading older messages…
+                </span>
+                <span
+                    v-else
+                    class="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-ss-border bg-ss-surface-2 px-4 py-1.5 text-[11px] shadow-sm"
+                >
+                    <span class="text-ss-neg">{{ loadMoreError }}</span>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 font-medium text-ss-text-2 transition-colors hover:text-ss-text"
+                        @click="requestOlder"
+                    >
+                        <RefreshCw :size="11" /> Retry
+                    </button>
+                </span>
             </div>
             <p
                 v-if="searchResults"

@@ -3,6 +3,7 @@ import {
     DollarSign,
     Image,
     ImagePlay,
+    LoaderCircle,
     Lock,
     Mic,
     Paperclip,
@@ -43,6 +44,18 @@ const PREVIEW_META: Record<OfPreviewKind, { icon: Component; label: string }> =
 function previewMeta(kind: OfPreviewKind) {
     return PREVIEW_META[kind] ?? PREVIEW_META.media;
 }
+
+// Placeholder bar widths for the cold-load skeleton — varied so the shimmer reads
+// like real conversation rows rather than a uniform grid.
+const SKELETON_ROWS = [
+    { name: 'w-24', line: 'w-40' },
+    { name: 'w-20', line: 'w-32' },
+    { name: 'w-28', line: 'w-44' },
+    { name: 'w-16', line: 'w-28' },
+    { name: 'w-24', line: 'w-36' },
+    { name: 'w-20', line: 'w-44' },
+    { name: 'w-28', line: 'w-32' },
+] as const;
 
 const filtered = computed(() => {
     const q = search.value.toLowerCase().trim();
@@ -155,12 +168,32 @@ const filtered = computed(() => {
                 </span>
             </button>
 
-            <p
-                v-if="loading && !filtered.length"
-                class="px-2 py-6 text-center text-[13px] text-ss-text-3"
+            <!-- Cold load (no chats yet): shimmer skeleton rows that mirror the real
+                 row layout, so the panel never sits empty or jumps as data arrives. -->
+            <div
+                v-if="loading && !chats.length"
+                class="animate-pulse space-y-1"
+                role="status"
+                aria-label="Loading conversations"
             >
-                Loading chats…
-            </p>
+                <div
+                    v-for="(row, i) in SKELETON_ROWS"
+                    :key="i"
+                    class="flex items-start gap-2.5 rounded-lg p-2"
+                >
+                    <span class="h-9 w-9 shrink-0 rounded-lg bg-ss-surface-2" />
+                    <span class="min-w-0 flex-1 space-y-2 pt-1.5">
+                        <span
+                            class="block h-3 rounded bg-ss-surface-2"
+                            :class="row.name"
+                        />
+                        <span
+                            class="block h-2.5 rounded bg-ss-surface-2"
+                            :class="row.line"
+                        />
+                    </span>
+                </div>
+            </div>
             <p
                 v-else-if="error"
                 class="px-2 py-6 text-center text-[12px] text-ss-neg"
@@ -173,6 +206,17 @@ const filtered = computed(() => {
             >
                 No conversations.
             </p>
+
+            <!-- Revalidating / paginating with rows already shown: a subtle footer
+                 so it's clear more conversations are still streaming in. -->
+            <div
+                v-if="loading && chats.length"
+                class="flex items-center justify-center gap-2 px-2 py-3 text-[12px] text-ss-text-3"
+                role="status"
+            >
+                <LoaderCircle :size="13" class="animate-spin" />
+                Loading more…
+            </div>
         </div>
     </aside>
 </template>

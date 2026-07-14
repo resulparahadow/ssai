@@ -91,7 +91,8 @@ export interface OfMedia {
     canView: boolean; // false = locked / pay-to-view
     thumb: string | null;
     preview: string | null; // poster for video; medium preview for photo
-    full: string | null; // null for DRM video (no plain url)
+    full: string | null; // full-res image; null for DRM/locked video
+    source: string | null; // playable MP4 (highest videoSources res); null = DRM/locked video
     duration: number | null; // seconds, video
     width: number | null;
     height: number | null;

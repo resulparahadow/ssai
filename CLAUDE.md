@@ -117,7 +117,17 @@ engine uses its in-process copy. Provider keys live in the engine's env
 (`ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`), never the browser.
 
 - **Do NOT edit `legacy/js/*` to change behavior** — the engine's whole point is byte-identical parity. Enhancements go in `engine/` wrappers or the (future) PHP port.
-- Parity guards: `node engine/parity.js`, `node engine/smoke.js`, `node legacy/tests/harness.js` (283/0).
+- **Concurrent generations are isolated per request.** The legacy JS keeps all state in
+  shared globals (`sessions`/`activeId`/`callApi`), so a single shared VM context would let
+  overlapping generations clobber each other mid-await (one chat's run stealing another's
+  session/transport). `loadEngine.js` compiles the legacy bundle **once** into a reusable
+  `vm.Script`, and `createEngine()` runs it into a **fresh VM context per generate** (~1.5ms
+  setup, no disk re-read) — `runGenerate.js` uses it, so N chats generate in parallel safely.
+  `loadEngine()` is now a cached **read-only** singleton (health/doctrine/parity/warmup only —
+  never generation). NB: end-to-end parallelism also needs a concurrent PHP frontend — Docker
+  (php-fpm) and prod deliver it; `composer run dev` (`php artisan serve`) is single-threaded so
+  it still serializes at the PHP layer regardless of the engine.
+- Parity guards: `node engine/parity.js`, `node engine/smoke.js`, `node engine/concurrency_check.js`, `node legacy/tests/harness.js` (283/0).
 - The `AnthropicService`/`MistralService` PHP stubs still THROW — a future PHP port
   (intended foundation: the first-party **Laravel AI SDK**) can replace the sidecar.
 
@@ -162,10 +172,23 @@ engine uses its in-process copy. Provider keys live in the engine's env
     the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
     PPV/tip + file-media sends remain deferred.
     **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
-    (`normalizeMedia`: type/canView/thumb/preview/full/duration/dims) instead of only `mediaCount`;
-    `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ + duration,
-    locked/PPV = 🔒 + price) and `SsMediaLightbox` is the full-screen viewer (prev/next + arrow/Esc).
-    DRM video has no plain url, so videos show the poster only (no inline streaming). **CDN urls are
+    (`normalizeMedia`: type/canView/thumb/preview/full/`source`/duration/dims) instead of only
+    `mediaCount`; `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ +
+    duration, locked/PPV = 🔒 + price) and `SsMediaLightbox` is the full-screen viewer (prev/next +
+    arrow/Esc) that plays a video from its `source`. **Video playback is DRM-gated (vendor-confirmed
+    2026-07-13):** `bestVideoSource` resolves a playable MP4 from `videoSources` (highest res) or
+    `files.full.url`, so **non-DRM videos play inline**. But creators with OnlyFans "DRM Protection"
+    ON (`GET {acct}/settings/drm` → `enabled`) serve videos as encrypted FairPlay(HLS)/Widevine(DASH)
+    ONLY — `files.full.url` + `videoSources` are null, leaving just `files.drm.manifest`+`signature`
+    (CloudFront, IP-locked). `source` is then null and the lightbox shows the poster + a "🔒
+    DRM-protected video — can't be played here" note. **Playing/decrypting DRM videos is NOT possible
+    via OnlyFansAPI** and should NOT be re-investigated: OnlyFansAPI support confirmed there is no
+    decrypted-MP4 export and no DRM license/key endpoint. Verified: `media/scrape file_type=full` →
+    400, Get-Vault-Media returns the same locked object, and the signed `.m3u8` DOES fetch through the
+    download proxy (append the `drm.signature` `Policy`/`Signature`/`Key-Pair-Id` + `Tag=2`) but the
+    media playlist is `#EXT-X-KEY:METHOD=SAMPLE-AES,KEYFORMAT="com.apple.streamingkeydelivery"`
+    (FairPlay) — undecryptable client-side. Only forward paths: the creator disables DRM (affects
+    FUTURE uploads only, `PATCH {acct}/settings/drm`) or the API vendor adds a decrypt feature. **CDN urls are
     IP-locked** (`cdn*.onlyfans.com` is bound to the proxy IP → 403/`ERR_BLOCKED_BY_ORB` in the
     browser), so every media src loads through `GET /onlyfans/{model}/media?url=<cdn>`
     (`OnlyFansChatController::mediaFile` → `OnlyFansService::downloadMedia`, the API's

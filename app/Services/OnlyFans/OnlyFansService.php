@@ -580,6 +580,7 @@ class OnlyFansService
             'thumb' => "https://media.giphy.com/media/{$giphyId}/200w.gif",
             'preview' => "https://media.giphy.com/media/{$giphyId}/200w.gif",
             'full' => "https://media.giphy.com/media/{$giphyId}/giphy.gif",
+            'source' => null,
             'duration' => null,
             'width' => null,
             'height' => null,
@@ -589,8 +590,9 @@ class OnlyFansService
 
     /**
      * Pull a compact, frontend-ready media list out of a raw OnlyFans message. Keeps just the
-     * signed thumbnail/preview/full CloudFront URLs + display metadata; DRM video has no plain
-     * `full` url (only a poster), and locked/PPV media reports `canView=false`.
+     * signed thumbnail/preview/full CloudFront URLs + display metadata; `preview`/`thumb` is the
+     * poster for a video, `source` is its playable MP4 (from `videoSources`), and locked/PPV or
+     * DRM media has no `source` (only a poster) with `canView=false` for locked items.
      *
      * @return list<array<string, mixed>>
      */
@@ -611,11 +613,57 @@ class OnlyFansService
                 'thumb' => data_get($files, 'thumb.url'),
                 'preview' => data_get($files, 'preview.url') ?? data_get($files, 'squarePreview.url'),
                 'full' => data_get($files, 'full.url'),
+                'source' => $this->bestVideoSource($m),
                 'duration' => isset($m['duration']) ? (int) $m['duration'] : null,
                 'width' => data_get($files, 'full.width') ?? data_get($files, 'preview.width'),
                 'height' => data_get($files, 'full.height') ?? data_get($files, 'preview.height'),
             ];
         })->values()->all();
+    }
+
+    /**
+     * Pick the playable MP4 URL for a video media item. OnlyFans returns direct video links in
+     * `videoSources`, keyed by vertical resolution ("240", "720", …); we take the highest-res
+     * non-null one. Non-DRM videos carry these; DRM-protected videos expose only a `files.drm`
+     * HLS/DASH manifest (unplayable in a plain <video>) and return null here — the frontend then
+     * shows just the poster. The url is still IP-locked CDN, so it loads through the media proxy.
+     *
+     * @param  array<string, mixed>  $m
+     */
+    private function bestVideoSource(array $m): ?string
+    {
+        if (($m['type'] ?? null) !== 'video') {
+            return null;
+        }
+
+        // Prefer the highest-resolution direct MP4 from `videoSources`.
+        $sources = $m['videoSources'] ?? null;
+        if (is_array($sources)) {
+            $best = null;
+            $bestRes = -1;
+
+            foreach ($sources as $res => $url) {
+                if (! is_string($url) || $url === '') {
+                    continue;
+                }
+
+                $r = (int) $res;
+                if ($r >= $bestRes) {
+                    $bestRes = $r;
+                    $best = $url;
+                }
+            }
+
+            if ($best !== null) {
+                return $best;
+            }
+        }
+
+        // Fallback: a non-DRM video may expose the MP4 directly as `files.full.url`.
+        // (DRM-protected videos leave this null — only a `files.drm` manifest exists.)
+        $full = data_get($m, 'files.full.url');
+
+        return is_string($full) && $full !== '' ? $full : null;
     }
 
     /**
