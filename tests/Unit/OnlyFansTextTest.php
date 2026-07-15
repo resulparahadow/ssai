@@ -96,3 +96,36 @@ it('escapes before converting markers, so typed tags cannot inject', function ()
     expect(textService()->textToOfHtml('**<script>alert(1)</script>**'))
         ->toBe('<strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong>');
 });
+
+it('drops script tags AND their contents', function () {
+    // "Blocked" would keep the text and leak alert(1) as visible text — must be DROPPED.
+    expect(textService()->safeHtml('<p>hi</p><script>alert(1)</script>'))->toBe('<p>hi</p>');
+});
+
+it('drops elements outside the allowlist', function () {
+    expect(textService()->safeHtml('<img src=x onerror="alert(1)">'))->toBe('');
+    expect(textService()->safeHtml('<iframe src="https://evil.test"></iframe>'))->toBe('');
+});
+
+it('drops javascript: hrefs but keeps the link text', function () {
+    expect(textService()->safeHtml('<a href="javascript:alert(1)">click</a>'))
+        ->not->toContain('javascript:')
+        ->and(textService()->safeHtml('<a href="javascript:alert(1)">click</a>'))->toContain('click');
+});
+
+it('keeps the allowlisted formatting tags', function () {
+    expect(textService()->safeHtml('<p>a <strong>b</strong> <em>c</em><br />d</p>'))
+        ->toBe('<p>a <strong>b</strong> <em>c</em><br />d</p>');
+});
+
+it('hardens allowed anchors', function () {
+    $out = textService()->safeHtml('<a href="https://x.com/a">x</a>');
+    expect($out)->toContain('href="https://x.com/a"')
+        ->and($out)->toContain('rel="noopener noreferrer nofollow"')
+        ->and($out)->toContain('target="_blank"');
+});
+
+it('returns an empty string for null and empty html', function () {
+    expect(textService()->safeHtml(null))->toBe('');
+    expect(textService()->safeHtml(''))->toBe('');
+});

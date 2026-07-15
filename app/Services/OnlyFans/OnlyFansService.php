@@ -11,6 +11,8 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 
 /**
  * Server-side OnlyFans API client (onlyfansapi.com). Holds the API key in config
@@ -24,6 +26,8 @@ use RuntimeException;
  */
 class OnlyFansService
 {
+    protected ?HtmlSanitizer $sanitizer = null;
+
     public function __construct(
         protected ?string $apiKey = null,
         protected ?string $baseUrl = null,
@@ -735,6 +739,9 @@ class OnlyFansService
             'id' => isset($raw['id']) ? (string) $raw['id'] : null,
             'from' => $fromId === (string) $chatId ? 'fan' : 'creator',
             'text' => $this->htmlToText((string) ($raw['text'] ?? '')),
+            // Sanitized for rendering (v-html). `text` stays the plain field used by
+            // search, previews, and the AI transcript.
+            'html' => $this->safeHtml((string) ($raw['text'] ?? '')),
             'time' => $raw['createdAt'] ?? null,
             'price' => (float) ($raw['price'] ?? 0),
             'isFree' => (bool) ($raw['isFree'] ?? true),
@@ -1246,6 +1253,42 @@ class OnlyFansService
     public function htmlToPreview(?string $html): string
     {
         return trim((string) preg_replace('/\s+/', ' ', $this->htmlToText($html)));
+    }
+
+    /**
+     * Sanitize OnlyFans-supplied (i.e. FAN-CONTROLLED) message HTML for rendering.
+     *
+     * The browser renders this with v-html, so the allowlist is the only thing between
+     * a fan's message and script execution. Built once and reused — the config walk is
+     * not free. Kept container-free so the unit tests stay app-free.
+     */
+    public function safeHtml(?string $html): string
+    {
+        if ($html === null || $html === '') {
+            return '';
+        }
+
+        $this->sanitizer ??= new HtmlSanitizer(
+            (new HtmlSanitizerConfig)
+                ->allowElement('p')
+                ->allowElement('br')
+                ->allowElement('strong')
+                ->allowElement('b')
+                ->allowElement('em')
+                ->allowElement('i')
+                ->allowElement('u')
+                ->allowElement('span')
+                ->allowElement('a', ['href'])
+                ->allowLinkSchemes(['http', 'https'])
+                ->forceAttribute('a', 'target', '_blank')
+                ->forceAttribute('a', 'rel', 'noopener noreferrer nofollow')
+                // Dropped, not blocked: blocking keeps the text content, which would
+                // leak "alert(1)" into the bubble as visible text.
+                ->dropElement('script')
+                ->dropElement('style')
+        );
+
+        return trim($this->sanitizer->sanitize($html));
     }
 
     /**
