@@ -79,13 +79,17 @@ The chat list carries `canSendMessage` + `canNotSendReason`. Two chats on this
 account are `false` / `"muted"`, and sending to one returns
 `400 {"error":{"code":0,"message":"Cannot send message to this user"}}`.
 
-### 4. Known-unverified: rendering
+### 4. Rendering — VERIFIED 2026-07-15 (bold/italic render)
 
-Storage of `<strong>` is **verified**; **rendering is not**. OnlyFans could still drop
-unknown tags behind a render-time allowlist. Given `<p>`/`<a>`/`<span>` demonstrably
-render, `<strong>` almost certainly does — but it is an inference, and the
-implementation plan MUST include a human visual check (§Risks) before bold/italic is
-considered done.
+**Resolved. This section previously read "known-unverified".** A message serialized by the
+real `textToOfHtml()` (`testing please ignore **bold** and __ital__` → `testing please
+ignore <strong>bold</strong> and <em>ital</em>`) was sent live to chat `171114800`, stored
+byte-identically, and **inspected by a human in the OnlyFans app: "bold" displayed bold and
+"ital" displayed italic.** The probe message was then deleted (200).
+
+OnlyFans therefore renders `<strong>`/`<em>` in DMs. The B/I toolbar, the marker conversion,
+and the `strong/b/em/i` entries in the `safeHtml` allowlist are all confirmed load-bearing —
+none of them are speculative.
 
 > A cautionary note for the implementer: during design, two `400`s were briefly
 > misread as "OnlyFans rejects `<strong>`". They were the *muted recipient*. Check
@@ -236,7 +240,7 @@ Pest, unit-level on the pure functions (no HTTP needed):
 
 | Risk | Mitigation |
 |---|---|
-| **Bold/italic rendering unverified** (storage verified, rendering inferred) | Implementation plan includes a human visual check: send one `**bold**` message to a nominated chat, look at it in the real OnlyFans app, then delete. If OnlyFans renders it literally, drop the B/I toolbar — the rest of the spec is unaffected. |
+| ~~Bold/italic rendering unverified~~ — **RETIRED 2026-07-15** | Resolved by the live check (§Live validation 4): a human confirmed bold/italic render in the OnlyFans app. No longer a risk. |
 | Escaping changes what every send posts | Blast radius reduced by `ENT_NOQUOTES` (only `<`, `>`, `&`). Bare `&` and `&amp;` both render as `&`; escaping `<` **fixes** the `I <3 you` bug rather than causing one. |
 | `symfony/html-sanitizer` is a new dep | Well-maintained first-party Symfony component; the alternative (hand-rolled sanitizer for fan-controlled input) is worse. |
 | Enter-to-send retrains existing chatters | Deliberate, chosen over a preference toggle. Shift+Enter is the standard escape hatch. |
