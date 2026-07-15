@@ -553,7 +553,7 @@ class OnlyFansService
             'username' => $fan['username'] ?? null,
             'avatar' => $fan['avatar'] ?? null,
             'initials' => $this->initials($name),
-            'preview' => $this->htmlToText((string) ($lastMessage['text'] ?? '')),
+            'preview' => $this->htmlToPreview((string) ($lastMessage['text'] ?? '')),
             'previewKind' => $this->lastMessageKind($lastMessage),
             'time' => $lastMessage['createdAt'] ?? null,
             'unread' => (int) ($chat['unreadMessagesCount'] ?? 0),
@@ -573,7 +573,7 @@ class OnlyFansService
      */
     public function lastMessageKind(array $lastMessage): ?string
     {
-        if ($lastMessage === [] || $this->htmlToText((string) ($lastMessage['text'] ?? '')) !== '') {
+        if ($lastMessage === [] || $this->htmlToPreview((string) ($lastMessage['text'] ?? '')) !== '') {
             return null;
         }
 
@@ -1092,15 +1092,38 @@ class OnlyFansService
         return AichModel::query()->where('of_account_id', $account)->value('name');
     }
 
+    /**
+     * Flatten OnlyFans message HTML to plain text, PRESERVING line breaks.
+     *
+     * OnlyFans stores DM text as HTML (`<p>`, `<br />`, `<a>`, `<span>`), so block
+     * boundaries must become newlines BEFORE strip_tags removes them — otherwise
+     * `<p>a</p><p>b</p>` collapses to "ab". Only horizontal whitespace is collapsed;
+     * `/\s+/` would destroy the newlines we just recovered.
+     */
     public function htmlToText(?string $html): string
     {
         if ($html === null || $html === '') {
             return '';
         }
 
-        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // `\s*` after the tag absorbs OnlyFans' own "<br />\n" (one break, not two).
+        $text = preg_replace('#<br\s*/?>\s*#i', "\n", $html);
+        $text = preg_replace('#</p>\s*<p[^>]*>#i', "\n\n", (string) $text);
+        $text = preg_replace('#</?p[^>]*>#i', '', (string) $text);
 
-        return trim((string) preg_replace('/\s+/', ' ', $text));
+        $text = html_entity_decode(strip_tags((string) $text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $text = preg_replace('/[ \t\x{00A0}]+/u', ' ', $text);  // horizontal only — NOT \s+
+        $text = preg_replace('/ *\n */', "\n", (string) $text);
+        $text = preg_replace('/\n{3,}/', "\n\n", (string) $text);
+
+        return trim((string) $text);
+    }
+
+    /** Single-line flattening for the chat-list preview row, which cannot show breaks. */
+    public function htmlToPreview(?string $html): string
+    {
+        return trim((string) preg_replace('/\s+/', ' ', $this->htmlToText($html)));
     }
 
     public function ppvBlocked(float|int|string|null $price): bool
