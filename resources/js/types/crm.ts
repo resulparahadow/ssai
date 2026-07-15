@@ -118,6 +118,7 @@ export interface OfMessage {
     id: string | null;
     from: 'fan' | 'creator';
     text: string;
+    html?: string | null; // sanitized server-side for v-html; absent on optimistic bubbles
     time: string | null;
     price: number;
     isFree: boolean;

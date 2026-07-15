@@ -580,7 +580,22 @@ function thumb(item: Record<string, unknown>): string | null {
                             :model-id="modelId"
                             hide-price
                         />
-                        <span v-if="m.text">{{ m.text }}</span>
+                        <!--
+                          v-html is safe here: `html` is allowlist-sanitized server-side
+                          (OnlyFansService::safeHtml). Deliberately NOT whitespace-pre-wrap —
+                          OF's html carries "<br />\n", so pre-wrap would double every break.
+                        -->
+                        <div
+                            v-if="m.html"
+                            class="[&>p]:mb-2 [&>p:last-child]:mb-0 [&_a]:underline"
+                            v-html="m.html"
+                        />
+                        <!-- Optimistic bubbles have no html yet: plain text, breaks via pre-wrap. -->
+                        <span
+                            v-else-if="m.text"
+                            class="whitespace-pre-wrap"
+                            >{{ m.text }}</span
+                        >
                         <!-- fallback: count-only when the API gave us no media objects (e.g. cached/locked with no preview) -->
                         <span
                             v-else-if="!m.media?.length && m.mediaCount"
