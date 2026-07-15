@@ -148,6 +148,24 @@ export const ofModel = {
         ),
 
     // ---- Users · lookup + moderation ----
+    /** OnlyFans caps `limit` at 50 on both moderation lists. */
+    moderatedUsers: (
+        m: number,
+        bucket: 'blocked' | 'restricted',
+        params: { limit?: number; offset?: number; query?: string } = {},
+    ) =>
+        reqJson<{
+            users: OfUserDetail[];
+            hasMore: boolean;
+            nextOffset: number | null;
+        }>(
+            'GET',
+            `${base(m)}/users/${bucket}?${new URLSearchParams(
+                Object.entries(params)
+                    .filter(([, v]) => v !== undefined && v !== '')
+                    .map(([k, v]) => [k, String(v)]),
+            )}`,
+        ),
     lookupUser: (m: number, user: string) =>
         reqJson<{ user: OfUserDetail }>(
             'GET',

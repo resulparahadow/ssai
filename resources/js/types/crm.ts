@@ -84,6 +84,9 @@ export interface OfChat {
     unread: number;
     canSend: boolean;
     totalSpent: number | null; // fan's lifetime spend on this creator (embedded in the list)
+    muted: boolean; // notifications muted for this chat (isMutedNotifications)
+    pinnedCount: number; // number of pinned messages in the chat
+    restricted: boolean; // fan is restricted on OnlyFans (isRestricted, embedded in the list)
 }
 
 export interface OfMedia {
@@ -119,12 +122,14 @@ export interface OfMessage {
     isFree: boolean;
     isOpened: boolean;
     isLiked: boolean;
+    isPinned: boolean;
     isTip: boolean;
     mediaCount: number;
     media: OfMedia[];
     pending?: boolean; // optimistic: shown while the send is in flight
     failed?: boolean; // optimistic: the send failed
     liking?: boolean; // transient: a like/unlike request is in flight
+    pinning?: boolean; // transient: a pin/unpin request is in flight
 }
 
 export interface OfFan {
@@ -145,6 +150,16 @@ export interface OfFan {
     durationLabel: string | null; // OF's own label, e.g. "1 month"
     subscribedAt: string | null; // ISO
     expiredAt: string | null; // ISO
+    // Moderation state (same getUser payload, no extra call) — drives the fan-settings menu.
+    isBlocked: boolean;
+    isRestricted: boolean;
+    subscribedBy: boolean; // this creator is subscribed to ("follows") the fan
+}
+
+/** The fan's OnlyFans-native note. `synced: false` = a legacy local note not yet pushed to OF. */
+export interface OfFanNote {
+    notes: string;
+    synced: boolean;
 }
 
 export interface SidebarCreator {
@@ -302,8 +317,14 @@ export interface OfUserDetail {
     isVerified: boolean;
     isBlocked: boolean;
     isRestricted: boolean;
+    canRestrict: boolean; // OnlyFans clears this once the user is restricted
+    isActive: boolean;
+    lastSeen: string | null; // the ONLY date on a moderated user — there is no "blocked at"
     subscribedBy: boolean;
     subscribedByExpire: string | null;
+    subscribedOn: boolean; // they subscribe to this creator
+    subscribedOnExpired: boolean;
+    subscribedOnDuration: string | null;
     canChat: boolean;
     postsCount: number;
     photosCount: number;

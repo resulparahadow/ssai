@@ -1,25 +1,39 @@
 <script setup lang="ts">
 import {
     AlertCircle,
+    Bell,
+    BellOff,
+    Ellipsis,
     Heart,
     Image,
     LoaderCircle,
+    NotebookPen,
+    Pin,
+    PinOff,
     RefreshCw,
     Search,
+    ShieldMinus,
     Trash2,
     Wallet,
     X,
 } from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
+import SsFanSettingsMenu from '@/components/crm/conversations/SsFanSettingsMenu.vue';
 import SsMessageMedia from '@/components/crm/conversations/SsMessageMedia.vue';
+import SsNoteModal from '@/components/crm/conversations/SsNoteModal.vue';
 import SsPayPill from '@/components/crm/conversations/SsPayPill.vue';
+import SsPinnedModal from '@/components/crm/conversations/SsPinnedModal.vue';
+import SsRenameModal from '@/components/crm/conversations/SsRenameModal.vue';
 import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
-import type { OfChat, OfMessage } from '@/types/crm';
+import type { Role } from '@/types/auth';
+import type { OfChat, OfFan, OfMessage } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
     chat: OfChat;
+    fan: OfFan | null;
+    role: Role;
     messages: OfMessage[];
     loading: boolean;
     error: string | null;
@@ -34,6 +48,10 @@ const emit = defineEmits<{
     delete: [m: OfMessage];
     resend: [m: OfMessage];
     loadMore: [];
+    /** Server state changed — patch the chat row (and its cache) in place. */
+    'chat-changed': [patch: Partial<OfChat>];
+    /** The chat was hidden on OnlyFans and should leave the list. */
+    hidden: [];
 }>();
 
 // ---- search (server, with client-filter fallback) ----
@@ -180,6 +198,78 @@ function fmtTime(t: string | null): string {
           });
 }
 
+// ---- header actions (mute / pinned / note / rename / fan settings) ----
+const showPinned = ref(false);
+const showNote = ref(false);
+const showRename = ref(false);
+const showSettings = ref(false);
+const muting = ref(false);
+const muteError = ref<string | null>(null);
+
+/**
+ * Mute is optimistic: flip the row (which is a live reference into the chat list, so the list
+ * and its cache update together) and roll back if OnlyFans rejects it.
+ */
+async function toggleMute() {
+    const next = !props.chat.muted;
+    muting.value = true;
+    muteError.value = null;
+    emit('chat-changed', { muted: next });
+
+    try {
+        await (next
+            ? ofApi.mute(props.modelId, props.chat.id)
+            : ofApi.unmute(props.modelId, props.chat.id));
+    } catch (e) {
+        emit('chat-changed', { muted: !next });
+        muteError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+        muting.value = false;
+    }
+}
+
+/** Scroll a pinned message into view in the thread, if it's already loaded. */
+function jumpTo(m: OfMessage) {
+    showPinned.value = false;
+
+    if (!m.id) {
+        return;
+    }
+
+    nextTick(() => {
+        const el = document.getElementById(`msg-${m.id}`);
+
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ring-2', 'ring-ss-accent');
+            setTimeout(() => el.classList.remove('ring-2', 'ring-ss-accent'), 1600);
+        }
+    });
+}
+
+async function togglePin(m: OfMessage) {
+    if (!m.id || m.pinning) {
+        return;
+    }
+
+    const next = !m.isPinned;
+    m.pinning = true;
+
+    try {
+        await (next
+            ? ofApi.pin(props.modelId, props.chat.id, m.id)
+            : ofApi.unpin(props.modelId, props.chat.id, m.id));
+        m.isPinned = next;
+        emit('chat-changed', {
+            pinnedCount: Math.max(0, props.chat.pinnedCount + (next ? 1 : -1)),
+        });
+    } catch (e) {
+        alert(e instanceof Error ? e.message : String(e));
+    } finally {
+        m.pinning = false;
+    }
+}
+
 // ---- media gallery ----
 const showMedia = ref(false);
 const mediaItems = ref<Record<string, unknown>[]>([]);
@@ -187,11 +277,17 @@ const mediaLoading = ref(false);
 
 // The component instance is reused across chat/creator switches, so close the gallery and
 // drop its items when the chat changes — otherwise a new chat shows the previous one's media.
+// Same reason the header's overlays are reset here.
 watch(
     () => [props.modelId, props.chat.id],
     () => {
         showMedia.value = false;
         mediaItems.value = [];
+        showPinned.value = false;
+        showNote.value = false;
+        showRename.value = false;
+        showSettings.value = false;
+        muteError.value = null;
     },
 );
 
@@ -251,8 +347,20 @@ function thumb(item: Record<string, unknown>): string | null {
                 <template v-else>{{ chat.initials }}</template>
             </span>
             <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-semibold text-ss-text">
-                    {{ chat.name }}
+                <div class="flex items-center gap-1.5">
+                    <span class="truncate text-sm font-semibold text-ss-text">
+                        {{ chat.name }}
+                    </span>
+                    <!-- Restricted state comes free on the chat list payload; it stays in
+                         sync because the fan-settings menu patches the same row. -->
+                    <span
+                        v-if="chat.restricted"
+                        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-ss-warn/12 px-1.5 py-0.5 text-[10px] font-semibold text-ss-warn"
+                        title="This fan is restricted on OnlyFans — they can't see or comment on this creator's posts"
+                    >
+                        <ShieldMinus :size="11" />
+                        Restricted
+                    </span>
                 </div>
                 <div class="truncate text-[12px] text-ss-text-3">
                     @{{ chat.username }}
@@ -285,15 +393,122 @@ function thumb(item: Record<string, unknown>): string | null {
                     <X :size="13" />
                 </button>
             </div>
-            <button
-                type="button"
-                class="grid h-8 w-8 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
-                title="Chat media gallery"
-                @click="openMedia"
-            >
-                <Image :size="16" />
-            </button>
+            <!-- Chat actions -->
+            <div class="flex shrink-0 items-center gap-0.5">
+                <button
+                    type="button"
+                    :disabled="muting"
+                    class="grid h-8 w-8 place-items-center rounded-lg hover:bg-ss-surface-2 disabled:opacity-40"
+                    :class="chat.muted ? 'text-ss-warn' : 'text-ss-text-2'"
+                    :title="
+                        muteError ??
+                        (chat.muted
+                            ? 'Unmute notifications'
+                            : 'Mute notifications')
+                    "
+                    @click="toggleMute"
+                >
+                    <component
+                        :is="chat.muted ? BellOff : Bell"
+                        :size="16"
+                    />
+                </button>
+
+                <button
+                    type="button"
+                    :disabled="chat.pinnedCount === 0"
+                    class="relative grid h-8 w-8 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-30 disabled:hover:bg-transparent"
+                    :title="
+                        chat.pinnedCount === 0
+                            ? 'No pinned messages'
+                            : `Pinned messages (${chat.pinnedCount})`
+                    "
+                    @click="showPinned = true"
+                >
+                    <Pin :size="16" />
+                    <span
+                        v-if="chat.pinnedCount > 0"
+                        class="absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-ss-accent px-1 text-[9px] font-bold text-white"
+                        >{{ chat.pinnedCount }}</span
+                    >
+                </button>
+
+                <button
+                    type="button"
+                    class="grid h-8 w-8 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
+                    title="Edit OnlyFans note"
+                    @click="showNote = true"
+                >
+                    <NotebookPen :size="16" />
+                </button>
+
+                <button
+                    type="button"
+                    class="grid h-8 w-8 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
+                    title="Chat media gallery"
+                    @click="openMedia"
+                >
+                    <Image :size="16" />
+                </button>
+
+                <div class="relative">
+                    <button
+                        type="button"
+                        class="grid h-8 w-8 place-items-center rounded-lg hover:bg-ss-surface-2"
+                        :class="
+                            showSettings ? 'text-ss-text' : 'text-ss-text-2'
+                        "
+                        title="Fan settings"
+                        @click.stop="showSettings = !showSettings"
+                    >
+                        <Ellipsis :size="16" />
+                    </button>
+                    <SsFanSettingsMenu
+                        v-if="showSettings"
+                        :model-id="modelId"
+                        :chat="chat"
+                        :fan="fan"
+                        :role="role"
+                        @close="showSettings = false"
+                        @rename="
+                            showSettings = false;
+                            showRename = true;
+                        "
+                        @changed="emit('chat-changed', $event)"
+                        @hidden="emit('hidden')"
+                    />
+                </div>
+            </div>
         </div>
+
+        <SsPinnedModal
+            v-if="showPinned"
+            :model-id="modelId"
+            :chat-id="chat.id"
+            :creator="chat.name"
+            @close="showPinned = false"
+            @jump="jumpTo"
+            @unpinned="
+                emit('chat-changed', {
+                    pinnedCount: Math.max(0, chat.pinnedCount - 1),
+                })
+            "
+        />
+        <SsNoteModal
+            v-if="showNote"
+            :model-id="modelId"
+            :chat-id="chat.id"
+            :fan-name="chat.name"
+            @close="showNote = false"
+        />
+        <SsRenameModal
+            v-if="showRename"
+            :model-id="modelId"
+            :chat-id="chat.id"
+            :current="chat.name"
+            @close="showRename = false"
+            @renamed="emit('chat-changed', { name: $event })"
+        />
 
         <!-- Thread -->
         <div
@@ -340,8 +555,9 @@ function thumb(item: Record<string, unknown>): string | null {
             </p>
             <div
                 v-for="(m, i) in shown"
+                :id="m.id ? `msg-${m.id}` : undefined"
                 :key="m.id ?? i"
-                class="group flex flex-col"
+                class="group flex flex-col rounded-2xl transition-shadow"
                 :class="m.from === 'creator' ? 'items-end' : 'items-start'"
             >
                 <div
@@ -404,6 +620,32 @@ function thumb(item: Record<string, unknown>): string | null {
                                 :size="13"
                                 :fill="m.isLiked ? 'currentColor' : 'none'"
                             />
+                        </button>
+                        <button
+                            type="button"
+                            class="grid h-6 w-6 place-items-center rounded transition-opacity disabled:cursor-default"
+                            :class="
+                                m.isPinned || m.pinning
+                                    ? 'text-ss-accent opacity-100'
+                                    : 'text-ss-text-3 opacity-0 group-hover:opacity-100 hover:text-ss-text'
+                            "
+                            :title="
+                                m.pinning
+                                    ? 'Saving…'
+                                    : m.isPinned
+                                      ? 'Unpin'
+                                      : 'Pin message'
+                            "
+                            :disabled="m.pinning"
+                            @click="togglePin(m)"
+                        >
+                            <LoaderCircle
+                                v-if="m.pinning"
+                                :size="13"
+                                class="animate-spin"
+                            />
+                            <PinOff v-else-if="m.isPinned" :size="13" />
+                            <Pin v-else :size="13" />
                         </button>
                         <button
                             type="button"

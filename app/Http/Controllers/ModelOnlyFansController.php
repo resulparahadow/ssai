@@ -290,6 +290,46 @@ class ModelOnlyFansController extends Controller
 
     // ---- Users · lookup + moderation --------------------------------------
 
+    /** Users this creator has blocked on OnlyFans. */
+    public function blockedUsers(Request $request, AichModel $model): JsonResponse
+    {
+        return $this->moderatedUsers($request, $model, blocked: true);
+    }
+
+    /** Users this creator has restricted on OnlyFans. */
+    public function restrictedUsers(Request $request, AichModel $model): JsonResponse
+    {
+        return $this->moderatedUsers($request, $model, blocked: false);
+    }
+
+    /**
+     * Both moderation lists return the same paginated user shape, so they share a mapper.
+     * Pagination is driven by `hasMore` + `nextOffset`, NOT `_pagination.next_page`: the
+     * blocked/restricted endpoints return a next_page url even on the last page.
+     */
+    private function moderatedUsers(Request $request, AichModel $model, bool $blocked): JsonResponse
+    {
+        $acct = $this->account($model);
+        $params = $request->only(['limit', 'offset', 'query']);
+
+        $res = $blocked
+            ? $this->of->listBlockedUsers($acct, $params)
+            : $this->of->listRestrictedUsers($acct, $params);
+
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+        $j = $res->json();
+
+        return response()->json([
+            'users' => collect(data_get($j, 'data.list') ?? [])
+                ->map(fn ($u) => $this->of->normalizeUserDetail($u))
+                ->values(),
+            'hasMore' => (bool) data_get($j, 'data.hasMore', false),
+            'nextOffset' => data_get($j, 'data.nextOffset'),
+        ]);
+    }
+
     public function userDetail(AichModel $model, string $user): JsonResponse
     {
         $res = $this->of->getUser($this->account($model), $user);

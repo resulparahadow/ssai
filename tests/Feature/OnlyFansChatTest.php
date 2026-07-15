@@ -2,6 +2,7 @@
 
 use App\Models\AichChatIntel;
 use App\Models\AichModel;
+use App\Models\CustomerProfile;
 use App\Models\ModelAssignment;
 use App\Models\User;
 use App\Services\OnlyFans\OnlyFansService;
@@ -40,6 +41,58 @@ it('lists chats live and normalises them', function () {
         ->assertJsonPath('chats.0.previewKind', null);
 
     Http::assertSent(fn ($r) => str_contains($r->url(), '/acct_cam/chats') && $r->hasHeader('Authorization', 'Bearer test-key'));
+});
+
+// Without this the chat list re-labels a renamed fan with their real name on every
+// refresh, so a rename looks like it silently reverted.
+it('labels a listed chat with the fan custom name when one is set', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [['fan' => [
+            'id' => 101, 'name' => 'Jake Wilson', 'username' => 'jake_w', 'displayName' => '🐳Whale',
+        ], 'lastMessage' => ['text' => 'hey']]],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertOk()
+        ->assertJsonPath('chats.0.name', '🐳Whale')
+        ->assertJsonPath('chats.0.initials', '🐳');
+});
+
+it('falls back through the fan label chain when no custom name is set', function () {
+    $svc = app(OnlyFansService::class);
+
+    // Empty `displayName` is what OnlyFans sends for a fan with no custom name.
+    expect($svc->displayNameOf(['name' => 'Jake', 'displayName' => '']))->toBe('Jake');
+    expect($svc->displayNameOf(['name' => 'Jake', 'displayName' => '  ']))->toBe('Jake');
+    expect($svc->displayNameOf(['name' => 'Jake', 'displayName' => '🐳Whale']))->toBe('🐳Whale');
+    expect($svc->displayNameOf(['username' => 'jake_w']))->toBe('jake_w');
+    expect($svc->displayNameOf(['id' => 101]))->toBe('101');
+    expect($svc->displayNameOf([]))->toBe('');
+});
+
+// `isRestricted` is embedded in the chat list's fan object (verified live), so the list and
+// header can flag a restricted fan without a per-chat getUser.
+it('surfaces the fan restricted state on listed chats (no extra API call)', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [
+            ['fan' => ['id' => 101, 'name' => 'Jake', 'isRestricted' => true], 'lastMessage' => ['text' => 'hey']],
+            ['fan' => ['id' => 102, 'name' => 'Sam', 'isRestricted' => false], 'lastMessage' => ['text' => 'yo']],
+            ['fan' => ['id' => 103, 'name' => 'Kim'], 'lastMessage' => ['text' => 'hi']],
+        ],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertOk()
+        ->assertJsonPath('chats.0.restricted', true)
+        ->assertJsonPath('chats.1.restricted', false)
+        // Absent key (older payload) must read as not-restricted, never as a badge.
+        ->assertJsonPath('chats.2.restricted', false);
+
+    Http::assertSentCount(1);
 });
 
 it('surfaces per-fan lifetime spend on listed chats (no extra API call)', function () {
@@ -516,4 +569,281 @@ it('generates an AI draft from the live thread via the engine', function () {
     Http::assertSent(fn ($r) => str_contains($r->url(), '/generate')
         && $r['model']['prompt'] === 'You are Camila.'
         && collect($r['session']['messages'])->contains(fn ($m) => str_contains($m['text'], 'my day was long')));
+});
+
+// ---- Chat actions (mute / pin / read / hide) -------------------------------
+
+it('mutes and unmutes a chat, hitting the exact upstream method+path', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)->postJson("/onlyfans/{$this->model->id}/chats/101/mute")->assertOk()->assertJsonPath('ok', true);
+    $this->actingAs($admin)->deleteJson("/onlyfans/{$this->model->id}/chats/101/mute")->assertOk()->assertJsonPath('ok', true);
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/acct_cam/chats/101/mute'));
+    // Unmute is DELETE on its OWN path — NOT a DELETE on /mute.
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/acct_cam/chats/101/unmute'));
+});
+
+it('surfaces live mute + pinned-count state on the chat list', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [['fan' => ['id' => 101, 'name' => 'Jake'], 'isMutedNotifications' => true, 'countPinnedMessages' => 3]],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertOk()
+        ->assertJsonPath('chats.0.muted', true)
+        ->assertJsonPath('chats.0.pinnedCount', 3);
+});
+
+it('defaults mute/pinned state when OnlyFans omits the fields', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [['fan' => ['id' => 101, 'name' => 'Jake']]],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertOk()
+        ->assertJsonPath('chats.0.muted', false)
+        ->assertJsonPath('chats.0.pinnedCount', 0);
+});
+
+it('lists pinned messages via the filter param and marks them pinned', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [['id' => 9, 'text' => 'remember: no feet', 'fromUser' => ['id' => 101], 'isPinned' => true, 'createdAt' => '2026-07-01T10:00:00Z']],
+        '_pagination' => ['next_page' => null],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/pinned")
+        ->assertOk()
+        ->assertJsonPath('messages.0.id', '9')
+        ->assertJsonPath('messages.0.isPinned', true)
+        ->assertJsonPath('messages.0.from', 'fan');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/acct_cam/chats/101/messages')
+        && str_contains($r->url(), 'filter=pinned'));
+});
+
+it('pins and unpins a message, hitting the exact upstream method+path', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)->postJson("/onlyfans/{$this->model->id}/chats/101/messages/9/pin")->assertOk()->assertJsonPath('ok', true);
+    $this->actingAs($admin)->deleteJson("/onlyfans/{$this->model->id}/chats/101/messages/9/unpin")->assertOk();
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/messages/9/pin'));
+    // Unpin is DELETE on its OWN path — NOT a DELETE on /pin.
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/messages/9/unpin'));
+});
+
+it('marks a chat read and unread', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)->postJson("/onlyfans/{$this->model->id}/chats/101/mark-as-read")->assertOk()->assertJsonPath('ok', true);
+    $this->actingAs($admin)->postJson("/onlyfans/{$this->model->id}/chats/101/mark-as-unread")->assertOk();
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/chats/101/mark-as-read'));
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/chats/101/mark-as-unread'));
+});
+
+// OnlyFans returns the custom name as `displayName` and leaves `name` as the fan's real
+// name, so echoing `name` would hand the client back the label it already had.
+it('renames a fan and echoes back the custom name, not the unchanged real name', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => ['id' => 101, 'name' => 'Jake Wilson', 'displayName' => '🐳Whale'],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->putJson("/onlyfans/{$this->model->id}/chats/101/custom-name", ['custom_name' => '🐳Whale'])
+        ->assertOk()
+        ->assertJsonPath('ok', true)
+        ->assertJsonPath('name', '🐳Whale');
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_ends_with($r->url(), '/acct_cam/fans/101/custom-name')
+        && $r['custom_name'] === '🐳Whale');
+});
+
+// Clearing empties `displayName`, so the echo has to fall back to the real name.
+it('clears a custom name by sending null and echoes back the real name', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => ['id' => 101, 'name' => 'Jake Wilson', 'displayName' => ''],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->putJson("/onlyfans/{$this->model->id}/chats/101/custom-name", ['custom_name' => null])
+        ->assertOk()
+        ->assertJsonPath('name', 'Jake Wilson');
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT' && $r['custom_name'] === null);
+});
+
+it('rejects a rename with no custom_name key as JSON 422 (not a redirect)', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => []])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->putJson("/onlyfans/{$this->model->id}/chats/101/custom-name", [])
+        ->assertStatus(422)
+        ->assertJsonStructure(['error']);
+});
+
+// ---- Fan note (OnlyFans-owned, crm_notes mirrors it) -----------------------
+
+it('reads the OnlyFans note and mirrors it into crm_notes', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['notes' => 'prefers babe']])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/notes")
+        ->assertOk()
+        ->assertJsonPath('notes', 'prefers babe')
+        ->assertJsonPath('synced', true);
+
+    expect(CustomerProfile::where('of_fan_id', '101')->first()->crm_notes)->toBe('prefers babe');
+});
+
+it('saves the note to OnlyFans and mirrors it down only after a 2xx', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->putJson("/onlyfans/{$this->model->id}/chats/101/notes", ['notes' => 'hard no: feet'])
+        ->assertOk()
+        ->assertJsonPath('ok', true);
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT'
+        && str_ends_with($r->url(), '/acct_cam/fans/101/notes')
+        && $r['notes'] === 'hard no: feet');
+
+    expect(CustomerProfile::where('of_fan_id', '101')->first()->crm_notes)->toBe('hard no: feet');
+});
+
+it('does NOT mirror the note when OnlyFans rejects the write', function () {
+    CustomerProfile::create(['creator_model' => 'Camila', 'of_fan_id' => '101', 'customer_username' => 'jake', 'customer_name' => 'Jake', 'crm_notes' => 'original']);
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'nope'], 403)]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->putJson("/onlyfans/{$this->model->id}/chats/101/notes", ['notes' => 'clobbered'])
+        ->assertStatus(403);
+
+    expect(CustomerProfile::where('of_fan_id', '101')->first()->crm_notes)->toBe('original');
+});
+
+it('keeps a legacy local note that OnlyFans does not have yet, flagged unsynced', function () {
+    CustomerProfile::create(['creator_model' => 'Camila', 'of_fan_id' => '101', 'customer_username' => 'jake', 'customer_name' => 'Jake', 'crm_notes' => 'written before the sync existed']);
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['notes' => '']])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/chats/101/notes")
+        ->assertOk()
+        ->assertJsonPath('notes', 'written before the sync existed')
+        ->assertJsonPath('synced', false);
+
+    // A read must never push to OnlyFans, and must never destroy the local note.
+    Http::assertSentCount(1);
+    expect(CustomerProfile::where('of_fan_id', '101')->first()->crm_notes)->toBe('written before the sync existed');
+});
+
+it('clears the note on both sides', function () {
+    CustomerProfile::create(['creator_model' => 'Camila', 'of_fan_id' => '101', 'customer_username' => 'jake', 'customer_name' => 'Jake', 'crm_notes' => 'bye']);
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->deleteJson("/onlyfans/{$this->model->id}/chats/101/notes")
+        ->assertOk()
+        ->assertJsonPath('notes', '');
+
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/acct_cam/fans/101/notes'));
+    expect(CustomerProfile::where('of_fan_id', '101')->first()->crm_notes)->toBeNull();
+});
+
+it('no longer accepts crm_notes through the profile PATCH (one write path for the note)', function () {
+    $this->actingAs(User::factory()->admin()->create())
+        ->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['crm_notes' => 'sneaky', 'archetype' => 'whale'])
+        ->assertOk();
+
+    $p = CustomerProfile::where('of_fan_id', '101')->first();
+    expect($p->archetype)->toBe('whale');
+    expect($p->crm_notes)->toBeNull();
+});
+
+// ---- Authorization matrix --------------------------------------------------
+
+it('scopes the new chat actions: an unassigned chatter is forbidden', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $chatter = User::factory()->chatter()->create();
+
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/chats/101/mute")->assertForbidden();
+    $this->actingAs($chatter)->getJson("/onlyfans/{$this->model->id}/chats/101/pinned")->assertForbidden();
+    $this->actingAs($chatter)->getJson("/onlyfans/{$this->model->id}/chats/101/notes")->assertForbidden();
+    $this->actingAs($chatter)->putJson("/onlyfans/{$this->model->id}/chats/101/custom-name", ['custom_name' => 'x'])->assertForbidden();
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/chats/101/mark-as-read")->assertForbidden();
+
+    Http::assertNothingSent();
+});
+
+it('lets an ASSIGNED chatter use the non-destructive actions', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true, 'notes' => 'hi']])]);
+    $chatter = User::factory()->chatter()->create();
+    ModelAssignment::create(['user_id' => $chatter->id, 'creator_model' => 'Camila']);
+
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/chats/101/mute")->assertOk();
+    $this->actingAs($chatter)->getJson("/onlyfans/{$this->model->id}/chats/101/notes")->assertOk();
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/chats/101/mark-as-read")->assertOk();
+    $this->actingAs($chatter)->putJson("/onlyfans/{$this->model->id}/chats/101/custom-name", ['custom_name' => 'VIP'])->assertOk();
+});
+
+it('bars even an ASSIGNED chatter from the destructive actions', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $chatter = User::factory()->chatter()->create();
+    ModelAssignment::create(['user_id' => $chatter->id, 'creator_model' => 'Camila']);
+
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/chats/101/hide")->assertForbidden();
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/users/101/block")->assertForbidden();
+    $this->actingAs($chatter)->postJson("/onlyfans/{$this->model->id}/users/101/restrict")->assertForbidden();
+    $this->actingAs($chatter)->deleteJson("/onlyfans/{$this->model->id}/users/101/subscribe")->assertForbidden();
+
+    Http::assertNothingSent();
+});
+
+it('lets a manager hide, block, restrict and unfollow', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['success' => true]])]);
+    $manager = User::factory()->manager()->create();
+
+    $this->actingAs($manager)->postJson("/onlyfans/{$this->model->id}/chats/101/hide")->assertOk()->assertJsonPath('ok', true);
+    $this->actingAs($manager)->postJson("/onlyfans/{$this->model->id}/users/101/block")->assertOk();
+    $this->actingAs($manager)->deleteJson("/onlyfans/{$this->model->id}/users/101/block")->assertOk();
+    $this->actingAs($manager)->postJson("/onlyfans/{$this->model->id}/users/101/restrict")->assertOk();
+    $this->actingAs($manager)->deleteJson("/onlyfans/{$this->model->id}/users/101/restrict")->assertOk();
+    $this->actingAs($manager)->deleteJson("/onlyfans/{$this->model->id}/users/101/subscribe")->assertOk();
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/chats/101/hide'));
+    Http::assertSent(fn ($r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/users/101/subscribe'));
+});
+
+it('forwards an upstream error through the new actions', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'rate limited'], 429)]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/chats/101/mute")
+        ->assertStatus(429)
+        ->assertJsonPath('error', 'rate limited');
+});
+
+it('exposes moderation state on the fan payload without an extra call', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
+        'id' => 101, 'name' => 'Jake', 'username' => 'jake', 'isBlocked' => true, 'isRestricted' => false, 'subscribedBy' => true,
+    ]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/users/101")
+        ->assertOk()
+        ->assertJsonPath('fan.isBlocked', true)
+        ->assertJsonPath('fan.isRestricted', false)
+        ->assertJsonPath('fan.subscribedBy', true);
+
+    Http::assertSentCount(1);
 });

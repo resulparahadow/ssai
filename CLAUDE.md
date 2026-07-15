@@ -162,6 +162,33 @@ engine uses its in-process copy. Provider keys live in the engine's env
     delete, like/unlike, fan details, GIF picker (Giphy trending/search), and AI `generate`
     (a transient engine session built from the live thread — no DB row). Access is scoped in the
     controller (chatter → assigned creators).
+    **Chat actions** (thread header: `[mute] [pinned] [note] [gallery] [⋯ fan settings]`) —
+    mute/unmute, a pinned-messages modal (`SsPinnedModal`, also pin/unpin per bubble), the
+    OnlyFans fan note (`SsNoteModal`), and `SsFanSettingsMenu` (open OF profile, rename, mark
+    read/unread + manager/admin-only hide/unfollow/restrict/block, gated by `can:manage-team` on
+    a nested route sub-group). Spec-verified path asymmetries — mute is `POST …/mute` but unmute
+    is **`DELETE …/unmute`**; pin is `POST …/pin` but unpin is **`DELETE …/unpin`** (do not
+    "normalise" these). Pinned messages reuse `listMessages(filter=pinned)`, routed as
+    `chats/{chat}/pinned` — a **sibling** of `messages`, so it can't collide with
+    `messages/{message}`. `isMutedNotifications`/`countPinnedMessages`/**`fan.isRestricted`**
+    (+ `isBlocked`) all ride along on the chat list (verified live), so mute/pin/restricted state
+    costs no per-chat call. A restricted fan is flagged by a `ShieldMinus` in the `SsConvoList`
+    row + a "Restricted" pill in the `SsChatThread` header, both off `chat.restricted`; the
+    fan-settings menu reads and patches **that row** (not the cached fan detail, whose
+    `isRestricted` goes stale the moment we toggle) via `changed` → `chat-changed` → `patchChat`.
+    **Fan custom name → `displayName`, NOT `name` (verified live 2026-07-15).** `PUT
+    {acct}/fans/{fan}/custom-name` leaves `name` as the fan's real OnlyFans name and returns the
+    custom name in **`displayName`** (`''` when unset). Every fan-bearing payload (`listChats`,
+    `getUserDetails`, `listAllFans`, …) carries it. `OnlyFansService::displayNameOf()` is the one
+    label resolver — custom name if non-empty, else `name`/`username`/`id` — used by
+    `normalizeChat` + the chat controller's `user()`/`rename`, so a rename shows immediately AND
+    survives a list refresh. Reading `name` back after a rename returns the *old* label and looks
+    like a silent no-op.
+    **The fan note is OnlyFans-owned**, `customer_profiles.crm_notes` is only its local mirror so
+    `generate` can feed it to the AI without a billed call per generation: reads let OnlyFans win
+    and mirror down; writes hit OnlyFans first and mirror **only after a 2xx**; a note predating
+    the mirror (local set, OF empty) returns `synced: false` rather than being dropped. `crm_notes`
+    is deliberately absent from `PATCH /profile` — one write path only.
     **GIF sending:** `SsComposer` has a **GIF** button opening `SsGifPicker` (a popover over the
     Giphy proxy — `GET /onlyfans/{model}/giphy/{trending,search?q&limit&offset}` →
     `OnlyFansService::listGiphyTrending`/`searchGiphy` → `normalizeGif`). Picking a GIF attaches it
@@ -236,9 +263,22 @@ engine uses its in-process copy. Provider keys live in the engine's env
     **OnlyFans Settings** (`SsModelSettings` — editable profile name/bio/location/website/wishlist +
     subscription price, read-only account flags), **Welcome Message** (`SsModelWelcome` — text edit +
     active toggle, media preview reuses `SsMessageMedia`), **Notifications** (`SsModelNotifications` —
-    type-filtered feed + per-type counts + mark-all-read), **Users** (`SsModelUsers` — lookup a fan by
-    id/username → profile + Block/Restrict/Subscribe toggles, each POST to act / DELETE to undo; or
-    comma-separate up to 10 ids for a **mass lookup** (`users/list`) → pick a result to manage),
+    type-filtered feed + per-type counts + mark-all-read), **Users** (`SsModelUsers` — a 3-way
+    subswitch: **Lookup** (a fan by id/username → profile + Block/Restrict/Subscribe toggles, each
+    POST to act / DELETE to undo; or comma-separate up to 10 ids for a **mass lookup**
+    (`users/list`) → pick a result to manage) + **Blocked Users** / **Restricted Users**
+    (`SsModelModeratedUsers`, one component driven by `bucket` — both lists return the same user
+    object, so all three reuse `normalizeUserDetail`; per-row block/unblock + restrict/unrestrict
+    reusing the existing toggles). Route order matters: `users/blocked`/`users/restricted` are
+    registered **above** `users/{user}` or that param route captures them. Lists are lazy-mounted
+    then kept alive (`v-show`), so switching tabs doesn't re-bill. Paging is `limit` (**max 50**) +
+    `offset`, driven by **`data.hasMore`** — `data.nextOffset` keeps advancing past the end and
+    `_pagination.next_page` is returned even on the last page. **Verified live 2026-07-15:** the
+    restricted list is `GET {acct}/users/restricted`; the `/users/restrict` shown in the docs
+    example's `next_page` **500s**. **There is NO "blocked at"/"restricted at" timestamp anywhere
+    in the API** — `lastSeen` is the only date on a moderated user, so these lists can't be sorted
+    by when the action happened; don't go looking for it again. A user is commonly blocked AND
+    restricted at once, so both badges render independently),
     **Links** (`SsModelLinks` — a 4-way subswitch: **Free trial** + **Tracking** (`list`/`create`/
     `delete`/per-link `stats`), **Smart links** (`SsModelSmartLinks` — list/create/delete + an
     expandable per-link detail with inner tabs: Stats, Conversions, Fans, Spenders, Clicks, Tags

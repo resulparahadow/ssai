@@ -9,6 +9,7 @@ import {
     Paperclip,
     RefreshCw,
     Search,
+    ShieldMinus,
     Video,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
@@ -133,10 +134,21 @@ const filtered = computed(() => {
                 </span>
                 <span class="min-w-0 flex-1">
                     <span class="flex items-center justify-between gap-2">
-                        <span
-                            class="truncate text-[13px] font-medium text-ss-text"
-                            >{{ c.name }}</span
-                        >
+                        <span class="flex min-w-0 items-center gap-1">
+                            <!-- Restricted rides along on the chat list payload, so the
+                                 row flags it without a per-fan lookup. -->
+                            <span
+                                v-if="c.restricted"
+                                class="grid shrink-0 place-items-center text-ss-warn"
+                                title="Restricted on OnlyFans"
+                            >
+                                <ShieldMinus :size="12" />
+                            </span>
+                            <span
+                                class="truncate text-[13px] font-medium text-ss-text"
+                                >{{ c.name }}</span
+                            >
+                        </span>
                         <span
                             v-if="c.unread > 0"
                             class="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-ss-accent px-1 text-[10px] font-semibold text-white"

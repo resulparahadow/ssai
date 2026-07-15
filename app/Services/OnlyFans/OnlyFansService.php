@@ -49,6 +49,33 @@ class OnlyFansService
         return $this->client()->get("{$account}/chats/{$chatId}/media", $this->pageParams($params));
     }
 
+    public function muteChat(string $account, string $chatId): Response
+    {
+        return $this->client()->post("{$account}/chats/{$chatId}/mute");
+    }
+
+    /** NB: unmute is DELETE on its OWN path (`/unmute`), not DELETE on `/mute`. */
+    public function unmuteChat(string $account, string $chatId): Response
+    {
+        return $this->client()->delete("{$account}/chats/{$chatId}/unmute");
+    }
+
+    /** Hide a chat from the list. Only undone by sending the fan a new message. */
+    public function hideChat(string $account, string $chatId): Response
+    {
+        return $this->client()->post("{$account}/chats/{$chatId}/hide");
+    }
+
+    public function markChatRead(string $account, string $chatId): Response
+    {
+        return $this->client()->post("{$account}/chats/{$chatId}/mark-as-read");
+    }
+
+    public function markChatUnread(string $account, string $chatId): Response
+    {
+        return $this->client()->post("{$account}/chats/{$chatId}/mark-as-unread");
+    }
+
     // ---- Chat messages ----------------------------------------------------
 
     public function listMessages(string $account, string $chatId, array $params = []): Response
@@ -102,6 +129,17 @@ class OnlyFansService
     public function unlikeMessage(string $account, string $chatId, string $messageId): Response
     {
         return $this->client()->post("{$account}/chats/{$chatId}/messages/{$messageId}/unlike");
+    }
+
+    public function pinMessage(string $account, string $chatId, string $messageId): Response
+    {
+        return $this->client()->post("{$account}/chats/{$chatId}/messages/{$messageId}/pin");
+    }
+
+    /** NB: unpin is DELETE on its OWN path (`/unpin`), not DELETE on `/pin`. */
+    public function unpinMessage(string $account, string $chatId, string $messageId): Response
+    {
+        return $this->client()->delete("{$account}/chats/{$chatId}/messages/{$messageId}/unpin");
     }
 
     // ---- Giphy ------------------------------------------------------------
@@ -161,6 +199,31 @@ class OnlyFansService
     public function getFanSubscriptionHistory(string $account, string $userId): Response
     {
         return $this->client()->get("{$account}/fans/{$userId}/subscriptions-history");
+    }
+
+    /**
+     * The fan's OnlyFans-native note (visible to the creator inside the OnlyFans app).
+     * Distinct from the AI-facing memory on `customer_profiles`, which mirrors this value.
+     */
+    public function getFanNotes(string $account, string $fanId): Response
+    {
+        return $this->client()->get("{$account}/fans/{$fanId}/notes");
+    }
+
+    public function setFanNotes(string $account, string $fanId, string $notes): Response
+    {
+        return $this->client()->put("{$account}/fans/{$fanId}/notes", ['notes' => $notes]);
+    }
+
+    public function clearFanNotes(string $account, string $fanId): Response
+    {
+        return $this->client()->delete("{$account}/fans/{$fanId}/notes");
+    }
+
+    /** Set the fan's custom name shown in OnlyFans. `null`/'' clears it. */
+    public function setFanCustomName(string $account, string $fanId, ?string $name): Response
+    {
+        return $this->client()->put("{$account}/fans/{$fanId}/custom-name", ['custom_name' => $name]);
     }
 
     /**
@@ -318,6 +381,26 @@ class OnlyFansService
     }
 
     // ---- Users · moderation (getUser above) -------------------------------
+
+    /**
+     * Users this account has blocked. Params: limit (1-50), offset, query (name/username).
+     * Response: `data.list[]` + `data.hasMore` + `data.nextOffset`.
+     */
+    public function listBlockedUsers(string $account, array $params = []): Response
+    {
+        return $this->client()->get("{$account}/users/blocked", $this->pageParams($params));
+    }
+
+    /**
+     * Users this account has restricted. Same shape/params as `listBlockedUsers`.
+     *
+     * NB: the list path is `/users/restricted`. The docs example's `_pagination.next_page`
+     * shows `/users/restrict` — that path 500s (verified live); don't "correct" this to it.
+     */
+    public function listRestrictedUsers(string $account, array $params = []): Response
+    {
+        return $this->client()->get("{$account}/users/restricted", $this->pageParams($params));
+    }
 
     public function blockUser(string $account, string $userId): Response
     {
@@ -539,12 +622,26 @@ class OnlyFansService
 
     // ---- Pure normalisers (mirror legacy js/onlyfans.js) ------------------
 
+    /**
+     * The label to show for a fan. A custom name (set via `setFanCustomName`) rides on
+     * `displayName` and is empty otherwise, so it wins when present — matching what
+     * OnlyFans itself shows in the chat list — and `name` is the fallback.
+     */
+    public function displayNameOf(array $user): string
+    {
+        $custom = trim((string) ($user['displayName'] ?? ''));
+
+        return $custom !== ''
+            ? $custom
+            : (string) ($user['name'] ?? $user['username'] ?? ($user['id'] ?? ''));
+    }
+
     /** Map an OnlyFans chat row to a conversation card. */
     public function normalizeChat(array $chat): array
     {
         $fan = $chat['fan'] ?? $chat['withUser'] ?? [];
         $id = (string) ($fan['id'] ?? '');
-        $name = $fan['name'] ?? $fan['username'] ?? $id;
+        $name = $this->displayNameOf($fan);
         $lastMessage = is_array($chat['lastMessage'] ?? null) ? $chat['lastMessage'] : [];
 
         return [
@@ -558,6 +655,12 @@ class OnlyFansService
             'time' => $lastMessage['createdAt'] ?? null,
             'unread' => (int) ($chat['unreadMessagesCount'] ?? 0),
             'canSend' => (bool) ($chat['canSendMessage'] ?? true),
+            // Mute + pin state ride along on the chat list, so the header renders them
+            // without a per-chat call.
+            'muted' => (bool) ($chat['isMutedNotifications'] ?? false),
+            'pinnedCount' => (int) ($chat['countPinnedMessages'] ?? 0),
+            // So does the fan's restricted state — the list can flag it without a getUser.
+            'restricted' => (bool) ($fan['isRestricted'] ?? false),
             // Lifetime spend is embedded in the listed fan object, so the list can flag
             // spenders without a per-fan getUser call. null when the payload omits it.
             'totalSpent' => $this->extractFanSpend($fan)['total'],
@@ -635,6 +738,7 @@ class OnlyFansService
             'isFree' => (bool) ($raw['isFree'] ?? true),
             'isOpened' => (bool) ($raw['isOpened'] ?? false),
             'isLiked' => (bool) ($raw['isLiked'] ?? false),
+            'isPinned' => (bool) ($raw['isPinned'] ?? false),
             'isTip' => (bool) ($raw['isTip'] ?? false),
             'mediaCount' => $media !== [] ? count($media) : (int) ($raw['mediaCount'] ?? 0),
             'media' => $media,
@@ -852,7 +956,14 @@ class OnlyFansService
         ];
     }
 
-    /** Rich user-detail shape for the model show page's Users tab (lookup + moderation). */
+    /**
+     * Rich user-detail shape for the model show page's Users tab (lookup + moderation) and
+     * the blocked/restricted lists, which return the same user object.
+     *
+     * NB: OnlyFans exposes NO "blocked at"/"restricted at" timestamp anywhere — `lastSeen` is
+     * the only date on a moderated user, so the lists can't be ordered or filtered by when the
+     * action happened.
+     */
     public function normalizeUserDetail(array $u): array
     {
         $name = $u['name'] ?? $u['username'] ?? (string) ($u['id'] ?? '');
@@ -870,8 +981,17 @@ class OnlyFansService
             'isVerified' => (bool) ($u['isVerified'] ?? false),
             'isBlocked' => (bool) ($u['isBlocked'] ?? false),
             'isRestricted' => (bool) ($u['isRestricted'] ?? false),
+            // Restricting is one-way per user: OnlyFans sets canRestrict=false once restricted.
+            'canRestrict' => (bool) ($u['canRestrict'] ?? false),
+            'isActive' => (bool) ($u['isActive'] ?? false),
+            'lastSeen' => $u['lastSeen'] ?? null,
             'subscribedBy' => (bool) ($u['subscribedBy'] ?? false),
             'subscribedByExpire' => $u['subscribedByExpire'] ?? $u['subscribedByExpireDate'] ?? null,
+            // `subscribedOn*` = their subscription to THIS creator (the useful direction on a
+            // moderated user: were they a paying fan, and are they still?).
+            'subscribedOn' => (bool) ($u['subscribedOn'] ?? false),
+            'subscribedOnExpired' => (bool) ($u['subscribedOnExpiredNow'] ?? false),
+            'subscribedOnDuration' => $u['subscribedOnDuration'] ?? null,
             'canChat' => (bool) ($u['canChat'] ?? false),
             'postsCount' => (int) ($u['postsCount'] ?? 0),
             'photosCount' => (int) ($u['photosCount'] ?? 0),

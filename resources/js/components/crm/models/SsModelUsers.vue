@@ -7,11 +7,27 @@ import {
     Search,
     ShieldBan,
 } from '@lucide/vue';
-import { ref } from 'vue';
+import { reactive, ref } from 'vue';
+import SsModelModeratedUsers from '@/components/crm/models/SsModelModeratedUsers.vue';
 import { ofModel } from '@/lib/onlyfansModel';
 import type { OfUserDetail } from '@/types/crm';
 
 const props = defineProps<{ modelId: number }>();
+
+type Tab = 'lookup' | 'blocked' | 'restricted';
+const TABS: { key: Tab; label: string }[] = [
+    { key: 'lookup', label: 'Lookup' },
+    { key: 'blocked', label: 'Blocked Users' },
+    { key: 'restricted', label: 'Restricted Users' },
+];
+const tab = ref<Tab>('lookup');
+// Each list costs an API call, so mount a bucket only once opened — then keep it alive.
+const visited = reactive(new Set<Tab>(['lookup']));
+
+function switchTab(t: Tab) {
+    tab.value = t;
+    visited.add(t);
+}
 
 const query = ref('');
 const user = ref<OfUserDetail | null>(null);
@@ -100,6 +116,38 @@ function money(n: number | null): string {
 
 <template>
     <div class="space-y-4">
+        <div class="flex flex-wrap items-center gap-1.5">
+            <button
+                v-for="t in TABS"
+                :key="t.key"
+                type="button"
+                class="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
+                :class="
+                    tab === t.key
+                        ? 'bg-ss-surface-2 text-ss-text'
+                        : 'text-ss-text-3 hover:text-ss-text-2'
+                "
+                @click="switchTab(t.key)"
+            >
+                {{ t.label }}
+            </button>
+        </div>
+
+        <!-- Kept mounted once visited so switching back doesn't re-bill the list call. -->
+        <SsModelModeratedUsers
+            v-if="visited.has('blocked')"
+            v-show="tab === 'blocked'"
+            :model-id="modelId"
+            bucket="blocked"
+        />
+        <SsModelModeratedUsers
+            v-if="visited.has('restricted')"
+            v-show="tab === 'restricted'"
+            :model-id="modelId"
+            bucket="restricted"
+        />
+
+        <div v-show="tab === 'lookup'" class="space-y-4">
         <!-- lookup -->
         <div class="relative flex items-center">
             <Search :size="15" class="absolute left-3 text-ss-text-3" />
@@ -317,5 +365,6 @@ function money(n: number | null): string {
             Enter a fan's user id or username to view their profile and
             moderate.
         </p>
+        </div>
     </div>
 </template>

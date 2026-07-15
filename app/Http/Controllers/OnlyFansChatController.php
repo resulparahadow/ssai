@@ -233,6 +233,165 @@ class OnlyFansChatController extends Controller
         return $this->proxyAction($this->of->unlikeMessage($this->account($request, $model), $chat, $message));
     }
 
+    // ---- Chat actions -----------------------------------------------------
+
+    public function mute(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        return $this->proxyAction($this->of->muteChat($this->account($request, $model), $chat));
+    }
+
+    public function unmute(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        return $this->proxyAction($this->of->unmuteChat($this->account($request, $model), $chat));
+    }
+
+    /** Manager+ (route-gated): OnlyFans only unhides a chat when the fan is messaged again. */
+    public function hide(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        return $this->proxyAction($this->of->hideChat($this->account($request, $model), $chat));
+    }
+
+    public function markRead(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        return $this->proxyAction($this->of->markChatRead($this->account($request, $model), $chat));
+    }
+
+    public function markUnread(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        return $this->proxyAction($this->of->markChatUnread($this->account($request, $model), $chat));
+    }
+
+    /** Pinned messages — OnlyFans exposes pins as a `filter` on the messages list, not its own path. */
+    public function pinned(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $res = $this->of->listMessages($acct, $chat, ['filter' => 'pinned', 'limit' => 100]);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        return response()->json([
+            'messages' => collect($res->json('data') ?? [])
+                ->map(fn ($m) => $this->of->normalizeMessage($m, $chat))
+                ->sortBy('time')
+                ->values(),
+        ]);
+    }
+
+    public function pin(Request $request, AichModel $model, string $chat, string $message): JsonResponse
+    {
+        return $this->proxyAction($this->of->pinMessage($this->account($request, $model), $chat, $message));
+    }
+
+    public function unpin(Request $request, AichModel $model, string $chat, string $message): JsonResponse
+    {
+        return $this->proxyAction($this->of->unpinMessage($this->account($request, $model), $chat, $message));
+    }
+
+    /** Set/clear the fan's OnlyFans custom name (chat id = fan id). */
+    public function rename(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, ['custom_name' => 'present|nullable|string|max:255']);
+
+        $res = $this->of->setFanCustomName($acct, $chat, $data['custom_name']);
+
+        // The custom name comes back as `displayName`; `name` stays the fan's real OnlyFans
+        // name. Clearing empties `displayName`, so falling back to `name` yields the right
+        // label for both set and clear.
+        return $res->successful()
+            ? response()->json([
+                'ok' => true,
+                'name' => $this->of->displayNameOf((array) data_get($res->json(), 'data', [])),
+            ])
+            : $this->forward($res);
+    }
+
+    // ---- Fan note (OnlyFans-native; crm_notes is its local mirror) ---------
+
+    /**
+     * OnlyFans owns the note; `customer_profiles.crm_notes` mirrors it so `generate`
+     * can feed it to the AI without an extra billed call per generation.
+     *
+     * A note written before this mirror existed (local set, OnlyFans empty) is returned
+     * with `synced: false` rather than being dropped — saving pushes it up to OnlyFans.
+     */
+    public function notes(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $res = $this->of->getFanNotes($acct, $chat);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        $remote = trim((string) (data_get($res->json(), 'data.notes') ?? ''));
+        $local = trim((string) ($this->profiles->find($model, $chat)?->crm_notes ?? ''));
+
+        if ($remote === '' && $local !== '') {
+            return response()->json(['notes' => $local, 'synced' => false]);
+        }
+
+        $this->profiles->mirrorNote($model, $chat, $remote);
+
+        return response()->json(['notes' => $remote, 'synced' => true]);
+    }
+
+    public function saveNotes(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, ['notes' => 'present|nullable|string|max:5000']);
+        $notes = (string) ($data['notes'] ?? '');
+
+        $res = $this->of->setFanNotes($acct, $chat, $notes);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+        // Mirror only after a 2xx, so a failed write never desyncs the local copy.
+        $this->profiles->mirrorNote($model, $chat, $notes);
+
+        return response()->json(['ok' => true, 'notes' => $notes, 'synced' => true]);
+    }
+
+    public function clearNotes(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $res = $this->of->clearFanNotes($acct, $chat);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+        $this->profiles->mirrorNote($model, $chat, null);
+
+        return response()->json(['ok' => true, 'notes' => '', 'synced' => true]);
+    }
+
+    // ---- Moderation (manager+; routes gated by can:manage-team) ------------
+
+    public function block(Request $request, AichModel $model, string $user): JsonResponse
+    {
+        return $this->proxyAction($this->of->blockUser($this->account($request, $model), $user));
+    }
+
+    public function unblock(Request $request, AichModel $model, string $user): JsonResponse
+    {
+        return $this->proxyAction($this->of->unblockUser($this->account($request, $model), $user));
+    }
+
+    public function restrict(Request $request, AichModel $model, string $user): JsonResponse
+    {
+        return $this->proxyAction($this->of->restrictUser($this->account($request, $model), $user));
+    }
+
+    public function unrestrict(Request $request, AichModel $model, string $user): JsonResponse
+    {
+        return $this->proxyAction($this->of->unrestrictUser($this->account($request, $model), $user));
+    }
+
+    /** "Unfollow" on OnlyFans = drop the creator's own subscription to the fan. */
+    public function unfollow(Request $request, AichModel $model, string $user): JsonResponse
+    {
+        return $this->proxyAction($this->of->unsubscribeFromUser($this->account($request, $model), $user));
+    }
+
     public function user(Request $request, AichModel $model, string $user): JsonResponse
     {
         $acct = $this->account($request, $model);
@@ -248,7 +407,8 @@ class OnlyFansChatController extends Controller
 
         return response()->json(['fan' => [
             'id' => $user,
-            'name' => $d['name'] ?? null,
+            // Same custom-name-aware label as the chat list, so a rename shows in both.
+            'name' => $this->of->displayNameOf($d),
             'username' => $d['username'] ?? null,
             'avatar' => $d['avatar'] ?? null,
             'about' => $this->of->htmlToText($d['about'] ?? ''),
@@ -258,6 +418,11 @@ class OnlyFansChatController extends Controller
             'subscribePrice' => data_get($d, 'subscribedOnData.subscribePrice') ?? data_get($d, 'subscribedOnData.regularPrice'),
             'lastSeen' => $d['lastSeen'] ?? null,
             'canEarn' => $d['canEarn'] ?? null,
+            // Moderation state rides along on the same getUser payload (no extra call), so the
+            // fan-settings menu can offer Block/Unblock rather than guessing.
+            'isBlocked' => (bool) ($d['isBlocked'] ?? false),
+            'isRestricted' => (bool) ($d['isRestricted'] ?? false),
+            'subscribedBy' => (bool) ($d['subscribedBy'] ?? false),
             'totalSpent' => $spend['total'],
             'tips' => $spend['tips'],
             'subscribed' => $sub['subscribed'],
@@ -395,7 +560,8 @@ class OnlyFansChatController extends Controller
             'trust_level' => 'sometimes|integer|min:0|max:5',
             'temperature' => 'sometimes|nullable|string|max:20',
             'key_details' => 'sometimes|nullable|string|max:5000',
-            'crm_notes' => 'sometimes|nullable|string|max:5000',
+            // `crm_notes` is deliberately absent: the note is owned by OnlyFans and written
+            // only through the notes endpoints, which mirror it back into that column.
             'is_timewaster' => 'sometimes|boolean',
             'sexting_mode' => 'sometimes|in:AUTO,FORCE_ON,FORCE_OFF',
             'tip_mode' => 'sometimes|in:AUTO,FORCE_ON,FORCE_OFF',

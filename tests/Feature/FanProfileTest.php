@@ -6,6 +6,7 @@ use App\Models\ModelAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 
 uses(RefreshDatabase::class);
 
@@ -31,7 +32,7 @@ function fakeGenerate(array $strategy = [], array $fanData = []): void
     ]);
 }
 
-function runGenerate(User $user, AichModel $model, string $chat = '101'): \Illuminate\Testing\TestResponse
+function runGenerate(User $user, AichModel $model, string $chat = '101'): TestResponse
 {
     return test()->actingAs($user)->postJson("/onlyfans/{$model->id}/chats/{$chat}/generate", [
         'messages' => [['from' => 'fan', 'text' => 'my day was long but better talking to you', 'time' => now()->toIso8601String()]],
@@ -135,16 +136,17 @@ it('serves the panel shape via GET and defaults for an unknown fan', function ()
         ->assertJsonPath('profile.locked_fields', []);
 });
 
-it('saves behavior toggles and notes', function () {
+// The note is no longer written here: OnlyFans owns it, and `crm_notes` is only the local
+// mirror written by the notes endpoints (see OnlyFansChatTest).
+it('saves behavior toggles', function () {
     test()->actingAs(User::factory()->admin()->create())
         ->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", [
-            'sexting_mode' => 'FORCE_ON', 'tip_mode' => 'FORCE_OFF', 'is_timewaster' => true, 'crm_notes' => 'never mentions family',
+            'sexting_mode' => 'FORCE_ON', 'tip_mode' => 'FORCE_OFF', 'is_timewaster' => true,
         ])
         ->assertOk()
         ->assertJsonPath('profile.sexting_mode', 'FORCE_ON')
         ->assertJsonPath('profile.tip_mode', 'FORCE_OFF')
-        ->assertJsonPath('profile.is_timewaster', true)
-        ->assertJsonPath('profile.crm_notes', 'never mentions family');
+        ->assertJsonPath('profile.is_timewaster', true);
 });
 
 it('rejects an invalid toggle value with a JSON 422', function () {

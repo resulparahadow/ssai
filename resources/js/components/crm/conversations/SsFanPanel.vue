@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { Lock, LockOpen, LoaderCircle, Sparkles } from '@lucide/vue';
+import {
+    Lock,
+    LockOpen,
+    LoaderCircle,
+    NotebookPen,
+    Sparkles,
+} from '@lucide/vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import SsNoteModal from '@/components/crm/conversations/SsNoteModal.vue';
 import { absoluteTime, coarseDuration, relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
@@ -184,6 +191,14 @@ const profile = ref<OfFanProfile | null>(null); // last-saved server state
 const profileLoading = ref(false);
 const profileSaving = ref(false);
 const profileError = ref<string | null>(null);
+const showNote = ref(false);
+
+/** Keep the displayed mirror in step after the modal writes the note to OnlyFans. */
+function onNoteSaved(notes: string): void {
+    if (profile.value) {
+        profile.value.crm_notes = notes === '' ? null : notes;
+    }
+}
 
 // Editable mirror; only fields that differ from `profile` are sent on save.
 const form = reactive({
@@ -191,7 +206,6 @@ const form = reactive({
     trust_level: 0,
     temperature: '',
     key_details: '',
-    crm_notes: '',
     is_timewaster: false,
     sexting_mode: 'AUTO' as OfToggleMode,
     tip_mode: 'AUTO' as OfToggleMode,
@@ -203,7 +217,6 @@ function syncForm(p: OfFanProfile): void {
     form.trust_level = p.trust_level;
     form.temperature = p.temperature ?? '';
     form.key_details = p.key_details ?? '';
-    form.crm_notes = p.crm_notes ?? '';
     form.is_timewaster = p.is_timewaster;
     form.sexting_mode = p.sexting_mode;
     form.tip_mode = p.tip_mode;
@@ -259,10 +272,6 @@ async function saveProfile(): Promise<void> {
 
     if (form.key_details !== (p.key_details ?? '')) {
         payload.key_details = form.key_details;
-    }
-
-    if (form.crm_notes !== (p.crm_notes ?? '')) {
-        payload.crm_notes = form.crm_notes;
     }
 
     if (form.is_timewaster !== p.is_timewaster) {
@@ -330,6 +339,7 @@ watch(
         error.value = null;
         profile.value = null;
         profileError.value = null;
+        showNote.value = false;
 
         if (props.fan && props.modelId != null) {
             fetchSummary();
@@ -344,6 +354,14 @@ onBeforeUnmount(stopPolling);
 
 <template>
     <div class="flex flex-1 flex-col overflow-hidden">
+        <SsNoteModal
+            v-if="showNote && fan && modelId != null"
+            :model-id="modelId"
+            :chat-id="fan.id"
+            :fan-name="fan.name ?? 'this fan'"
+            @close="showNote = false"
+            @saved="onNoteSaved"
+        />
         <div class="border-b border-ss-border p-4">
             <div class="flex items-center gap-3">
                 <span
@@ -656,14 +674,36 @@ onBeforeUnmount(stopPolling);
                         />
                     </div>
 
+                    <!-- The note lives on OnlyFans; this shows the local mirror (free) and
+                         edits go through the modal, which reads/writes OnlyFans directly. -->
                     <div>
-                        <div class="mb-1 text-[10px] text-ss-text-3">Notes</div>
-                        <textarea
-                            v-model="form.crm_notes"
-                            rows="2"
-                            placeholder="Private notes (hard NOs, reminders)"
-                            class="w-full resize-y rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
-                        />
+                        <div
+                            class="mb-1 flex items-center justify-between gap-2"
+                        >
+                            <span class="text-[10px] text-ss-text-3"
+                                >OnlyFans note</span
+                            >
+                            <button
+                                type="button"
+                                class="flex items-center gap-1 text-[10px] text-ss-text-3 hover:text-ss-text"
+                                @click="showNote = true"
+                            >
+                                <NotebookPen :size="11" />
+                                Edit
+                            </button>
+                        </div>
+                        <p
+                            v-if="profile?.crm_notes"
+                            class="rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] whitespace-pre-wrap text-ss-text"
+                        >
+                            {{ profile.crm_notes }}
+                        </p>
+                        <p
+                            v-else
+                            class="rounded-md border border-dashed border-ss-border px-2 py-1 text-[12px] text-ss-text-3"
+                        >
+                            No note yet.
+                        </p>
                     </div>
 
                     <!-- Behavior toggles -->

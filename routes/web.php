@@ -48,6 +48,31 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::patch('chats/{chat}/profile', [OnlyFansChatController::class, 'updateProfile'])->name('profile.update');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
+
+        // Chat actions. `chats/{chat}/pinned` is a SIBLING of `messages` on purpose — nesting it
+        // under `messages/` would collide with the `messages/{message}` binding above.
+        Route::post('chats/{chat}/mute', [OnlyFansChatController::class, 'mute'])->name('mute');
+        Route::delete('chats/{chat}/mute', [OnlyFansChatController::class, 'unmute'])->name('unmute');
+        Route::post('chats/{chat}/mark-as-read', [OnlyFansChatController::class, 'markRead'])->name('mark-read');
+        Route::post('chats/{chat}/mark-as-unread', [OnlyFansChatController::class, 'markUnread'])->name('mark-unread');
+        Route::get('chats/{chat}/pinned', [OnlyFansChatController::class, 'pinned'])->name('pinned');
+        Route::post('chats/{chat}/messages/{message}/pin', [OnlyFansChatController::class, 'pin'])->name('pin');
+        Route::delete('chats/{chat}/messages/{message}/unpin', [OnlyFansChatController::class, 'unpin'])->name('unpin');
+        Route::get('chats/{chat}/notes', [OnlyFansChatController::class, 'notes'])->name('notes');
+        Route::put('chats/{chat}/notes', [OnlyFansChatController::class, 'saveNotes'])->name('notes.save');
+        Route::delete('chats/{chat}/notes', [OnlyFansChatController::class, 'clearNotes'])->name('notes.clear');
+        Route::put('chats/{chat}/custom-name', [OnlyFansChatController::class, 'rename'])->name('rename');
+
+        // Destructive/outward-facing actions on a real fan's account — manager/admin only.
+        // The controller still scopes per-creator; this gate is the extra role bar.
+        Route::middleware('can:manage-team')->group(function () {
+            Route::post('chats/{chat}/hide', [OnlyFansChatController::class, 'hide'])->name('hide');
+            Route::post('users/{user}/block', [OnlyFansChatController::class, 'block'])->name('block');
+            Route::delete('users/{user}/block', [OnlyFansChatController::class, 'unblock'])->name('unblock');
+            Route::post('users/{user}/restrict', [OnlyFansChatController::class, 'restrict'])->name('restrict');
+            Route::delete('users/{user}/restrict', [OnlyFansChatController::class, 'unrestrict'])->name('unrestrict');
+            Route::delete('users/{user}/subscribe', [OnlyFansChatController::class, 'unfollow'])->name('unfollow');
+        });
     });
 
     // Creator Models — manager/admin only.
@@ -94,8 +119,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('notifications/counts', [ModelOnlyFansController::class, 'notificationCounts'])->name('notifications.counts');
             Route::post('notifications/mark-read', [ModelOnlyFansController::class, 'markNotificationsRead'])->name('notifications.mark-read');
 
-            // Users — lookup + moderation
+            // Users — lookup + moderation.
+            // Static segments MUST stay above `users/{user}` or that route captures them.
             Route::get('users/list', [ModelOnlyFansController::class, 'userList'])->name('users.list');
+            Route::get('users/blocked', [ModelOnlyFansController::class, 'blockedUsers'])->name('users.blocked');
+            Route::get('users/restricted', [ModelOnlyFansController::class, 'restrictedUsers'])->name('users.restricted');
             Route::get('users/{user}', [ModelOnlyFansController::class, 'userDetail'])->name('users.show');
             Route::post('users/{user}/block', [ModelOnlyFansController::class, 'block'])->name('users.block');
             Route::delete('users/{user}/block', [ModelOnlyFansController::class, 'unblock'])->name('users.unblock');

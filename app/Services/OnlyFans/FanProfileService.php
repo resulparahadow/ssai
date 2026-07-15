@@ -58,6 +58,21 @@ class FanProfileService
         return $profile;
     }
 
+    /**
+     * Cache the fan's OnlyFans-native note locally. OnlyFans owns the note; this column is
+     * only a mirror, so `generate` can feed it to the AI without paying a per-generation
+     * billed call. Callers must mirror ONLY after OnlyFans confirms the write.
+     */
+    public function mirrorNote(AichModel $model, string $ofFanId, ?string $notes): CustomerProfile
+    {
+        $notes = $notes === null ? null : trim($notes);
+        $profile = $this->findOrNew($model, $ofFanId);
+        $profile->crm_notes = ($notes === null || $notes === '') ? null : $notes;
+        $profile->save();
+
+        return $profile;
+    }
+
     /** The legacy `_profile` shape the engine reads (null-safe defaults match legacy). */
     public function toEngineProfile(CustomerProfile $profile): array
     {

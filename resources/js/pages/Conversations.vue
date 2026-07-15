@@ -20,6 +20,7 @@ import {
     setActiveChat,
 } from '@/lib/realtimeInbound';
 import type { InboundPayload } from '@/lib/realtimeInbound';
+import type { Role } from '@/types/auth';
 import type { OfChat, OfFan, OfMessage, SidebarCreator } from '@/types/crm';
 
 const props = defineProps<{ selectedCreator: string | null }>();
@@ -64,6 +65,45 @@ const rail = ref<'fan' | 'ai'>('fan');
 const cur = computed(() =>
     selected.value ? chatComposer(selected.value.id) : null,
 );
+
+// Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
+// route is the actual enforcement.
+const role = computed<Role>(
+    () => (page.props.auth as { user?: { role?: Role } })?.user?.role ?? 'chatter',
+);
+
+/**
+ * Patch the open chat's row after a server action. `selected` is a live reference into
+ * `chats.value`, which shares its backing array with chatsCache — so an in-place mutation
+ * updates the row, the list and the cache at once. Never reassign the array here.
+ */
+function patchChat(patch: Partial<OfChat>) {
+    if (selected.value) {
+        Object.assign(selected.value, patch);
+    }
+}
+
+/** A hidden chat is gone from OnlyFans' list — drop it locally and close the thread. */
+function dropChat() {
+    const id = selected.value?.id;
+
+    if (!id) {
+        return;
+    }
+
+    const i = chats.value.findIndex((c) => c.id === id);
+
+    if (i !== -1) {
+        chats.value.splice(i, 1); // splice keeps the array identity chatsCache relies on
+    }
+
+    msgCache.delete(id);
+    fanCache.delete(id);
+    nextCache.delete(id);
+    selected.value = null;
+    messages.value = [];
+    fan.value = null;
+}
 
 async function generate() {
     const m = model.value;
@@ -196,6 +236,7 @@ async function send(override?: string) {
         isFree: true,
         isOpened: false,
         isLiked: false,
+        isPinned: false,
         isTip: false,
         mediaCount: gifMedia.length,
         media: gifMedia,
@@ -700,6 +741,9 @@ function applyToChatList(
         unread: isOpen ? 0 : 1,
         canSend: true,
         totalSpent: null, // unknown from a live inbound; fills in on the next chat-list load
+        muted: false, // ditto — the chat list is the source of truth for these three
+        pinnedCount: 0,
+        restricted: false,
     });
 }
 
@@ -780,6 +824,8 @@ onBeforeUnmount(() => {
             <SsChatThread
                 :model-id="model.id"
                 :chat="selected"
+                :fan="fan"
+                :role="role"
                 :messages="messages"
                 :loading="msgsLoading"
                 :error="msgsError"
@@ -791,6 +837,8 @@ onBeforeUnmount(() => {
                 @delete="onDelete"
                 @resend="resend"
                 @load-more="loadMore"
+                @chat-changed="patchChat"
+                @hidden="dropChat"
             >
                 <template v-if="cur" #composer>
                     <SsComposer

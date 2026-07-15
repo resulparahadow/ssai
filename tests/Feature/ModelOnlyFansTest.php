@@ -225,6 +225,91 @@ it('gets notification counts and marks all read', function () {
     Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/notifications/mark-all-as-read'));
 });
 
+// ---- Blocked / restricted lists -------------------------------------------
+
+it('lists blocked users from the data.list shape', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
+        'list' => [[
+            'id' => 535406053, 'name' => 'Sonny', 'username' => 'u535406053',
+            // OnlyFans commonly has a user blocked AND restricted at once.
+            'isBlocked' => true, 'isRestricted' => true, 'canRestrict' => false,
+            'lastSeen' => '2026-03-28T21:30:16+00:00', 'subscribedOnDuration' => '4 months',
+            'subscribedOnExpiredNow' => true, 'isActive' => true,
+        ]],
+        'hasMore' => false,
+        'nextOffset' => 5,
+    ]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/models/{$this->model->id}/of/users/blocked?limit=50")
+        ->assertOk()
+        ->assertJsonPath('users.0.id', '535406053')
+        ->assertJsonPath('users.0.isBlocked', true)
+        ->assertJsonPath('users.0.isRestricted', true)
+        ->assertJsonPath('users.0.canRestrict', false)
+        ->assertJsonPath('users.0.lastSeen', '2026-03-28T21:30:16+00:00')
+        ->assertJsonPath('users.0.subscribedOnExpired', true)
+        ->assertJsonPath('users.0.subscribedOnDuration', '4 months')
+        ->assertJsonPath('hasMore', false);
+
+    Http::assertSent(fn ($r) => $r->method() === 'GET'
+        && str_contains($r->url(), '/acct_cam/users/blocked')
+        && str_contains($r->url(), 'limit=50'));
+});
+
+// The docs example's `_pagination.next_page` points at `/users/restrict`, which 500s live.
+// The list path is `/users/restricted` — this pins it.
+it('lists restricted users from the restricted path, not restrict', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
+        'list' => [['id' => 567427648, 'name' => 'Elvis', 'isRestricted' => true, 'subscribedOn' => true, 'subscribedOnDuration' => '1 month']],
+        'hasMore' => true,
+        'nextOffset' => 50,
+    ]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/models/{$this->model->id}/of/users/restricted")
+        ->assertOk()
+        ->assertJsonPath('users.0.isRestricted', true)
+        ->assertJsonPath('users.0.subscribedOn', true)
+        ->assertJsonPath('hasMore', true)
+        ->assertJsonPath('nextOffset', 50);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/acct_cam/users/restricted'));
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), '/acct_cam/users/restrict?')
+        || str_ends_with($r->url(), '/acct_cam/users/restrict'));
+});
+
+// `users/{user}` would swallow `users/blocked` as a user id if declared first.
+it('routes users/blocked and users/restricted to the lists, not the user lookup', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)->getJson("/models/{$this->model->id}/of/users/blocked")->assertOk()->assertJsonStructure(['users']);
+    $this->actingAs($admin)->getJson("/models/{$this->model->id}/of/users/restricted")->assertOk()->assertJsonStructure(['users']);
+
+    // The lookup route would have hit `/users/blocked` as an id — i.e. no `/users/blocked/…`.
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'users/blocked/'));
+});
+
+it('forwards an upstream failure on the moderation lists', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'nope'], 403)]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/models/{$this->model->id}/of/users/blocked")
+        ->assertStatus(403);
+});
+
+it('keeps the moderation lists behind manage-team', function () {
+    Http::fake();
+    $chatter = User::factory()->create(['role' => 'chatter']);
+    ModelAssignment::create(['creator_model' => $this->model->name, 'user_id' => $chatter->id]);
+
+    $this->actingAs($chatter)->getJson("/models/{$this->model->id}/of/users/blocked")->assertForbidden();
+    $this->actingAs($chatter)->getJson("/models/{$this->model->id}/of/users/restricted")->assertForbidden();
+
+    Http::assertNothingSent();
+});
+
 it('looks up a user and toggles block on/off', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101, 'name' => 'Jake', 'username' => 'jake', 'isBlocked' => true, 'subscribedBy' => false]])]);
     $admin = User::factory()->admin()->create();

@@ -1,6 +1,7 @@
 import { postJson } from '@/lib/api';
 import type {
     AiStrategy,
+    OfFanNote,
     OfFanProfile,
     OfFanSummary,
     OfGif,
@@ -200,7 +201,6 @@ export const ofApi = {
                 | 'trust_level'
                 | 'temperature'
                 | 'key_details'
-                | 'crm_notes'
                 | 'is_timewaster'
                 | 'sexting_mode'
                 | 'tip_mode'
@@ -212,4 +212,66 @@ export const ofApi = {
             `${base(m)}/chats/${chat}/profile`,
             payload,
         ),
+
+    // ---- Chat actions -----------------------------------------------------
+    mute: (m: number, chat: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/mute`, {}),
+    unmute: (m: number, chat: string) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/chats/${chat}/mute`),
+    markRead: (m: number, chat: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/mark-as-read`, {}),
+    markUnread: (m: number, chat: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/mark-as-unread`, {}),
+    /** Manager+ only. OnlyFans unhides the chat only when the fan is messaged again. */
+    hide: (m: number, chat: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/hide`, {}),
+
+    // ---- Pinned messages --------------------------------------------------
+    pinned: (m: number, chat: string) =>
+        req<{ messages: unknown[] }>('GET', `${base(m)}/chats/${chat}/pinned`),
+    pin: (m: number, chat: string, id: string) =>
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/messages/${id}/pin`,
+            {},
+        ),
+    unpin: (m: number, chat: string, id: string) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/messages/${id}/unpin`,
+        ),
+
+    // ---- Fan note (OnlyFans-owned) ----------------------------------------
+    getNotes: (m: number, chat: string) =>
+        req<OfFanNote>('GET', `${base(m)}/chats/${chat}/notes`),
+    saveNotes: (m: number, chat: string, notes: string) =>
+        req<{ ok: boolean } & OfFanNote>(
+            'PUT',
+            `${base(m)}/chats/${chat}/notes`,
+            { notes },
+        ),
+    clearNotes: (m: number, chat: string) =>
+        req<{ ok: boolean } & OfFanNote>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/notes`,
+        ),
+    /** Set the fan's OnlyFans custom name; '' or null clears it. */
+    rename: (m: number, chat: string, customName: string | null) =>
+        req<{ ok: boolean; name: string | null }>(
+            'PUT',
+            `${base(m)}/chats/${chat}/custom-name`,
+            { custom_name: customName },
+        ),
+
+    // ---- Moderation (manager+; server-gated by can:manage-team) -----------
+    block: (m: number, fanId: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/users/${fanId}/block`, {}),
+    unblock: (m: number, fanId: string) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/users/${fanId}/block`),
+    restrict: (m: number, fanId: string) =>
+        postJson<{ ok: boolean }>(`${base(m)}/users/${fanId}/restrict`, {}),
+    unrestrict: (m: number, fanId: string) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/users/${fanId}/restrict`),
+    /** Drop the creator's own subscription to the fan ("unfollow"). */
+    unfollow: (m: number, fanId: string) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/users/${fanId}/subscribe`),
 };
