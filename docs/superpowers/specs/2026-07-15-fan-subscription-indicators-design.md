@@ -11,11 +11,14 @@ state that already ships inside the live `getUser` payload but is currently
 dropped on the floor, and fix the two rows that render badly today:
 
 1. **Subscribed** — is this fan currently subscribed to the creator, or lapsed?
-2. **Subscribed for** — how long they have been subscribed (e.g. `1 month`).
+2. **Subscribed for** — how long they have been subscribed (e.g. `5 months`).
 3. **Location** — already shown; kept, unchanged.
-4. **Rebill on** — does their subscription auto-renew?
-5. **Last seen** — currently rendered as a raw ISO string
+4. **Last seen** — currently rendered as a raw ISO string
    (`2026-07-15T13:04:11+00:00`); becomes relative (`2 hours ago`).
+
+A fifth indicator, **Rebill on**, was specified and built, then **cut** — OnlyFans
+exposes no usable rebill signal for this account (see Live validation §3). The
+implementation is in git history at `c2fa9ce` if the data ever becomes available.
 
 This is display-only over live data. **Nothing new is persisted** (Conversations
 persists no message text; the carve-outs remain AI intel, the usage ledger, and
@@ -59,17 +62,9 @@ List Active Fans, and the FAQ) via context7 on 2026-07-15.
 | --- | --- |
 | Subscribed | `subscribedOnExpiredNow` → `subscribedOn` → `subscribedOnData.expiredAt` |
 | Subscribed for | `subscribedOnDuration` → `subscribedOnData.duration` → derive from `subscribeAt` |
-| Rebill on | `listsStates[]` entry `rebill_on` / `rebill_off` → `hasUser` |
 | Location | `location` (already wired) |
 | Sub price | `subscribedOnData.subscribePrice` (**was** `subscribedByData.…`) |
 | Last seen | `lastSeen` (already wired; reformatted client-side) |
-
-**On rebill:** the FAQ documents an agency-level path (Get User List with
-`rebill_on` as `{userListId}`) for *enumerating* rebill-on fans. That is the wrong
-shape here — it would be a second API call to answer a per-fan question. The
-per-fan answer is *documented* as inline in `listsStates[]`, which carries
-`rebill_on` and `rebill_off` entries with a `hasUser` flag. We read that — but see
-the live validation below: it does not populate in practice.
 
 ## Live validation (2026-07-15, read-only probe of the mapped test account)
 
@@ -89,7 +84,7 @@ real payloads across 10 live chats. Four corrections came out of it:
    Had the cascade trusted the documented primary field alone, "Subscribed for"
    would render blank for every fan. The cascade is load-bearing, not padding.
 
-3. **Rebill is not available on this account — the pill never renders.** Verified:
+3. **Rebill is not available on this account → the indicator was CUT.** Verified:
    `listsStates` returns only `following/fans/recent/friends/muted/tagged` (no
    `rebill_*`); `subscribedByAutoprolong` is null (and is the wrong direction);
    there is no `subscribedOnAutoprolong`; and `GET {acct}/user-lists/rebill_on`
@@ -98,10 +93,11 @@ real payloads across 10 live chats. Four corrections came out of it:
    account holds a free 10-year sub (`price: 0`, `expiredAt: 2036`), and OnlyFans
    appears to maintain rebill lists only where recurring payments exist.
 
-   The `listsStates` read is kept: it costs no extra call, degrades to a hidden
-   pill rather than a wrong one, and lights up automatically if a production
-   account with paying fans does expose the lists. **Unresolved pending a probe of
-   a real creator account with paying subscribers.**
+   The `listsStates` implementation was built and then removed rather than left in
+   reading `null` forever — a pill that can never render is dead code, and the
+   finding is preserved here plus in git (`c2fa9ce`). **If it is ever revived, the
+   open question is whether a production account with paying subscribers exposes
+   the rebill lists; that was never established.**
 
 4. **"Expired" was wrong for non-fans.** A followed creator comes back
    `subscribed: false` with no `subscribeAt`. Labelling that "Expired" implies a
@@ -118,8 +114,7 @@ sibling helper:
 /**
  * @param  array<string, mixed>  $d  the `data` object from getUser
  * @return array{subscribed: bool|null, durationLabel: string|null,
- *               subscribedAt: string|null, expiredAt: string|null,
- *               rebillOn: bool|null}
+ *               subscribedAt: string|null, expiredAt: string|null}
  */
 public function extractFanSubscription(array $d): array
 ```
@@ -139,14 +134,11 @@ renders as a confident-looking `false`/`0`.
 
 - **durationLabel**
   1. `subscribedOnDuration` non-empty → use verbatim
-  2. else `subscribedOnData.duration` non-empty → use verbatim (docs show `""`,
-     so empty string is treated as absent, not as a value)
+  2. else `subscribedOnData.duration` non-empty → use verbatim (empty string is
+     treated as absent, not as a value)
   3. else `null` → the UI derives a coarse label from `subscribedAt`
 
-- **rebillOn** — scan `listsStates[]` matching on `id` **or** `type`:
-  - `rebill_on` with `hasUser: true` → `true`
-  - `rebill_off` with `hasUser: true` → `false`
-  - neither → `null` (unknown)
+  In practice step 2 is the one that fires — see Live validation §2.
 
 - **subscribedAt** / **expiredAt** — `subscribedOnData.subscribeAt` / `.expiredAt`,
   passed through as raw ISO for the client to format.
@@ -183,12 +175,12 @@ clamp to `Online now`.
 
 ## C. UI — `SsFanPanel` (Fan tab)
 
-A status line of two pills above the existing detail rows:
+A status pill above the existing detail rows:
 
 ```
-● Subscribed          ↻ Rebill on
+● Subscribed
 ────────────────────────────────
-Subscribed for            1 month
+Subscribed for           5 months
 Location            Austin, TX, US
 Sub price                   $9.99
 Last seen             2 hours ago   ← hover: Jul 15, 2026, 13:04
@@ -200,16 +192,13 @@ Rendering rules:
   `○ Expired` when `false` **and** a `subscribedAt` exists; neutral
   `○ Not subscribed` when `false` with no `subscribedAt` (a followed creator, never
   a fan); **hidden** when `null`.
-- **Rebill pill** — `↻ Rebill on` (green) / `↻ Rebill off` (neutral) ;
-  **hidden** when `null`. Deliberately **still shown for expired fans** — "they
-  let it lapse" is signal a chatter wants.
 - **Subscribed for** — `durationLabel` verbatim when present, else a coarse
   derivation from `subscribedAt` (`~5 weeks`), else `—`. Coarse by design: it
   gauges loyalty tier, and matching OF's own wording avoids discrepancies the
   chatter would have to explain.
 - **Last seen** — `relativeTime(fan.lastSeen)` with `absoluteTime` in `title`.
-- Hiding (not defaulting) unknown pills is the whole point of the `null` cascade:
-  a wrong "Rebill off" would drive a real chatter decision.
+- Hiding (not defaulting) an unknown pill is the whole point of the `null` cascade:
+  a wrong status pill would drive a real chatter decision.
 
 Styled with `ss-*` tokens / `font-ss` per the CRM convention.
 
@@ -218,7 +207,6 @@ Styled with `ss-*` tokens / `font-ss` per the CRM convention.
 Pest unit tests on `extractFanSubscription()` — the real logic, pure and
 payload-shaped:
 
-- rebill on / off / unknown (missing `listsStates`)
 - `subscribedOnExpiredNow: true` → not subscribed, even when `subscribedOn: null`
 - active subscription via each cascade step
 - empty-string `duration` treated as absent
@@ -234,9 +222,6 @@ Guards: `php artisan test`, `npm run lint:check`, `npm run types:check`, `npm ru
 
 ## Risks
 
-- **Rebill does not render on the probed account** (see Live validation §3). Three
-  of the four requested indicators work; rebill needs either a production account
-  that exposes the lists, or a decision to drop the pill.
 - **The price fix changes a visible number.** "Sub price" starts reading the
   fan→creator direction. On the probed account real fans show `$0.00` (genuinely
   free subs) where the old code showed `$15` (what the creator pays *them*). The

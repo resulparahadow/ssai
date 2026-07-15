@@ -14,41 +14,6 @@ function ofService(): OnlyFansService
     return new OnlyFansService('test-key', 'https://app.onlyfansapi.com/api');
 }
 
-/** @return array<string, mixed> */
-function listsStates(string $id, bool $hasUser): array
-{
-    return ['listsStates' => [
-        ['id' => 'following', 'type' => 'following', 'name' => 'Following', 'hasUser' => true],
-        ['id' => $id, 'type' => $id, 'name' => 'Renew', 'hasUser' => $hasUser],
-    ]];
-}
-
-// ---- rebillOn -------------------------------------------------------------
-
-it('reads rebill on from the rebill_on list state', function () {
-    $sub = ofService()->extractFanSubscription(listsStates('rebill_on', true));
-
-    expect($sub['rebillOn'])->toBeTrue();
-});
-
-it('reads rebill off from the rebill_off list state', function () {
-    $sub = ofService()->extractFanSubscription(listsStates('rebill_off', true));
-
-    expect($sub['rebillOn'])->toBeFalse();
-});
-
-it('reports rebill as unknown (null) when listsStates is absent', function () {
-    $sub = ofService()->extractFanSubscription(['id' => 101]);
-
-    expect($sub['rebillOn'])->toBeNull();
-});
-
-it('reports rebill as unknown when the fan is in neither rebill list', function () {
-    $sub = ofService()->extractFanSubscription(listsStates('rebill_on', false));
-
-    expect($sub['rebillOn'])->toBeNull();
-});
-
 // ---- subscribed -----------------------------------------------------------
 
 it('treats subscribedOnExpiredNow as authoritative even when subscribedOn is null', function () {
@@ -138,7 +103,6 @@ it('returns all-null rather than crashing on an empty payload', function () {
         'durationLabel' => null,
         'subscribedAt' => null,
         'expiredAt' => null,
-        'rebillOn' => null,
     ]);
 });
 

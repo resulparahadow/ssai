@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-    Lock,
-    LockOpen,
-    LoaderCircle,
-    RefreshCw,
-    RefreshCwOff,
-    Sparkles,
-} from '@lucide/vue';
+import { Lock, LockOpen, LoaderCircle, Sparkles } from '@lucide/vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { absoluteTime, coarseDuration, relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
@@ -381,32 +374,16 @@ onBeforeUnmount(stopPolling);
             <p class="text-[11px] text-ss-text-3">Live from OnlyFans</p>
 
             <!--
-              Status pills. A null field means OnlyFans didn't tell us, so the pill is
-              hidden outright — a defaulted "Rebill off" would be a confident lie a
-              chatter might act on. Rebill stays visible on expired fans on purpose:
-              "they turned rebill off and let it lapse" is signal.
+              Hidden entirely when OnlyFans doesn't tell us the state — a defaulted
+              pill would be a confident lie a chatter might act on.
             -->
-            <div
-                v-if="fan && (subscribedLabel || fan.rebillOn !== null)"
-                class="flex flex-wrap items-center gap-1.5"
-            >
-                <span
-                    v-if="subscribedLabel"
-                    :class="[PILL, fan.subscribed ? PILL_ON : PILL_OFF]"
-                >
+            <div v-if="subscribedLabel" class="flex items-center">
+                <span :class="[PILL, fan!.subscribed ? PILL_ON : PILL_OFF]">
                     <span
                         class="h-1.5 w-1.5 rounded-full"
-                        :class="fan.subscribed ? 'bg-ss-pos' : 'bg-ss-text-3'"
+                        :class="fan!.subscribed ? 'bg-ss-pos' : 'bg-ss-text-3'"
                     />
                     {{ subscribedLabel }}
-                </span>
-                <span
-                    v-if="fan.rebillOn !== null"
-                    :class="[PILL, fan.rebillOn ? PILL_ON : PILL_OFF]"
-                >
-                    <RefreshCw v-if="fan.rebillOn" :size="11" />
-                    <RefreshCwOff v-else :size="11" />
-                    {{ fan.rebillOn ? 'Rebill on' : 'Rebill off' }}
                 </span>
             </div>
 

@@ -202,7 +202,7 @@ class OnlyFansService
      * unknown never renders as a confident `false` a chatter would act on.
      *
      * @param  array<string, mixed>  $d  the `data` object from getUser
-     * @return array{subscribed: bool|null, durationLabel: string|null, subscribedAt: string|null, expiredAt: string|null, rebillOn: bool|null}
+     * @return array{subscribed: bool|null, durationLabel: string|null, subscribedAt: string|null, expiredAt: string|null}
      */
     public function extractFanSubscription(array $d): array
     {
@@ -213,7 +213,6 @@ class OnlyFansService
             'durationLabel' => $this->fanDurationLabel($d, $on),
             'subscribedAt' => $on['subscribeAt'] ?? null,
             'expiredAt' => $on['expiredAt'] ?? null,
-            'rebillOn' => $this->fanRebillOn($d),
         ];
     }
 
@@ -258,38 +257,6 @@ class OnlyFansService
         foreach ([$d['subscribedOnDuration'] ?? null, $on['duration'] ?? null] as $label) {
             if (is_string($label) && trim($label) !== '') {
                 return $label;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Per-fan rebill state, read inline from `listsStates` rather than via the
-     * agency-level "Get User List (rebill_on)" endpoint — that would be a second API
-     * call to answer a question this payload already carries.
-     *
-     * @param  array<string, mixed>  $d
-     */
-    private function fanRebillOn(array $d): ?bool
-    {
-        $lists = is_array($d['listsStates'] ?? null) ? $d['listsStates'] : [];
-
-        foreach ($lists as $list) {
-            if (! is_array($list) || ($list['hasUser'] ?? null) !== true) {
-                continue;
-            }
-
-            // Match id OR type: some payloads carry an opaque id with the real
-            // discriminator in `type`.
-            $keys = [$list['id'] ?? null, $list['type'] ?? null];
-
-            if (in_array('rebill_on', $keys, true)) {
-                return true;
-            }
-
-            if (in_array('rebill_off', $keys, true)) {
-                return false;
             }
         }
 

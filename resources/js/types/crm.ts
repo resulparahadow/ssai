@@ -145,7 +145,6 @@ export interface OfFan {
     durationLabel: string | null; // OF's own label, e.g. "1 month"
     subscribedAt: string | null; // ISO
     expiredAt: string | null; // ISO
-    rebillOn: boolean | null; // auto-renew
 }
 
 export interface SidebarCreator {

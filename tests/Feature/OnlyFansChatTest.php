@@ -323,19 +323,20 @@ it('returns fan details with live lifetime spend + tips', function () {
 });
 
 it('surfaces subscription indicators on fan details (no extra API call)', function () {
+    // Shaped after a real payload: the documented top-level `subscribedOnDuration`
+    // arrives null and the usable label sits in `subscribedOnData.duration`.
     Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
         'id' => 101, 'name' => 'Jake', 'username' => 'jake_w',
         'location' => 'Austin, TX',
         'lastSeen' => '2026-07-15T13:04:11+00:00',
+        'subscribedOn' => true,
         'subscribedOnExpiredNow' => false,
-        'subscribedOnDuration' => '1 month',
+        'subscribedOnDuration' => null,
         'subscribedOnData' => [
             'subscribePrice' => 9.99,
+            'duration' => '5 months',
             'subscribeAt' => '2026-06-14T10:00:00+00:00',
             'expiredAt' => '2026-08-14T10:00:00+00:00',
-        ],
-        'listsStates' => [
-            ['id' => 'rebill_on', 'type' => 'rebill_on', 'name' => 'Renew On', 'hasUser' => true],
         ],
     ]])]);
 
@@ -343,14 +344,33 @@ it('surfaces subscription indicators on fan details (no extra API call)', functi
         ->getJson("/onlyfans/{$this->model->id}/users/101")
         ->assertOk()
         ->assertJsonPath('fan.subscribed', true)
-        ->assertJsonPath('fan.durationLabel', '1 month')
-        ->assertJsonPath('fan.rebillOn', true)
+        ->assertJsonPath('fan.durationLabel', '5 months')
         ->assertJsonPath('fan.location', 'Austin, TX')
         ->assertJsonPath('fan.subscribedAt', '2026-06-14T10:00:00+00:00')
         ->assertJsonPath('fan.lastSeen', '2026-07-15T13:04:11+00:00');
 
     // One upstream call only — the indicators ride along on the existing getUser.
     Http::assertSentCount(1);
+});
+
+it('reports a followed non-fan as never-subscribed, not expired', function () {
+    // A creator the account follows: subscribedOn false with no subscribedOnData.
+    // A null subscribedAt is what lets the panel say "Not subscribed" over "Expired".
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => [
+        'id' => 101, 'name' => 'Mia',
+        'subscribedOn' => false,
+        'subscribedBy' => true,
+        'subscribedByData' => ['subscribePrice' => 15, 'duration' => '2 months'],
+    ]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/users/101")
+        ->assertOk()
+        ->assertJsonPath('fan.subscribed', false)
+        ->assertJsonPath('fan.subscribedAt', null)
+        // The creator's own $15 sub to them must not leak in as their price/duration.
+        ->assertJsonPath('fan.subscribePrice', null)
+        ->assertJsonPath('fan.durationLabel', null);
 });
 
 it('reads subscribePrice from the fan->creator direction (subscribedOnData)', function () {

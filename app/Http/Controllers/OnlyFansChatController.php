@@ -264,7 +264,6 @@ class OnlyFansChatController extends Controller
             'durationLabel' => $sub['durationLabel'],
             'subscribedAt' => $sub['subscribedAt'],
             'expiredAt' => $sub['expiredAt'],
-            'rebillOn' => $sub['rebillOn'],
         ]]);
     }
 
