@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { Check, RefreshCw, Send, Sparkles, X } from '@lucide/vue';
-import { ref } from 'vue';
+import {
+    Bold,
+    Check,
+    Italic,
+    RefreshCw,
+    Send,
+    Smile,
+    Sparkles,
+    X,
+} from '@lucide/vue';
+import { computed, nextTick, ref } from 'vue';
 import type { OfGif } from '@/types/crm';
+import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
 
 const props = defineProps<{
@@ -13,6 +23,8 @@ const props = defineProps<{
     generating: boolean;
     sending: boolean;
     error: string | null;
+    canSend: boolean;
+    canSendReason: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +38,15 @@ const emit = defineEmits<{
 }>();
 
 const showPicker = ref(false);
+const showEmoji = ref(false);
+const textarea = ref<HTMLTextAreaElement | null>(null);
+
+const sendable = computed(
+    () =>
+        props.canSend &&
+        !props.sending &&
+        (props.draft.trim().length > 0 || props.attachedGif !== null),
+);
 
 function onInput(e: Event) {
     emit('update:draft', (e.target as HTMLTextAreaElement).value);
@@ -34,6 +55,76 @@ function onInput(e: Event) {
 function pickGif(gif: OfGif) {
     emit('update:attachedGif', gif);
     showPicker.value = false;
+}
+
+/** Replace the current selection (or insert at the caret), then restore focus + caret. */
+function replaceSelection(
+    build: (selected: string) => string,
+    caretFor: (start: number, end: number, selected: string) => number,
+) {
+    const el = textarea.value;
+
+    if (!el) {
+        return;
+    }
+
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = props.draft.slice(start, end);
+
+    emit(
+        'update:draft',
+        props.draft.slice(0, start) + build(selected) + props.draft.slice(end),
+    );
+
+    nextTick(() => {
+        el.focus();
+        const caret = caretFor(start, end, selected);
+        el.setSelectionRange(caret, caret);
+    });
+}
+
+/** Wrap the selection in a marker pair. The server converts ** → strong, __ → em. */
+function surround(marker: string) {
+    replaceSelection(
+        (selected) => `${marker}${selected}${marker}`,
+        // Selection wrapped: caret after it. Nothing selected: caret between the markers.
+        (start, end, selected) =>
+            selected ? end + marker.length * 2 : start + marker.length,
+    );
+}
+
+function insertEmoji(emoji: string) {
+    showEmoji.value = false;
+    replaceSelection(
+        () => emoji,
+        (start) => start + emoji.length,
+    );
+}
+
+function onKeydown(e: KeyboardEvent) {
+    // isComposing guards IME/emoji input — Enter commits the composition, it must not send.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+
+        if (sendable.value) {
+            emit('send');
+        }
+
+        return;
+    }
+
+    if (!(e.metaKey || e.ctrlKey)) {
+        return;
+    }
+
+    if (e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        surround('**');
+    } else if (e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        surround('__');
+    }
 }
 </script>
 
@@ -93,7 +184,7 @@ function pickGif(gif: OfGif) {
                     </button>
                     <button
                         type="button"
-                        :disabled="props.sending"
+                        :disabled="props.sending || !props.canSend"
                         class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
                         title="Send this message to OnlyFans now"
                         @click="emit('accept-send')"
@@ -127,6 +218,13 @@ function pickGif(gif: OfGif) {
             </button>
         </div>
 
+        <!-- Can't-send notice (e.g. a muted fan): OnlyFans would 400 the send. -->
+        <p v-if="!props.canSend" class="text-[11px] text-ss-text-3">
+            Can't send to this chat{{
+                props.canSendReason ? ` — ${props.canSendReason}` : ''
+            }}
+        </p>
+
         <!-- Typing bar -->
         <div class="flex items-end gap-2">
             <button
@@ -142,19 +240,74 @@ function pickGif(gif: OfGif) {
                 />
             </button>
 
-            <textarea
-                :value="props.draft"
-                rows="1"
-                placeholder="Type a message, or generate an AI draft…"
-                class="max-h-32 min-h-9 flex-1 resize-none rounded-lg border border-ss-border bg-ss-surface px-3 py-2 text-[14px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
-                @input="onInput"
-            />
+            <div class="flex flex-1 flex-col gap-1">
+                <!-- Formatting toolbar: inserts markers the server converts on send. -->
+                <div class="flex items-center gap-0.5">
+                    <button
+                        type="button"
+                        :disabled="!props.canSend"
+                        class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-40"
+                        title="Bold (Ctrl+B)"
+                        @click="surround('**')"
+                    >
+                        <Bold :size="13" />
+                    </button>
+                    <button
+                        type="button"
+                        :disabled="!props.canSend"
+                        class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-40"
+                        title="Italic (Ctrl+I)"
+                        @click="surround('__')"
+                    >
+                        <Italic :size="13" />
+                    </button>
+                </div>
+
+                <textarea
+                    ref="textarea"
+                    :value="props.draft"
+                    :disabled="!props.canSend"
+                    rows="1"
+                    :placeholder="
+                        props.canSend
+                            ? 'Type a message… (Enter sends, Shift+Enter for a new line)'
+                            : 'Sending is disabled for this chat'
+                    "
+                    class="max-h-32 min-h-9 w-full resize-none rounded-lg border border-ss-border bg-ss-surface px-3 py-2 text-[14px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none disabled:opacity-50"
+                    @input="onInput"
+                    @keydown="onKeydown"
+                />
+            </div>
+
+            <!-- Emoji picker -->
+            <div class="relative shrink-0">
+                <button
+                    type="button"
+                    :disabled="!props.canSend"
+                    class="grid h-9 w-9 place-items-center rounded-lg border transition-colors disabled:opacity-40"
+                    :class="
+                        showEmoji
+                            ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
+                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                    "
+                    title="Insert an emoji"
+                    @click="showEmoji = !showEmoji"
+                >
+                    <Smile :size="16" />
+                </button>
+                <SsEmojiPicker
+                    v-if="showEmoji"
+                    @select="insertEmoji"
+                    @close="showEmoji = false"
+                />
+            </div>
 
             <!-- GIF picker -->
             <div class="relative shrink-0">
                 <button
                     type="button"
-                    class="grid h-9 w-11 place-items-center rounded-lg border text-[12px] font-bold transition-colors"
+                    :disabled="!props.canSend"
+                    class="grid h-9 w-11 place-items-center rounded-lg border text-[12px] font-bold transition-colors disabled:opacity-40"
                     :class="
                         showPicker
                             ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
@@ -175,9 +328,7 @@ function pickGif(gif: OfGif) {
 
             <button
                 type="button"
-                :disabled="
-                    props.sending || (!props.draft.trim() && !props.attachedGif)
-                "
+                :disabled="!sendable"
                 class="flex shrink-0 items-center gap-1.5 rounded-lg bg-ss-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
                 @click="emit('send')"
             >

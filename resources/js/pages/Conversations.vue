@@ -851,6 +851,8 @@ onBeforeUnmount(() => {
                         :generating="cur.generating"
                         :sending="cur.sending"
                         :error="cur.error"
+                        :can-send="selected?.canSend ?? true"
+                        :can-send-reason="selected?.canSendReason ?? null"
                         @update:draft="cur.draft = $event"
                         @update:attached-gif="cur.gif = $event"
                         @generate="generate"
