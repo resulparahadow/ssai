@@ -83,6 +83,7 @@ export interface OfChat {
     time: string | null;
     unread: number;
     canSend: boolean;
+    canSendReason: string | null; // why not, when canSend is false (e.g. "muted")
     totalSpent: number | null; // fan's lifetime spend on this creator (embedded in the list)
     muted: boolean; // notifications muted for this chat (isMutedNotifications)
     pinnedCount: number; // number of pinned messages in the chat

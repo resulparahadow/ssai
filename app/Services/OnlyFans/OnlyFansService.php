@@ -661,6 +661,8 @@ class OnlyFansService
             'time' => $lastMessage['createdAt'] ?? null,
             'unread' => (int) ($chat['unreadMessagesCount'] ?? 0),
             'canSend' => (bool) ($chat['canSendMessage'] ?? true),
+            // Why not, when canSend is false (e.g. "muted") — the composer shows this.
+            'canSendReason' => $chat['canNotSendReason'] ?? null,
             // Mute + pin state ride along on the chat list, so the header renders them
             // without a per-chat call.
             'muted' => (bool) ($chat['isMutedNotifications'] ?? false),

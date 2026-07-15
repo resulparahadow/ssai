@@ -129,3 +129,23 @@ it('returns an empty string for null and empty html', function () {
     expect(textService()->safeHtml(null))->toBe('');
     expect(textService()->safeHtml(''))->toBe('');
 });
+
+it('surfaces why a chat cannot be messaged', function () {
+    // Verified live: muted chats come back canSendMessage:false + canNotSendReason:"muted",
+    // and sending to one returns 400 "Cannot send message to this user".
+    $chat = textService()->normalizeChat([
+        'fan' => ['id' => 101, 'name' => 'Jake'],
+        'canSendMessage' => false,
+        'canNotSendReason' => 'muted',
+    ]);
+
+    expect($chat['canSend'])->toBeFalse()
+        ->and($chat['canSendReason'])->toBe('muted');
+});
+
+it('defaults a sendable chat to canSend with no reason', function () {
+    $chat = textService()->normalizeChat(['fan' => ['id' => 101, 'name' => 'Jake']]);
+
+    expect($chat['canSend'])->toBeTrue()
+        ->and($chat['canSendReason'])->toBeNull();
+});

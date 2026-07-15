@@ -740,6 +740,7 @@ function applyToChatList(
         time: message.time ?? null,
         unread: isOpen ? 0 : 1,
         canSend: true,
+        canSendReason: null,
         totalSpent: null, // unknown from a live inbound; fills in on the next chat-list load
         muted: false, // ditto — the chat list is the source of truth for these three
         pinnedCount: 0,
