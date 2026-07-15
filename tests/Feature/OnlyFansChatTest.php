@@ -303,6 +303,19 @@ it('sends a GIF (giphyId) with optional text', function () {
         && ! array_key_exists('text', $r->data()));
 });
 
+it('serializes draft markers and escapes html on send', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 557, 'text' => '', 'fromUser' => ['id' => 999]]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/chats/101/messages", ['text' => "I <3 **you**\nreally"])
+        ->assertOk();
+
+    // Escaped <, markers converted, newline left raw for OnlyFans to turn into <br />.
+    Http::assertSent(fn ($r) => $r->method() === 'POST'
+        && str_contains($r->url(), '/acct_cam/chats/101/messages')
+        && $r['text'] === "I &lt;3 <strong>you</strong>\nreally");
+});
+
 it('lists trending GIFs and searches GIFs normalised', function () {
     // The OFAPI Giphy proxy double-wraps the list as data.data[] (Giphy payload under the OFAPI envelope).
     Http::fake([

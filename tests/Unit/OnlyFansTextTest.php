@@ -53,3 +53,46 @@ it('flattens a preview onto one line', function () {
     expect(textService()->htmlToPreview('<p>line one</p><p>line two</p>'))
         ->toBe('line one line two');
 });
+
+it('escapes html-special characters in user text', function () {
+    // A chatter typing "I <3 you" was shipping a raw < into a field OF renders as HTML.
+    expect(textService()->textToOfHtml('I <3 you'))->toBe('I &lt;3 you');
+    expect(textService()->textToOfHtml('Tom & Jerry'))->toBe('Tom &amp; Jerry');
+});
+
+it('leaves apostrophes and quotes literal', function () {
+    // ENT_NOQUOTES: this is text content, not an attribute value. "it&#039;s" would be noise.
+    expect(textService()->textToOfHtml('it\'s a "test"'))->toBe('it\'s a "test"');
+});
+
+it('converts **double asterisks** to strong', function () {
+    expect(textService()->textToOfHtml('this is **bold** ok'))
+        ->toBe('this is <strong>bold</strong> ok');
+});
+
+it('converts __double underscores__ to em', function () {
+    expect(textService()->textToOfHtml('this is __ital__ ok'))
+        ->toBe('this is <em>ital</em> ok');
+});
+
+// REGRESSION GUARD. Roleplay asterisks are pervasive in this domain and the legacy
+// engine emits them. A single-asterisk italic rule would mangle every one of these.
+it('leaves single asterisks alone (roleplay text must survive)', function () {
+    expect(textService()->textToOfHtml('*giggles* hey'))->toBe('*giggles* hey');
+    expect(textService()->textToOfHtml('*bites lip*'))->toBe('*bites lip*');
+});
+
+it('leaves newlines raw for OnlyFans to convert', function () {
+    // Verified live: OF turns "a\nb" into "a<br />\nb" itself. We must not send <br />.
+    expect(textService()->textToOfHtml("a\nb"))->toBe("a\nb");
+});
+
+it('handles markers spanning a newline and mixed markers', function () {
+    expect(textService()->textToOfHtml("**two\nlines**"))->toBe("<strong>two\nlines</strong>");
+    expect(textService()->textToOfHtml('**a** and __b__'))->toBe('<strong>a</strong> and <em>b</em>');
+});
+
+it('escapes before converting markers, so typed tags cannot inject', function () {
+    expect(textService()->textToOfHtml('**<script>alert(1)</script>**'))
+        ->toBe('<strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong>');
+});

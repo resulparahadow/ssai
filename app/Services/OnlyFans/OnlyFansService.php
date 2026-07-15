@@ -101,7 +101,9 @@ class OnlyFansService
             throw new RuntimeException('OnlyFans send requires non-empty text.');
         }
 
-        return $this->client()->post("{$account}/chats/{$chatId}/messages", ['text' => $text]);
+        return $this->client()->post("{$account}/chats/{$chatId}/messages", [
+            'text' => $this->textToOfHtml($text),
+        ]);
     }
 
     /** Send a Giphy GIF (by its giphy id) to a chat, with optional accompanying text. */
@@ -110,7 +112,7 @@ class OnlyFansService
         $body = ['giphyId' => $giphyId];
         $text = trim($text);
         if ($text !== '') {
-            $body['text'] = $text;
+            $body['text'] = $this->textToOfHtml($text);
         }
 
         return $this->client()->post("{$account}/chats/{$chatId}/messages", $body);
@@ -1244,6 +1246,28 @@ class OnlyFansService
     public function htmlToPreview(?string $html): string
     {
         return trim((string) preg_replace('/\s+/', ' ', $this->htmlToText($html)));
+    }
+
+    /**
+     * Serialize a chatter's plain-text draft into the HTML OnlyFans stores for DMs.
+     *
+     * Verified live 2026-07-15: OnlyFans stores message text VERBATIM (no sanitizing,
+     * no <p> wrapper) and renders it as HTML, and it converts raw "\n" into "<br />"
+     * itself — so newlines are left alone here.
+     */
+    public function textToOfHtml(string $plain): string
+    {
+        // Escape FIRST, so a typed "<script>" can never survive as markup.
+        // ENT_NOQUOTES is deliberate: this is text content, not an attribute value,
+        // so apostrophes ("it's", "don't" — everywhere in chat) stay literal.
+        $html = htmlspecialchars($plain, ENT_NOQUOTES | ENT_HTML5, 'UTF-8');
+
+        // Double markers ONLY. A single `*` is not italic: roleplay asterisks
+        // (*giggles*, *bites lip*) are pervasive here and the engine emits them.
+        $html = preg_replace('/\*\*(.+?)\*\*/su', '<strong>$1</strong>', $html);
+        $html = preg_replace('/__(.+?)__/su', '<em>$1</em>', (string) $html);
+
+        return (string) $html;
     }
 
     public function ppvBlocked(float|int|string|null $price): bool
