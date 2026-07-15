@@ -149,3 +149,7 @@ it('defaults a sendable chat to canSend with no reason', function () {
     expect($chat['canSend'])->toBeTrue()
         ->and($chat['canSendReason'])->toBeNull();
 });
+
+it('treats an attributed <br> as a line break', function () {
+    expect(textService()->htmlToText('a<br class="x">b'))->toBe("a\nb");
+});

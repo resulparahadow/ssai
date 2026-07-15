@@ -1238,7 +1238,8 @@ class OnlyFansService
         }
 
         // `\s*` after the tag absorbs OnlyFans' own "<br />\n" (one break, not two).
-        $text = preg_replace('#<br\s*/?>\s*#i', "\n", $html);
+        // `[^>]*` tolerates attributes (e.g. "<br class=\"x\">"), matching the <p> handling below.
+        $text = preg_replace('#<br[^>]*>\s*#i', "\n", $html);
         $text = preg_replace('#</p>\s*<p[^>]*>#i', "\n\n", (string) $text);
         $text = preg_replace('#</?p[^>]*>#i', '', (string) $text);
 
@@ -1284,8 +1285,9 @@ class OnlyFansService
                 ->allowLinkSchemes(['http', 'https'])
                 ->forceAttribute('a', 'target', '_blank')
                 ->forceAttribute('a', 'rel', 'noopener noreferrer nofollow')
-                // Dropped, not blocked: blocking keeps the text content, which would
-                // leak "alert(1)" into the bubble as visible text.
+                // Explicit for clarity, though not strictly load-bearing: Symfony's
+                // HtmlSanitizer already drops non-allowlisted elements together with
+                // their children by default, so script/style content is removed either way.
                 ->dropElement('script')
                 ->dropElement('style')
         );

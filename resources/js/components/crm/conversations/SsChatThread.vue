@@ -584,9 +584,12 @@ function thumb(item: Record<string, unknown>): string | null {
                           v-html is safe here: `html` is allowlist-sanitized server-side
                           (OnlyFansService::safeHtml). Deliberately NOT whitespace-pre-wrap —
                           OF's html carries "<br />\n", so pre-wrap would double every break.
+                          Also require `m.text`: `html` can be truthy-but-blank (e.g. "<p></p>")
+                          so without this guard the media/no-text fallbacks below would be
+                          unreachable and render an empty bubble instead.
                         -->
                         <div
-                            v-if="m.html"
+                            v-if="m.html && m.text"
                             class="[&>p]:mb-2 [&>p:last-child]:mb-0 [&_a]:underline"
                             v-html="m.html"
                         />
