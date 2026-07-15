@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { Lock, LockOpen, LoaderCircle, Sparkles } from '@lucide/vue';
-import { onBeforeUnmount, reactive, ref, watch } from 'vue';
+import {
+    Lock,
+    LockOpen,
+    LoaderCircle,
+    RefreshCw,
+    RefreshCwOff,
+    Sparkles,
+} from '@lucide/vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { absoluteTime, coarseDuration, relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
 import type {
@@ -12,6 +20,53 @@ import type {
 } from '@/types/crm';
 
 const props = defineProps<{ fan: OfFan | null; modelId: number | null }>();
+
+// ---- Live subscription indicators (from the same getUser call as the rows) ---
+
+const PILL =
+    'inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold';
+const PILL_ON = 'bg-ss-pos/15 text-ss-pos';
+const PILL_OFF = 'bg-ss-text-3/15 text-ss-text-3';
+
+/**
+ * "Expired" only fits someone who once had a subscription. Chat partners the creator
+ * merely follows come back subscribed=false with no subscribeAt — calling them
+ * "Expired" would read as a lapsed fan worth winning back, which they never were.
+ */
+const subscribedLabel = computed(() => {
+    const f = props.fan;
+
+    if (!f || f.subscribed === null) {
+        return null;
+    }
+
+    if (f.subscribed) {
+        return 'Subscribed';
+    }
+
+    return f.subscribedAt ? 'Expired' : 'Not subscribed';
+});
+
+/** OF's own wording when it sends one, else our approximation from the start date. */
+const durationText = computed(() =>
+    props.fan?.durationLabel
+        ? props.fan.durationLabel
+        : props.fan?.subscribedAt
+          ? coarseDuration(props.fan.subscribedAt)
+          : '—',
+);
+
+// usd() / relativeTime() already render null as an em-dash.
+const liveRows = computed(() => [
+    { label: 'Subscribed for', value: durationText.value, title: null },
+    { label: 'Location', value: props.fan?.location || '—', title: null },
+    { label: 'Sub price', value: usd(props.fan?.subscribePrice), title: null },
+    {
+        label: 'Last seen',
+        value: relativeTime(props.fan?.lastSeen),
+        title: absoluteTime(props.fan?.lastSeen),
+    },
+]);
 
 // ---- AI fan summary (generate → poll GET until it leaves `processing`) -------
 const summary = ref<OfFanSummary | null>(null);
@@ -324,25 +379,48 @@ onBeforeUnmount(stopPolling);
 
         <div class="flex-1 space-y-3 overflow-y-auto p-4 text-[13px]">
             <p class="text-[11px] text-ss-text-3">Live from OnlyFans</p>
+
+            <!--
+              Status pills. A null field means OnlyFans didn't tell us, so the pill is
+              hidden outright — a defaulted "Rebill off" would be a confident lie a
+              chatter might act on. Rebill stays visible on expired fans on purpose:
+              "they turned rebill off and let it lapse" is signal.
+            -->
             <div
-                v-for="row in [
-                    { label: 'Location', value: fan?.location },
-                    {
-                        label: 'Subscribe price',
-                        value:
-                            fan?.subscribePrice != null
-                                ? '$' + fan.subscribePrice
-                                : null,
-                    },
-                    { label: 'Last seen', value: fan?.lastSeen },
-                ]"
+                v-if="fan && (subscribedLabel || fan.rebillOn !== null)"
+                class="flex flex-wrap items-center gap-1.5"
+            >
+                <span
+                    v-if="subscribedLabel"
+                    :class="[PILL, fan.subscribed ? PILL_ON : PILL_OFF]"
+                >
+                    <span
+                        class="h-1.5 w-1.5 rounded-full"
+                        :class="fan.subscribed ? 'bg-ss-pos' : 'bg-ss-text-3'"
+                    />
+                    {{ subscribedLabel }}
+                </span>
+                <span
+                    v-if="fan.rebillOn !== null"
+                    :class="[PILL, fan.rebillOn ? PILL_ON : PILL_OFF]"
+                >
+                    <RefreshCw v-if="fan.rebillOn" :size="11" />
+                    <RefreshCwOff v-else :size="11" />
+                    {{ fan.rebillOn ? 'Rebill on' : 'Rebill off' }}
+                </span>
+            </div>
+
+            <div
+                v-for="row in liveRows"
                 :key="row.label"
                 class="flex items-center justify-between gap-2"
             >
                 <span class="text-ss-text-3">{{ row.label }}</span>
-                <span class="truncate font-medium text-ss-text">{{
-                    row.value ?? '—'
-                }}</span>
+                <span
+                    class="truncate font-medium text-ss-text"
+                    :title="row.title ?? undefined"
+                    >{{ row.value }}</span
+                >
             </div>
 
             <div v-if="fan?.about">

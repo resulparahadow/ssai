@@ -139,6 +139,13 @@ export interface OfFan {
     canEarn: boolean | null;
     totalSpent: number | null; // lifetime spend on this creator (live from getUser)
     tips: number | null; // lifetime tips
+    // Subscription state (fan → this creator), from the same getUser payload.
+    // null means OnlyFans didn't tell us — render nothing, never a default.
+    subscribed: boolean | null;
+    durationLabel: string | null; // OF's own label, e.g. "1 month"
+    subscribedAt: string | null; // ISO
+    expiredAt: string | null; // ISO
+    rebillOn: boolean | null; // auto-renew
 }
 
 export interface SidebarCreator {

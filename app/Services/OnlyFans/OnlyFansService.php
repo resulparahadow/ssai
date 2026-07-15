@@ -3,6 +3,8 @@
 namespace App\Services\OnlyFans;
 
 use App\Models\AichModel;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -187,6 +189,111 @@ class OnlyFansService
             'tips' => $tips === null ? null : (float) $tips,
             'status' => $status,
         ];
+    }
+
+    /**
+     * Pull a fan's subscription state *to this creator* out of a GET users/{id}
+     * payload, for the chat fan panel's indicators.
+     *
+     * OnlyFans splits the two directions and only one is meaningful here:
+     * `subscribedBy*` is the creator's subscription TO the fan (near-always empty),
+     * `subscribedOn*` is the fan's subscription to the creator. Same contract as
+     * extractFanSpend(): anything the payload can't answer comes back null, so an
+     * unknown never renders as a confident `false` a chatter would act on.
+     *
+     * @param  array<string, mixed>  $d  the `data` object from getUser
+     * @return array{subscribed: bool|null, durationLabel: string|null, subscribedAt: string|null, expiredAt: string|null, rebillOn: bool|null}
+     */
+    public function extractFanSubscription(array $d): array
+    {
+        $on = is_array($d['subscribedOnData'] ?? null) ? $d['subscribedOnData'] : [];
+
+        return [
+            'subscribed' => $this->fanSubscribed($d, $on),
+            'durationLabel' => $this->fanDurationLabel($d, $on),
+            'subscribedAt' => $on['subscribeAt'] ?? null,
+            'expiredAt' => $on['expiredAt'] ?? null,
+            'rebillOn' => $this->fanRebillOn($d),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $d
+     * @param  array<string, mixed>  $on
+     */
+    private function fanSubscribed(array $d, array $on): ?bool
+    {
+        // Leads because Mass-List sends `subscribedOn: null` next to a meaningful
+        // `subscribedOnExpiredNow: true`.
+        if (is_bool($d['subscribedOnExpiredNow'] ?? null)) {
+            return ! $d['subscribedOnExpiredNow'];
+        }
+
+        if (is_bool($d['subscribedOn'] ?? null)) {
+            return $d['subscribedOn'];
+        }
+
+        $expiredAt = $on['expiredAt'] ?? null;
+
+        if (is_string($expiredAt) && trim($expiredAt) !== '') {
+            try {
+                return Carbon::parse($expiredAt)->isFuture();
+            } catch (Exception) {
+                return null; // unparseable date → unknown, not "expired"
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * OnlyFans' own human-readable label ("1 month"), preferred so the panel agrees
+     * with what the creator sees in the OF UI. Empty strings are absent, not values.
+     *
+     * @param  array<string, mixed>  $d
+     * @param  array<string, mixed>  $on
+     */
+    private function fanDurationLabel(array $d, array $on): ?string
+    {
+        foreach ([$d['subscribedOnDuration'] ?? null, $on['duration'] ?? null] as $label) {
+            if (is_string($label) && trim($label) !== '') {
+                return $label;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Per-fan rebill state, read inline from `listsStates` rather than via the
+     * agency-level "Get User List (rebill_on)" endpoint — that would be a second API
+     * call to answer a question this payload already carries.
+     *
+     * @param  array<string, mixed>  $d
+     */
+    private function fanRebillOn(array $d): ?bool
+    {
+        $lists = is_array($d['listsStates'] ?? null) ? $d['listsStates'] : [];
+
+        foreach ($lists as $list) {
+            if (! is_array($list) || ($list['hasUser'] ?? null) !== true) {
+                continue;
+            }
+
+            // Match id OR type: some payloads carry an opaque id with the real
+            // discriminator in `type`.
+            $keys = [$list['id'] ?? null, $list['type'] ?? null];
+
+            if (in_array('rebill_on', $keys, true)) {
+                return true;
+            }
+
+            if (in_array('rebill_off', $keys, true)) {
+                return false;
+            }
+        }
+
+        return null;
     }
 
     // ---- Settings ---------------------------------------------------------

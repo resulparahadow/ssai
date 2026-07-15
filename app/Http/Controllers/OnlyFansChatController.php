@@ -241,8 +241,10 @@ class OnlyFansChatController extends Controller
             return $this->forward($res);
         }
         $d = $res->json('data') ?? [];
-        // Lifetime spend/tips come from the same getUser payload (no extra API call).
+        // Lifetime spend/tips and subscription state both come from the same getUser
+        // payload (no extra API call, no extra credits).
         $spend = $this->of->extractFanSpend($d);
+        $sub = $this->of->extractFanSubscription($d);
 
         return response()->json(['fan' => [
             'id' => $user,
@@ -251,11 +253,18 @@ class OnlyFansChatController extends Controller
             'avatar' => $d['avatar'] ?? null,
             'about' => $this->of->htmlToText($d['about'] ?? ''),
             'location' => $d['location'] ?? null,
-            'subscribePrice' => data_get($d, 'subscribedByData.subscribePrice') ?? data_get($d, 'subscribePrice'),
+            // subscribedOnData = the fan's subscription TO this creator. (subscribedByData
+            // is the creator's sub to the fan — the wrong direction, ~always empty.)
+            'subscribePrice' => data_get($d, 'subscribedOnData.subscribePrice') ?? data_get($d, 'subscribedOnData.regularPrice'),
             'lastSeen' => $d['lastSeen'] ?? null,
             'canEarn' => $d['canEarn'] ?? null,
             'totalSpent' => $spend['total'],
             'tips' => $spend['tips'],
+            'subscribed' => $sub['subscribed'],
+            'durationLabel' => $sub['durationLabel'],
+            'subscribedAt' => $sub['subscribedAt'],
+            'expiredAt' => $sub['expiredAt'],
+            'rebillOn' => $sub['rebillOn'],
         ]]);
     }
 

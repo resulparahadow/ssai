@@ -67,8 +67,46 @@ List Active Fans, and the FAQ) via context7 on 2026-07-15.
 **On rebill:** the FAQ documents an agency-level path (Get User List with
 `rebill_on` as `{userListId}`) for *enumerating* rebill-on fans. That is the wrong
 shape here — it would be a second API call to answer a per-fan question. The
-per-fan answer is already inline in `listsStates[]`, which carries `rebill_on` and
-`rebill_off` entries with a `hasUser` flag. We read that.
+per-fan answer is *documented* as inline in `listsStates[]`, which carries
+`rebill_on` and `rebill_off` entries with a `hasUser` flag. We read that — but see
+the live validation below: it does not populate in practice.
+
+## Live validation (2026-07-15, read-only probe of the mapped test account)
+
+The published docs proved unreliable (the Get User Details page is polluted with
+obvious junk fields like `is_verified_zoom`), so the mapping was checked against
+real payloads across 10 live chats. Four corrections came out of it:
+
+1. **Direction confirmed.** Real fans (`listsStates.fans.hasUser: true`,
+   `subscribedOn: true`) carry a populated `subscribedOnData` (with `totalSumm`,
+   `duration`, `subscribeAt`); their `subscribedByData` is empty. Chat partners the
+   creator merely *follows* invert this exactly. `subscribedOnData` is right, and
+   the old `subscribedByData.subscribePrice` was reporting **what the creator pays
+   them** ($15 on a probed non-fan) as if it were the fan's sub price.
+
+2. **`subscribedOnDuration` is always null in practice.** The label that actually
+   populates is the *fallback*, `subscribedOnData.duration` ("25 days", "5 months").
+   Had the cascade trusted the documented primary field alone, "Subscribed for"
+   would render blank for every fan. The cascade is load-bearing, not padding.
+
+3. **Rebill is not available on this account — the pill never renders.** Verified:
+   `listsStates` returns only `following/fans/recent/friends/muted/tagged` (no
+   `rebill_*`); `subscribedByAutoprolong` is null (and is the wrong direction);
+   there is no `subscribedOnAutoprolong`; and `GET {acct}/user-lists/rebill_on`
+   404s with `ONLYFANS_COM_ERROR` while `user-lists/fans` returns 200 — so the
+   endpoint works and the *lists themselves* don't exist here. Every fan on this
+   account holds a free 10-year sub (`price: 0`, `expiredAt: 2036`), and OnlyFans
+   appears to maintain rebill lists only where recurring payments exist.
+
+   The `listsStates` read is kept: it costs no extra call, degrades to a hidden
+   pill rather than a wrong one, and lights up automatically if a production
+   account with paying fans does expose the lists. **Unresolved pending a probe of
+   a real creator account with paying subscribers.**
+
+4. **"Expired" was wrong for non-fans.** A followed creator comes back
+   `subscribed: false` with no `subscribeAt`. Labelling that "Expired" implies a
+   lapsed fan worth winning back. Split into `Expired` (has a `subscribeAt`) vs
+   `Not subscribed` (never had one).
 
 ## A. Backend — `OnlyFansService::extractFanSubscription()`
 
@@ -159,7 +197,9 @@ Last seen             2 hours ago   ← hover: Jul 15, 2026, 13:04
 Rendering rules:
 
 - **Subscribed pill** — green (`ss-pos`) `● Subscribed` when `true`; neutral
-  `○ Expired` when `false`; **hidden** when `null`.
+  `○ Expired` when `false` **and** a `subscribedAt` exists; neutral
+  `○ Not subscribed` when `false` with no `subscribedAt` (a followed creator, never
+  a fan); **hidden** when `null`.
 - **Rebill pill** — `↻ Rebill on` (green) / `↻ Rebill off` (neutral) ;
   **hidden** when `null`. Deliberately **still shown for expired fans** — "they
   let it lapse" is signal a chatter wants.
@@ -185,15 +225,22 @@ payload-shaped:
 - missing `subscribedOnData` entirely → all-`null`, no crash
 - **regression:** `subscribePrice` reads `subscribedOnData`, not `subscribedByData`
 
-Vitest is not configured in this repo, so `datetime.ts` is verified by hand-check
-rather than bolting on a JS test runner as a side quest.
+Vitest is not configured in this repo. Rather than bolt on a JS test runner as a
+side quest, `datetime.ts` is exercised directly under `node --experimental-strip-types`
+(every threshold + boundary + null path), and the panel's render logic is replayed
+against the field shapes observed on the live account.
 
-Guards: `php artisan test`, `npm run lint:check`, `npm run types:check`.
+Guards: `php artisan test`, `npm run lint:check`, `npm run types:check`, `npm run build`.
 
 ## Risks
 
-- **`listsStates` may be absent** on some payload shapes → rebill reads `null` and
-  the pill hides. Degrades to today's behavior (no indicator), never to a wrong one.
-- **The price fix changes a visible number.** "Subscribe price" will start showing
-  a real value where it likely showed `0`. That is the intent, but it is a visible
-  behavior change worth noting in review.
+- **Rebill does not render on the probed account** (see Live validation §3). Three
+  of the four requested indicators work; rebill needs either a production account
+  that exposes the lists, or a decision to drop the pill.
+- **The price fix changes a visible number.** "Sub price" starts reading the
+  fan→creator direction. On the probed account real fans show `$0.00` (genuinely
+  free subs) where the old code showed `$15` (what the creator pays *them*). The
+  new number is correct; it is still a visible change worth noting in review.
+- **Relative times don't self-tick.** `Last seen` recomputes when the panel
+  re-renders (chat switch / refetch), not on a timer, so a panel left open for an
+  hour shows a stale "2 hours ago". Acceptable; a ticker is deferred.
