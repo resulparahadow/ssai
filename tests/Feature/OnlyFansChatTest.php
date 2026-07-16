@@ -7,6 +7,7 @@ use App\Models\ModelAssignment;
 use App\Models\User;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia;
@@ -859,4 +860,91 @@ it('exposes moderation state on the fan payload without an extra call', function
         ->assertJsonPath('fan.subscribedBy', true);
 
     Http::assertSentCount(1);
+});
+
+it('uploads a file and returns the media id', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'status' => 'pending', 'prefixed_id' => 'ofapi_media_abc123',
+    ], 202)]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->post("/onlyfans/{$this->model->id}/media/upload", [
+            // ->create() (not ->image()) — this environment has no GD extension, and
+            // create() lets us pin the mime type explicitly without needing one: Laravel's
+            // mimetypes rule reads Testing\File::getMimeType(), which returns the mime
+            // passed here directly rather than probing real file bytes.
+            'file' => UploadedFile::fake()->create('shot.jpg', 50, 'image/jpeg'),
+        ])
+        ->assertOk()
+        ->assertJsonPath('id', 'ofapi_media_abc123')
+        ->assertJsonPath('status', 'pending');
+});
+
+// A 101MB file must fail as JSON 422 from OUR validation, never as nginx's
+// 413 HTML page (which the fetch client cannot parse).
+it('rejects an oversized upload as json', function () {
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/media/upload", [
+            'file' => UploadedFile::fake()->create('huge.mp4', 102401, 'video/mp4'),
+        ])
+        ->assertStatus(422);
+});
+
+it('rejects a non-media upload', function () {
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/media/upload", [
+            'file' => UploadedFile::fake()->create('x.exe', 10, 'application/x-msdownload'),
+        ])
+        ->assertStatus(422);
+});
+
+it('proxies upload status', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['status' => 'completed'])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/uploads/ofapi_media_abc123/status")
+        ->assertOk()
+        ->assertJsonPath('status', 'completed');
+});
+
+it('lists vault media normalised with hasMore', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [
+            'list' => [[
+                'id' => 7, 'type' => 'audio', 'canView' => true, 'duration' => 3,
+                'files' => ['full' => ['url' => 'https://cdn2.onlyfans.com/a.mp3']],
+            ]],
+            'hasMore' => true,
+        ],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault?type=audio")
+        ->assertOk()
+        ->assertJsonPath('items.0.id', '7')
+        ->assertJsonPath('items.0.type', 'audio')
+        ->assertJsonPath('hasMore', true);
+});
+
+it('sends a message with mediaFiles', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 560, 'fromUser' => ['id' => 999]]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/chats/101/messages", [
+            'text' => '', 'mediaFiles' => ['ofapi_media_abc123'],
+        ])
+        ->assertOk()
+        ->assertJsonPath('message.from', 'creator');
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST'
+        && str_contains($r->url(), '/acct_cam/chats/101/messages')
+        && $r['mediaFiles'] === ['ofapi_media_abc123']);
+});
+
+it('still blocks PPV when media is attached', function () {
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/onlyfans/{$this->model->id}/chats/101/messages", [
+            'mediaFiles' => ['ofapi_media_abc123'], 'price' => 20,
+        ])
+        ->assertStatus(422);
 });

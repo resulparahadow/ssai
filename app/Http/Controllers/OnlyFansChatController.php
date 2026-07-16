@@ -143,29 +143,99 @@ class OnlyFansChatController extends Controller
             ->header('Cache-Control', 'private, max-age=86400');
     }
 
+    /**
+     * Upload one file to the OnlyFans CDN and hand back its single-use media id.
+     *
+     * The size rule is enforced HERE as JSON so an oversized file fails with a parseable
+     * 422 rather than nginx's 413 HTML page. 100MB = OnlyFans' own direct-upload cap;
+     * nginx (110m) and PHP (100M/110M) are configured to match.
+     */
+    public function uploadMedia(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+
+        $this->validateJson($request, [
+            'file' => 'required|file|max:102400|mimetypes:image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/wav',
+        ]);
+
+        $file = $request->file('file');
+        $res = $this->of->uploadMedia($acct, $file->getRealPath(), $file->getClientOriginalName());
+
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        return response()->json([
+            'id' => $res->json('prefixed_id'),
+            'status' => $res->json('status') ?? 'pending',
+        ]);
+    }
+
+    /** Poll an async upload until it is `completed` or `failed`. */
+    public function uploadStatus(Request $request, AichModel $model, string $upload): JsonResponse
+    {
+        $res = $this->of->getUploadStatus($this->account($request, $model), $upload);
+
+        return $res->successful()
+            ? response()->json([
+                'status' => $res->json('status') ?? 'processing',
+                'error' => $res->json('error'),
+            ])
+            : $this->forward($res);
+    }
+
+    /** List the creator's vault media for the composer's picker. */
+    public function vault(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $res = $this->of->listVaultMedia($acct, [
+            'type' => $request->query('type'),
+            'limit' => $request->query('limit', 48),
+            'offset' => $request->query('offset', 0),
+        ]);
+
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        $list = $res->json('data.list') ?? $res->json('data') ?? [];
+
+        return response()->json([
+            // Vault items share the message-media shape — reuse the one normalizer.
+            'items' => $this->of->normalizeMedia(['media' => $list]),
+            // hasMore is the ONLY honest end-of-list signal (nextOffset/next_page lie).
+            'hasMore' => (bool) ($res->json('data.hasMore') ?? false),
+        ]);
+    }
+
     public function send(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
         $data = $request->validate([
             'text' => 'nullable|string',
             'giphyId' => 'nullable|string',
+            'mediaFiles' => 'nullable|array|max:1',
+            'mediaFiles.*' => 'string',
             'price' => 'nullable|numeric',
         ]);
 
         $text = trim((string) ($data['text'] ?? ''));
         $giphyId = $data['giphyId'] ?? null;
+        $mediaFiles = $data['mediaFiles'] ?? [];
 
-        if ($text === '' && ! $giphyId) {
-            return response()->json(['error' => 'Message requires text or a GIF.'], 422);
+        if ($text === '' && ! $giphyId && $mediaFiles === []) {
+            return response()->json(['error' => 'Message requires text, a GIF, or media.'], 422);
         }
 
         if ($this->of->ppvBlocked($data['price'] ?? 0)) {
             return response()->json(['error' => 'PPV/paid send is disabled (text only).'], 422);
         }
 
-        $res = $giphyId
-            ? $this->of->sendGif($acct, $chat, $giphyId, $text)
-            : $this->of->sendText($acct, $chat, $text);
+        $res = match (true) {
+            $mediaFiles !== [] => $this->of->sendMedia($acct, $chat, $mediaFiles, $text),
+            (bool) $giphyId => $this->of->sendGif($acct, $chat, $giphyId, $text),
+            default => $this->of->sendText($acct, $chat, $text),
+        };
 
         return $res->successful()
             ? response()->json(['message' => $this->of->normalizeMessage($res->json('data') ?? [], $chat)])

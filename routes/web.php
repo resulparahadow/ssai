@@ -35,6 +35,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('chats/{chat}/messages/{message}', [OnlyFansChatController::class, 'message'])->name('message');
         Route::get('chats/{chat}/media', [OnlyFansChatController::class, 'media'])->name('media');
         Route::get('media', [OnlyFansChatController::class, 'mediaFile'])->name('media.file');
+        Route::post('media/upload', [OnlyFansChatController::class, 'uploadMedia'])->name('media.upload');
+        Route::get('media/uploads/{upload}/status', [OnlyFansChatController::class, 'uploadStatus'])->name('media.upload.status');
+        Route::get('media/vault', [OnlyFansChatController::class, 'vault'])->name('media.vault');
         Route::post('chats/{chat}/messages', [OnlyFansChatController::class, 'send'])->name('send');
         Route::delete('chats/{chat}/messages/{message}', [OnlyFansChatController::class, 'destroy'])->name('delete');
         Route::post('chats/{chat}/messages/{message}/like', [OnlyFansChatController::class, 'like'])->name('like');
