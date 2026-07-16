@@ -52,6 +52,9 @@ return [
         'base_url' => env('ONLYFANS_BASE_URL', 'https://app.onlyfansapi.com/api'),
         'webhook_secret' => env('ONLYFANS_WEBHOOK_SECRET'),
         'timeout' => (int) env('ONLYFANS_TIMEOUT', 30),
+        // Uploads forward up to 100MB to OnlyFans; the 30s default is far too short.
+        // Only `uploadMedia()` uses this — every other call keeps `timeout`.
+        'upload_timeout' => (int) env('ONLYFANS_UPLOAD_TIMEOUT', 300),
     ],
 
     // Node sidecar that runs the real legacy generation engine (engine/server.js).
