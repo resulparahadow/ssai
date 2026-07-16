@@ -77,7 +77,9 @@ const cur = computed(() =>
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
 // route is the actual enforcement.
 const role = computed<Role>(
-    () => (page.props.auth as { user?: { role?: Role } })?.user?.role ?? 'chatter',
+    () =>
+        (page.props.auth as { user?: { role?: Role } })?.user?.role ??
+        'chatter',
 );
 
 /**
@@ -310,8 +312,13 @@ async function send(override?: string) {
 
         st.draft = '';
         st.suggestion = null;
-        revokeAttachment(st.attachment);
-        st.attachment = null;
+
+        // Only clear the attachment that was actually sent — the user may have
+        // replaced it with a new pick while this send was in flight.
+        if (st.attachment === att) {
+            revokeAttachment(st.attachment);
+            st.attachment = null;
+        }
         // Keep st.strategy: the AI Intel for this chat stays available so reopening
         // the chat (or the AI Intel tab) still shows the last analysis. A new
         // Generate overwrites it.
@@ -368,6 +375,7 @@ async function onPickFile(file: File) {
     // 100MB = OnlyFans' cap, mirrored by nginx/PHP. Reject here so the user isn't
     // made to wait out a long transfer only to hit an unparseable nginx 413.
     if (file.size > 100 * 1024 * 1024) {
+        revokeAttachment(cur.attachment);
         cur.attachment = {
             id: null,
             source: 'upload',
@@ -385,7 +393,7 @@ async function onPickFile(file: File) {
     revokeAttachment(cur.attachment);
     cur.gif = null; // media and GIF are mutually exclusive
 
-    const att: ComposerAttachment = {
+    cur.attachment = {
         id: null,
         source: 'upload',
         status: 'uploading',
@@ -397,7 +405,15 @@ async function onPickFile(file: File) {
             ? URL.createObjectURL(file)
             : null,
     };
-    cur.attachment = att;
+    // Work through the REACTIVE proxy Vue stored, NOT the raw literal above: reading
+    // cur.attachment back yields a proxy that is never identity-equal to a raw object,
+    // so `cur.attachment === rawLiteral` is always false — which would freeze progress
+    // and abort the post-upload flow. Mutating through the proxy also drives reactivity.
+    const att = cur.attachment;
+
+    if (!att) {
+        return;
+    }
 
     try {
         const r = await ofApi.uploadMedia(m.id, file, (pct) => {
@@ -653,7 +669,10 @@ const MSG_PAGE = '100';
  * a background revalidate would shrink the thread back to the newest page and drop the
  * history the user just loaded.
  */
-function reconcileNewest(existing: OfMessage[], fresh: OfMessage[]): OfMessage[] {
+function reconcileNewest(
+    existing: OfMessage[],
+    fresh: OfMessage[],
+): OfMessage[] {
     if (!fresh.length) {
         return existing;
     }
