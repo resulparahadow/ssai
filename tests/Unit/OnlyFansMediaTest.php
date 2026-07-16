@@ -41,17 +41,19 @@ it('uploads multipart with async=true and returns the prefixed id', function () 
     unlink($path);
 });
 
-// THE most important test in this spec. client() retries 3x; a retried multipart
+// THE most important test in this spec. client() retries 3x on 429; a retried multipart
 // upload re-sends bytes OnlyFans may already have accepted -> a second BILLED copy.
+// 429 is retryable by client() (its retry `when` callback returns true for 429),
+// so a client()-based upload would send 3 requests here — the custom no-retry builder sends exactly 1.
 it('NEVER retries a failed upload (duplicate media guard)', function () {
-    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'boom'], 500)]);
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'boom'], 429)]);
 
     $path = tempnam(sys_get_temp_dir(), 'up');
     file_put_contents($path, 'PNGDATA');
 
     $res = mediaService()->uploadMedia('acct_cam', $path, 'shot.png');
 
-    expect($res->status())->toBe(500);
+    expect($res->status())->toBe(429);
     Http::assertSentCount(1); // exactly ONE — never 3
 
     unlink($path);
