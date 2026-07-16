@@ -105,7 +105,7 @@ function open(i: number) {
                   because OF CDN urls are IP-locked to the server and 403 in the browser.
                 -->
                 <div
-                    v-if="m.type === 'audio'"
+                    v-if="m.type === 'audio' && m.canView"
                     class="flex items-center gap-2 rounded-lg border border-ss-border bg-ss-surface-2 p-2"
                 >
                     <audio
@@ -210,7 +210,11 @@ function open(i: number) {
                     <span class="text-center text-ss-text-3">
                         <Lock :size="20" class="mx-auto mb-1" />
                         <span class="block text-[11px] font-medium">{{
-                            m.type === 'video' ? 'Locked video' : 'Locked photo'
+                            m.type === 'video'
+                                ? 'Locked video'
+                                : m.type === 'audio'
+                                  ? 'Locked audio'
+                                  : 'Locked photo'
                         }}</span>
                         <span
                             v-if="price && !hidePrice"
