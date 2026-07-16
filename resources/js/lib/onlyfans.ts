@@ -6,6 +6,7 @@ import type {
     OfFanSummary,
     OfGif,
     OfLockableField,
+    OfMedia,
     OfMessage,
     OfPreviewKind,
 } from '@/types/crm';
@@ -125,10 +126,82 @@ export const ofApi = {
     /** Proxied URL for an IP-locked OnlyFans CDN file — safe to use as an <img>/<video> src. */
     mediaUrl: (m: number, cdnUrl: string) =>
         `${base(m)}/media?url=${encodeURIComponent(cdnUrl)}`,
-    send: (m: number, chat: string, text: string, giphyId?: string) =>
+    /**
+     * Upload one file and return its media id.
+     *
+     * Deliberately XMLHttpRequest, not the fetch `req()` helper used everywhere else in
+     * this file: fetch cannot report UPLOAD progress, and a 100MB file behind a bare
+     * spinner is unusable. This is the only exception — everything else stays on fetch.
+     */
+    uploadMedia: (m: number, file: File, onProgress: (pct: number) => void) =>
+        new Promise<{ id: string; status: string }>((resolve, reject) => {
+            const form = new FormData();
+            form.append('file', file);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${base(m)}/media/upload`);
+            xhr.withCredentials = true;
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('X-XSRF-TOKEN', cookie('XSRF-TOKEN'));
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    onProgress(Math.round((e.loaded / e.total) * 100));
+                }
+            };
+
+            xhr.onload = () => {
+                let body: Record<string, string> = {};
+
+                try {
+                    body = JSON.parse(xhr.responseText);
+                } catch {
+                    // A 413 from nginx is an HTML page, not JSON — say something useful.
+                    reject(new Error(`Upload failed (${xhr.status})`));
+
+                    return;
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(body as unknown as { id: string; status: string });
+                } else {
+                    reject(
+                        new Error(
+                            body.error ||
+                                body.message ||
+                                `Upload failed (${xhr.status})`,
+                        ),
+                    );
+                }
+            };
+
+            xhr.onerror = () =>
+                reject(new Error('Upload failed — network error.'));
+            xhr.onabort = () => reject(new Error('Upload cancelled.'));
+
+            xhr.send(form);
+        }),
+    uploadStatus: (m: number, id: string) =>
+        req<{ status: string; error: string | null }>(
+            'GET',
+            `${base(m)}/media/uploads/${encodeURIComponent(id)}/status`,
+        ),
+    vault: (m: number, params: Record<string, string> = {}) =>
+        req<{ items: OfMedia[]; hasMore: boolean }>(
+            'GET',
+            `${base(m)}/media/vault?${new URLSearchParams(params)}`,
+        ),
+    send: (
+        m: number,
+        chat: string,
+        text: string,
+        giphyId?: string,
+        mediaFiles?: string[],
+    ) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
             text,
             giphyId,
+            mediaFiles,
         }),
     giphyTrending: (m: number) =>
         req<{ gifs: OfGif[] }>('GET', `${base(m)}/giphy/trending`),
@@ -221,7 +294,10 @@ export const ofApi = {
     markRead: (m: number, chat: string) =>
         postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/mark-as-read`, {}),
     markUnread: (m: number, chat: string) =>
-        postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/mark-as-unread`, {}),
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/mark-as-unread`,
+            {},
+        ),
     /** Manager+ only. OnlyFans unhides the chat only when the fan is messaged again. */
     hide: (m: number, chat: string) =>
         postJson<{ ok: boolean }>(`${base(m)}/chats/${chat}/hide`, {}),

@@ -114,6 +114,18 @@ export interface OfGif {
     height: number;
 }
 
+/** One media item attached to the next send: an upload in flight, or a vault pick. */
+export interface ComposerAttachment {
+    id: string | null; // ofapi_media_… (upload) or the vault id; null until upload returns
+    source: 'upload' | 'vault';
+    status: 'uploading' | 'processing' | 'ready' | 'failed';
+    progress: number; // 0-100, upload only
+    error: string | null;
+    name: string | null;
+    kind: 'photo' | 'video' | 'audio' | 'gif';
+    previewUrl: string | null; // blob: for uploads, proxied CDN url for vault picks
+}
+
 export interface OfMessage {
     id: string | null;
     from: 'fan' | 'creator';
