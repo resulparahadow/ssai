@@ -299,6 +299,17 @@ async function send(override?: string) {
             sent.mediaCount = gifMedia.length;
         }
 
+        // A freshly-sent attachment echoes back canView:true but NOT yet transcoded — no
+        // file URLs (isReady:false) — which the thread would otherwise paint as a "Locked"
+        // tile. Keep the local blob preview we already showed; reconcileSentMedia() swaps in
+        // the real (proxied) media once OnlyFans finishes, then frees the blob.
+        const attPending = !!att && !mediaRenderable(sent);
+
+        if (attPending) {
+            sent.media = optimistic.media;
+            sent.mediaCount = optimistic.media?.length ?? 0;
+        }
+
         // Swap the temp bubble for the confirmed message + keep the cache in sync.
         const cached = msgCache.get(chatId);
         msgCache.set(chatId, cached ? [...cached, sent] : [sent]);
@@ -316,8 +327,17 @@ async function send(override?: string) {
         // Only clear the attachment that was actually sent — the user may have
         // replaced it with a new pick while this send was in flight.
         if (st.attachment === att) {
-            revokeAttachment(st.attachment);
             st.attachment = null;
+        }
+
+        // Free the blob now if the media was already renderable; otherwise defer to
+        // reconcileSentMedia() (the confirmed bubble is still showing that blob preview).
+        if (att) {
+            if (attPending && sent.id) {
+                void reconcileSentMedia(m.id, chatId, sent.id, att);
+            } else {
+                revokeAttachment(att);
+            }
         }
         // Keep st.strategy: the AI Intel for this chat stays available so reopening
         // the chat (or the AI Intel tab) still shows the last analysis. A new
@@ -359,6 +379,63 @@ function attachmentKind(mime: string): ComposerAttachment['kind'] {
 function revokeAttachment(att: ComposerAttachment | null) {
     if (att?.source === 'upload' && att.previewUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(att.previewUrl);
+    }
+}
+
+/** A media item is renderable once OnlyFans has transcoded it: canView plus a poster/source
+ *  URL. A just-sent attachment echoes back canView:true but with no files, so this guards
+ *  against painting it as a locked tile. */
+function mediaRenderable(msg: OfMessage): boolean {
+    return !!msg.media?.some(
+        (mm) => mm.canView && !!(mm.preview || mm.thumb || mm.full || mm.source),
+    );
+}
+
+/** Poll the thread until a just-sent attachment finishes transcoding, then swap the local
+ *  blob preview for the real (proxied) media and free the blob. Media is usually ready within
+ *  ~1s; on the rare timeout the blob preview stays and a manual Refresh corrects it. */
+async function reconcileSentMedia(
+    modelId: number,
+    chatId: string,
+    msgId: string,
+    att: ComposerAttachment,
+) {
+    for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, i === 0 ? 800 : 1500));
+
+        let real: OfMessage | undefined;
+
+        try {
+            const r = await ofApi.messages(modelId, chatId, { limit: '10' });
+            real = (r.messages as OfMessage[]).find((x) => x.id === msgId);
+        } catch {
+            continue; // transient fetch error — keep the blob and retry
+        }
+
+        if (!real || !mediaRenderable(real)) {
+            continue;
+        }
+
+        const swap = (list: OfMessage[]) =>
+            list.map((x) =>
+                x.id === msgId
+                    ? { ...x, media: real!.media, mediaCount: real!.mediaCount }
+                    : x,
+            );
+
+        const cached = msgCache.get(chatId);
+
+        if (cached) {
+            msgCache.set(chatId, swap(cached));
+        }
+
+        if (selected.value?.id === chatId) {
+            messages.value = swap(messages.value);
+        }
+
+        revokeAttachment(att);
+
+        return;
     }
 }
 

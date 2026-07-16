@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {
-    Bold,
     Check,
-    Italic,
     Paperclip,
     RefreshCw,
     Send,
@@ -10,7 +8,7 @@ import {
     Sparkles,
     X,
 } from '@lucide/vue';
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import type { ComposerAttachment, OfGif, OfMedia } from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
@@ -68,9 +66,43 @@ const sendable = computed(
             props.attachment?.status === 'ready'),
 );
 
+const MAX_ROWS = 5;
+
+/** Grow the textarea to fit its content up to MAX_ROWS lines, then scroll. A rows="1"
+ *  textarea doesn't resize itself, so recompute the height on every content change. */
+function autoGrow() {
+    const el = textarea.value;
+
+    if (!el) {
+        return;
+    }
+
+    el.style.height = 'auto'; // reset so scrollHeight reflects the true content height
+
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 20;
+    const padding = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const border =
+        parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    const max = line * MAX_ROWS + padding + border;
+    const fit = el.scrollHeight + border; // border-box: scrollHeight omits the border
+
+    el.style.height = `${Math.min(fit, max)}px`;
+    el.style.overflowY = fit > max ? 'auto' : 'hidden';
+}
+
 function onInput(e: Event) {
     emit('update:draft', (e.target as HTMLTextAreaElement).value);
+    autoGrow();
 }
+
+// Grow on external draft changes too (Accept suggestion, chat switch, clear-after-send).
+watch(
+    () => props.draft,
+    () => nextTick(autoGrow),
+);
+
+onMounted(autoGrow);
 
 function pickGif(gif: OfGif) {
     emit('update:attachedGif', gif);
@@ -134,16 +166,6 @@ function replaceSelection(
     });
 }
 
-/** Wrap the selection in a marker pair. The server converts ** → strong, __ → em. */
-function surround(marker: string) {
-    replaceSelection(
-        (selected) => `${marker}${selected}${marker}`,
-        // Selection wrapped: caret after it. Nothing selected: caret between the markers.
-        (start, end, selected) =>
-            selected ? end + marker.length * 2 : start + marker.length,
-    );
-}
-
 function insertEmoji(emoji: string) {
     showEmoji.value = false;
     replaceSelection(
@@ -160,20 +182,6 @@ function onKeydown(e: KeyboardEvent) {
         if (sendable.value) {
             emit('send');
         }
-
-        return;
-    }
-
-    if (!(e.metaKey || e.ctrlKey)) {
-        return;
-    }
-
-    if (e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        surround('**');
-    } else if (e.key.toLowerCase() === 'i') {
-        e.preventDefault();
-        surround('__');
     }
 }
 </script>
@@ -363,44 +371,20 @@ function onKeydown(e: KeyboardEvent) {
                 />
             </button>
 
-            <div class="flex flex-1 flex-col gap-1">
-                <!-- Formatting toolbar: inserts markers the server converts on send. -->
-                <div class="flex items-center gap-0.5">
-                    <button
-                        type="button"
-                        :disabled="!props.canSend"
-                        class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-40"
-                        title="Bold (Ctrl+B)"
-                        @click="surround('**')"
-                    >
-                        <Bold :size="13" />
-                    </button>
-                    <button
-                        type="button"
-                        :disabled="!props.canSend"
-                        class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-40"
-                        title="Italic (Ctrl+I)"
-                        @click="surround('__')"
-                    >
-                        <Italic :size="13" />
-                    </button>
-                </div>
-
-                <textarea
-                    ref="textarea"
-                    :value="props.draft"
-                    :disabled="!props.canSend"
-                    rows="1"
-                    :placeholder="
-                        props.canSend
-                            ? 'Type a message… (Enter sends, Shift+Enter for a new line)'
-                            : 'Sending is disabled for this chat'
-                    "
-                    class="max-h-32 min-h-9 w-full resize-none rounded-lg border border-ss-border bg-ss-surface px-3 py-2 text-[14px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none disabled:opacity-50"
-                    @input="onInput"
-                    @keydown="onKeydown"
-                />
-            </div>
+            <textarea
+                ref="textarea"
+                :value="props.draft"
+                :disabled="!props.canSend"
+                rows="1"
+                :placeholder="
+                    props.canSend
+                        ? 'Type a message… (Enter sends, Shift+Enter for a new line)'
+                        : 'Sending is disabled for this chat'
+                "
+                class="min-h-9 w-full flex-1 resize-none rounded-lg border border-ss-border bg-ss-surface px-3 py-2 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none disabled:opacity-50"
+                @input="onInput"
+                @keydown="onKeydown"
+            />
 
             <input
                 ref="fileInput"
