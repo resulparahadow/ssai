@@ -268,7 +268,9 @@ In `app/Services/OnlyFans/OnlyFansService.php`, add after `searchGiphy()`:
             ->withToken($this->apiKey)
             ->acceptJson()
             ->timeout((int) config('services.onlyfans.upload_timeout', 300))
-            ->attach('file', file_get_contents($path), $filename)
+            // fopen (not file_get_contents): Guzzle streams the body, so a 100MB upload
+            // does not cost a 100MB allocation per concurrent send.
+            ->attach('file', fopen($path, 'r'), $filename)
             ->post("{$account}/media/upload", ['async' => 'true']);
     }
 
