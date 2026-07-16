@@ -165,6 +165,42 @@ class OnlyFansService
             ->all());
     }
 
+    // ---- Media upload / vault ---------------------------------------------
+
+    /**
+     * Upload a file to the OnlyFans CDN and return its single-use `ofapi_media_` id.
+     *
+     * Always async: OnlyFans replies 202 as soon as it holds the bytes and transcodes in
+     * the background, so a slow video never occupies a PHP-FPM worker. Poll
+     * getUploadStatus() until `completed` before sending the id in `mediaFiles`.
+     *
+     * NB: this deliberately does NOT use client(). client() carries ->retry(3), and
+     * retrying a multipart upload re-sends a file OnlyFans may already have accepted —
+     * producing a second, BILLED copy. A consumed upload stream cannot be replayed
+     * safely either. Own builder: no retry, upload_timeout instead of the 30s default.
+     */
+    public function uploadMedia(string $account, string $path, string $filename): Response
+    {
+        if (! $this->enabled()) {
+            throw new RuntimeException('ONLYFANS_API_KEY is not configured.');
+        }
+
+        return Http::baseUrl($this->baseUrl)
+            ->withToken($this->apiKey)
+            ->acceptJson()
+            ->timeout((int) config('services.onlyfans.upload_timeout', 300))
+            // fopen (not file_get_contents): Guzzle streams the body, so a 100MB upload
+            // does not cost a 100MB allocation per concurrent send.
+            ->attach('file', fopen($path, 'r'), $filename)
+            ->post("{$account}/media/upload", ['async' => 'true']);
+    }
+
+    /** Poll an async upload: status is pending | processing | completed | failed. */
+    public function getUploadStatus(string $account, string $uploadId): Response
+    {
+        return $this->client()->get("{$account}/media/uploads/{$uploadId}/status");
+    }
+
     // ---- Users ------------------------------------------------------------
 
     public function getUser(string $account, string $userId): Response
