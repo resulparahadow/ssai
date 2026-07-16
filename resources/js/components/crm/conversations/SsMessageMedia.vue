@@ -99,8 +99,37 @@ function open(i: number) {
                 ]"
                 @click="open(i)"
             >
+                <!--
+                  Audio: OnlyFans gives no thumb/preview for it (files.thumb is null), so a
+                  player is the only sensible rendering. The src goes through the media proxy
+                  because OF CDN urls are IP-locked to the server and 403 in the browser.
+                -->
+                <div
+                    v-if="m.type === 'audio'"
+                    class="flex items-center gap-2 rounded-lg border border-ss-border bg-ss-surface-2 p-2"
+                >
+                    <audio
+                        controls
+                        preload="none"
+                        class="h-8 max-w-full"
+                        :src="
+                            m.direct
+                                ? ((m.source ?? m.full) as string)
+                                : ofApi.mediaUrl(
+                                      props.modelId,
+                                      (m.source ?? m.full) as string,
+                                  )
+                        "
+                    />
+                    <span
+                        v-if="m.duration"
+                        class="shrink-0 text-[10px] text-ss-text-3"
+                        >{{ m.duration }}s</span
+                    >
+                </div>
+
                 <!-- viewable photo / video poster -->
-                <template v-if="usable(m)">
+                <template v-else-if="usable(m)">
                     <img
                         :src="poster(m)!"
                         :alt="m.type"
@@ -137,7 +166,9 @@ function open(i: number) {
                             <ImageOff :size="20" class="mx-auto mb-1" />
                             <span class="block text-[10px] font-medium"
                                 >Couldn't load
-                                {{ m.type === 'video' ? 'video' : 'image' }}</span
+                                {{
+                                    m.type === 'video' ? 'video' : 'image'
+                                }}</span
                             >
                         </span>
                     </span>
