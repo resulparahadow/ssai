@@ -13,6 +13,7 @@ import {
     msgCache,
     nextCache,
 } from '@/lib/conversationCache';
+import type { ComposerState } from '@/lib/conversationCache';
 import { messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     ensureSubscribed,
@@ -21,7 +22,14 @@ import {
 } from '@/lib/realtimeInbound';
 import type { InboundPayload } from '@/lib/realtimeInbound';
 import type { Role } from '@/types/auth';
-import type { OfChat, OfFan, OfMessage, SidebarCreator } from '@/types/crm';
+import type {
+    ComposerAttachment,
+    OfChat,
+    OfFan,
+    OfMedia,
+    OfMessage,
+    SidebarCreator,
+} from '@/types/crm';
 
 const props = defineProps<{ selectedCreator: string | null }>();
 const page = usePage();
@@ -194,8 +202,11 @@ async function send(override?: string) {
     // Accept & Send passes the suggestion directly so it never lands in the typing bar.
     const text = (override ?? st.draft).trim();
     const gif = st.gif;
+    // A ready attachment is sendable on its own (no caption required) — mirrors
+    // SsComposer's `sendable` computed, which enables Send once the attachment is 'ready'.
+    const att = st.attachment?.status === 'ready' ? st.attachment : null;
 
-    if (!text && !gif) {
+    if (!text && !gif && !att) {
         return;
     }
 
@@ -238,8 +249,27 @@ async function send(override?: string) {
         isLiked: false,
         isPinned: false,
         isTip: false,
-        mediaCount: gifMedia.length,
-        media: gifMedia,
+        mediaCount: gifMedia.length + (att ? 1 : 0),
+        media: att
+            ? [
+                  ...gifMedia,
+                  {
+                      id: att.id,
+                      type: att.kind,
+                      canView: true,
+                      thumb: att.previewUrl,
+                      preview: att.previewUrl,
+                      full: att.previewUrl,
+                      source: att.previewUrl,
+                      duration: null,
+                      width: null,
+                      height: null,
+                      // blob:/proxied previews are already browser-loadable — skip the
+                      // OF media proxy, exactly as Giphy previews do.
+                      direct: true,
+                  },
+              ]
+            : gifMedia,
         pending: true,
     };
 
@@ -248,7 +278,13 @@ async function send(override?: string) {
     }
 
     try {
-        const res = await ofApi.send(m.id, chatId, text, gif?.id ?? undefined);
+        const res = await ofApi.send(
+            m.id,
+            chatId,
+            text,
+            gif?.id ?? undefined,
+            att?.id ? [att.id] : undefined,
+        );
         const sent = (res.message as OfMessage) ?? {
             ...optimistic,
             pending: false,
@@ -274,6 +310,8 @@ async function send(override?: string) {
 
         st.draft = '';
         st.suggestion = null;
+        revokeAttachment(st.attachment);
+        st.attachment = null;
         // Keep st.strategy: the AI Intel for this chat stays available so reopening
         // the chat (or the AI Intel tab) still shows the last analysis. A new
         // Generate overwrites it.
@@ -289,6 +327,183 @@ async function send(override?: string) {
     } finally {
         st.sending = false;
     }
+}
+
+const POLL_MS = 1500;
+const POLL_MAX = 60; // ~90s, then give up rather than poll forever
+
+function attachmentKind(mime: string): ComposerAttachment['kind'] {
+    if (mime.startsWith('video/')) {
+        return 'video';
+    }
+
+    if (mime.startsWith('audio/')) {
+        return 'audio';
+    }
+
+    if (mime === 'image/gif') {
+        return 'gif';
+    }
+
+    return 'photo';
+}
+
+/** blob: previews are object URLs — free them or they leak for the session. */
+function revokeAttachment(att: ComposerAttachment | null) {
+    if (att?.source === 'upload' && att.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(att.previewUrl);
+    }
+}
+
+async function onPickFile(file: File) {
+    const m = model.value;
+    const chat = selected.value;
+
+    if (!m || !chat) {
+        return;
+    }
+
+    const cur = chatComposer(chat.id);
+
+    // 100MB = OnlyFans' cap, mirrored by nginx/PHP. Reject here so the user isn't
+    // made to wait out a long transfer only to hit an unparseable nginx 413.
+    if (file.size > 100 * 1024 * 1024) {
+        cur.attachment = {
+            id: null,
+            source: 'upload',
+            status: 'failed',
+            progress: 0,
+            error: 'File is larger than 100MB.',
+            name: file.name,
+            kind: attachmentKind(file.type),
+            previewUrl: null,
+        };
+
+        return;
+    }
+
+    revokeAttachment(cur.attachment);
+    cur.gif = null; // media and GIF are mutually exclusive
+
+    const att: ComposerAttachment = {
+        id: null,
+        source: 'upload',
+        status: 'uploading',
+        progress: 0,
+        error: null,
+        name: file.name,
+        kind: attachmentKind(file.type),
+        previewUrl: file.type.startsWith('image/')
+            ? URL.createObjectURL(file)
+            : null,
+    };
+    cur.attachment = att;
+
+    try {
+        const r = await ofApi.uploadMedia(m.id, file, (pct) => {
+            if (cur.attachment === att) {
+                att.progress = pct;
+            }
+        });
+
+        if (cur.attachment !== att) {
+            return; // removed or replaced mid-flight
+        }
+
+        att.id = r.id;
+        att.status = 'processing';
+        await pollUpload(m.id, cur, att);
+    } catch (e) {
+        if (cur.attachment === att) {
+            att.status = 'failed';
+            att.error = e instanceof Error ? e.message : 'Upload failed.';
+        }
+    }
+}
+
+async function pollUpload(
+    modelId: number,
+    cur: ComposerState,
+    att: ComposerAttachment,
+) {
+    for (let i = 0; i < POLL_MAX; i++) {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+
+        if (cur.attachment !== att || !att.id) {
+            return;
+        }
+
+        try {
+            const s = await ofApi.uploadStatus(modelId, att.id);
+
+            if (cur.attachment !== att) {
+                return;
+            }
+
+            if (s.status === 'completed') {
+                att.status = 'ready';
+
+                return;
+            }
+
+            if (s.status === 'failed') {
+                att.status = 'failed';
+                att.error = s.error ?? 'OnlyFans could not process this file.';
+
+                return;
+            }
+        } catch (e) {
+            att.status = 'failed';
+            att.error =
+                e instanceof Error ? e.message : 'Upload status check failed.';
+
+            return;
+        }
+    }
+
+    att.status = 'failed';
+    att.error = 'Timed out waiting for OnlyFans to process this file.';
+}
+
+function onPickVault(item: OfMedia) {
+    const m = model.value;
+    const chat = selected.value;
+
+    if (!m || !chat || !item.id) {
+        return;
+    }
+
+    const cur = chatComposer(chat.id);
+
+    revokeAttachment(cur.attachment);
+    cur.gif = null;
+
+    cur.attachment = {
+        id: item.id,
+        source: 'vault',
+        status: 'ready', // vault ids need no upload and are reusable
+        progress: 100,
+        error: null,
+        name: null,
+        kind: (item.type as ComposerAttachment['kind']) ?? 'photo',
+        previewUrl:
+            item.thumb || item.preview
+                ? ofApi.mediaUrl(m.id, (item.thumb ?? item.preview) as string)
+                : null,
+    };
+}
+
+function setAttachment(value: ComposerAttachment | null) {
+    const chat = selected.value;
+
+    if (!chat) {
+        return;
+    }
+
+    const cur = chatComposer(chat.id);
+
+    revokeAttachment(cur.attachment);
+    cur.attachment = value;
 }
 
 /** Retry a previously-failed optimistic message in place. */
@@ -848,6 +1063,7 @@ onBeforeUnmount(() => {
                         :draft="cur.draft"
                         :suggestion="cur.suggestion"
                         :attached-gif="cur.gif"
+                        :attachment="cur.attachment"
                         :generating="cur.generating"
                         :sending="cur.sending"
                         :error="cur.error"
@@ -855,6 +1071,9 @@ onBeforeUnmount(() => {
                         :can-send-reason="selected?.canSendReason ?? null"
                         @update:draft="cur.draft = $event"
                         @update:attached-gif="cur.gif = $event"
+                        @update:attachment="setAttachment"
+                        @pick-file="onPickFile"
+                        @pick-vault="onPickVault"
                         @generate="generate"
                         @send="send"
                         @accept="acceptSuggestion"
