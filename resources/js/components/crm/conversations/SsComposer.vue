@@ -3,6 +3,7 @@ import {
     Bold,
     Check,
     Italic,
+    Paperclip,
     RefreshCw,
     Send,
     Smile,
@@ -10,9 +11,10 @@ import {
     X,
 } from '@lucide/vue';
 import { computed, nextTick, ref } from 'vue';
-import type { OfGif } from '@/types/crm';
+import type { ComposerAttachment, OfGif, OfMedia } from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
+import SsVaultModal from './SsVaultModal.vue';
 
 const props = defineProps<{
     creator: string;
@@ -20,6 +22,7 @@ const props = defineProps<{
     draft: string;
     suggestion: string | null;
     attachedGif: OfGif | null;
+    attachment: ComposerAttachment | null;
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -30,6 +33,9 @@ const props = defineProps<{
 const emit = defineEmits<{
     'update:draft': [value: string];
     'update:attachedGif': [value: OfGif | null];
+    'update:attachment': [value: ComposerAttachment | null];
+    'pick-file': [file: File];
+    'pick-vault': [item: OfMedia];
     generate: [];
     send: [];
     accept: [];
@@ -40,12 +46,26 @@ const emit = defineEmits<{
 const showPicker = ref(false);
 const showEmoji = ref(false);
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const showVault = ref(false);
+const dragging = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+const attachBusy = computed(
+    () =>
+        props.attachment?.status === 'uploading' ||
+        props.attachment?.status === 'processing',
+);
 
 const sendable = computed(
     () =>
         props.canSend &&
         !props.sending &&
-        (props.draft.trim().length > 0 || props.attachedGif !== null),
+        // An attachment that is still uploading/processing is not sendable yet.
+        !attachBusy.value &&
+        props.attachment?.status !== 'failed' &&
+        (props.draft.trim().length > 0 ||
+            props.attachedGif !== null ||
+            props.attachment?.status === 'ready'),
 );
 
 function onInput(e: Event) {
@@ -55,6 +75,36 @@ function onInput(e: Event) {
 function pickGif(gif: OfGif) {
     emit('update:attachedGif', gif);
     showPicker.value = false;
+}
+
+function onFileChange(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0];
+
+    if (f) {
+        emit('pick-file', f);
+    }
+
+    // Reset so picking the SAME file twice still fires change.
+    (e.target as HTMLInputElement).value = '';
+}
+
+function onDrop(e: DragEvent) {
+    dragging.value = false;
+
+    if (!props.canSend) {
+        return;
+    }
+
+    const f = e.dataTransfer?.files?.[0];
+
+    if (f) {
+        emit('pick-file', f);
+    }
+}
+
+function pickVault(item: OfMedia) {
+    showVault.value = false;
+    emit('pick-vault', item);
 }
 
 /** Replace the current selection (or insert at the caret), then restore focus + caret. */
@@ -218,6 +268,67 @@ function onKeydown(e: KeyboardEvent) {
             </button>
         </div>
 
+        <!-- Attached media preview -->
+        <div
+            v-if="props.attachment"
+            class="flex items-center gap-2.5 rounded-xl border border-ss-border bg-ss-surface-2 p-2"
+        >
+            <img
+                v-if="props.attachment.previewUrl && props.attachment.kind !== 'audio'"
+                :src="props.attachment.previewUrl"
+                alt=""
+                class="h-12 w-12 shrink-0 rounded-lg object-cover"
+            />
+            <span
+                v-else
+                class="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-ss-surface text-[9px] font-semibold text-ss-text-3 uppercase"
+                >{{ props.attachment.kind }}</span
+            >
+
+            <div class="min-w-0 flex-1">
+                <p class="truncate text-[12px] font-medium text-ss-text">
+                    {{ props.attachment.name ?? props.attachment.kind }}
+                </p>
+
+                <p
+                    v-if="props.attachment.status === 'failed'"
+                    class="text-[11px] text-ss-neg"
+                >
+                    {{ props.attachment.error ?? 'Upload failed.' }}
+                </p>
+                <p
+                    v-else-if="props.attachment.status === 'processing'"
+                    class="text-[11px] text-ss-text-3"
+                >
+                    Processing on OnlyFans…
+                </p>
+                <p
+                    v-else-if="props.attachment.status === 'ready'"
+                    class="text-[11px] text-ss-text-3"
+                >
+                    Ready to send
+                </p>
+                <div
+                    v-else
+                    class="mt-1 h-1.5 overflow-hidden rounded-full bg-ss-surface"
+                >
+                    <div
+                        class="h-full rounded-full bg-ss-accent transition-[width]"
+                        :style="{ width: `${props.attachment.progress}%` }"
+                    />
+                </div>
+            </div>
+
+            <button
+                type="button"
+                class="grid h-7 w-7 shrink-0 place-items-center rounded text-ss-text-3 hover:bg-ss-surface hover:text-ss-text-2"
+                title="Remove attachment"
+                @click="emit('update:attachment', null)"
+            >
+                <X :size="14" />
+            </button>
+        </div>
+
         <!-- Can't-send notice (e.g. a muted fan): OnlyFans would 400 the send. -->
         <p v-if="!props.canSend" class="text-[11px] text-ss-text-3">
             Can't send to this chat{{
@@ -226,7 +337,19 @@ function onKeydown(e: KeyboardEvent) {
         </p>
 
         <!-- Typing bar -->
-        <div class="flex items-end gap-2">
+        <div
+            class="relative flex items-end gap-2"
+            @dragover.prevent="dragging = true"
+            @dragleave.prevent="dragging = false"
+            @drop.prevent="onDrop"
+        >
+            <div
+                v-if="dragging"
+                class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg border-2 border-dashed border-ss-accent bg-ss-accent-soft/90 text-[12px] font-semibold text-ss-accent-text"
+            >
+                Drop to attach
+            </div>
+
             <button
                 type="button"
                 :disabled="props.generating"
@@ -278,6 +401,32 @@ function onKeydown(e: KeyboardEvent) {
                     @keydown="onKeydown"
                 />
             </div>
+
+            <input
+                ref="fileInput"
+                type="file"
+                accept="image/*,video/*,audio/*"
+                class="hidden"
+                @change="onFileChange"
+            />
+            <button
+                type="button"
+                :disabled="!props.canSend || attachBusy"
+                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ss-border text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-40"
+                title="Attach a photo, video, or audio file"
+                @click="fileInput?.click()"
+            >
+                <Paperclip :size="16" />
+            </button>
+            <button
+                type="button"
+                :disabled="!props.canSend || attachBusy"
+                class="grid h-9 shrink-0 place-items-center rounded-lg border border-ss-border px-2 text-[11px] font-bold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-40"
+                title="Attach from the OnlyFans vault"
+                @click="showVault = true"
+            >
+                VAULT
+            </button>
 
             <!-- Emoji picker -->
             <div class="relative shrink-0">
@@ -335,5 +484,12 @@ function onKeydown(e: KeyboardEvent) {
                 <Send :size="14" /> {{ props.sending ? 'Sending…' : 'Send' }}
             </button>
         </div>
+
+        <SsVaultModal
+            v-if="showVault"
+            :model-id="props.modelId"
+            @select="pickVault"
+            @close="showVault = false"
+        />
     </div>
 </template>
