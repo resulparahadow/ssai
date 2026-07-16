@@ -201,6 +201,35 @@ class OnlyFansService
         return $this->client()->get("{$account}/media/uploads/{$uploadId}/status");
     }
 
+    /**
+     * List the creator's vault media. Vault items carry the SAME shape as message
+     * media, so callers normalize them with the existing normalizeMedia() — there is
+     * deliberately no second normalizer. `limit` is capped at 100 by the API; drive
+     * paging off `data.hasMore` (nextOffset advances past the end and lies).
+     */
+    public function listVaultMedia(string $account, array $params = []): Response
+    {
+        return $this->client()->get("{$account}/media/vault", collect($params)
+            ->only(['type', 'limit', 'offset'])
+            ->filter(fn ($v) => $v !== null && $v !== '')
+            ->all());
+    }
+
+    /**
+     * Send a message carrying media (upload ids and/or vault ids), with optional text.
+     * Price is never sent — PPV stays blocked in v1.
+     */
+    public function sendMedia(string $account, string $chatId, array $mediaFiles, string $text = ''): Response
+    {
+        $body = ['mediaFiles' => array_values($mediaFiles)];
+        $text = trim($text);
+        if ($text !== '') {
+            $body['text'] = $this->textToOfHtml($text);
+        }
+
+        return $this->client()->post("{$account}/chats/{$chatId}/messages", $body);
+    }
+
     // ---- Users ------------------------------------------------------------
 
     public function getUser(string $account, string $userId): Response

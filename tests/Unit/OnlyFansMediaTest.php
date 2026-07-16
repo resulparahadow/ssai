@@ -84,3 +84,61 @@ it('reads a failed upload status with its error', function () {
     expect($res->json('status'))->toBe('failed')
         ->and($res->json('error'))->toBe('Failed to download file from the provided URL.');
 });
+
+it('lists vault media with type/limit/offset only', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => ['list' => [], 'hasMore' => false],
+    ])]);
+
+    mediaService()->listVaultMedia('acct_cam', ['type' => 'audio', 'limit' => 50, 'offset' => 20, 'bogus' => 'x']);
+
+    Http::assertSent(function ($r) {
+        return $r->method() === 'GET'
+            && str_contains($r->url(), '/acct_cam/media/vault')
+            && str_contains($r->url(), 'type=audio')
+            && str_contains($r->url(), 'limit=50')
+            && str_contains($r->url(), 'offset=20')
+            && ! str_contains($r->url(), 'bogus');
+    });
+});
+
+// The vault item shape matches message media, so the existing normalizer is reused
+// rather than duplicated. This pins that.
+it('normalizes a vault item through the existing normalizeMedia', function () {
+    $item = [
+        'id' => 123,
+        'type' => 'audio',
+        'canView' => true,
+        'duration' => 3,
+        'files' => ['full' => ['url' => 'https://cdn2.onlyfans.com/a.mp3'], 'thumb' => null, 'preview' => null],
+    ];
+
+    $out = mediaService()->normalizeMedia(['media' => [$item]]);
+
+    expect($out)->toHaveCount(1)
+        ->and($out[0]['id'])->toBe('123')
+        ->and($out[0]['type'])->toBe('audio')
+        ->and($out[0]['full'])->toBe('https://cdn2.onlyfans.com/a.mp3')
+        ->and($out[0]['thumb'])->toBeNull()
+        ->and($out[0]['duration'])->toBe(3);
+});
+
+it('sends media with serialized text', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 9, 'fromUser' => ['id' => 1]]])]);
+
+    mediaService()->sendMedia('acct_cam', '101', ['ofapi_media_abc'], 'look **here**');
+
+    Http::assertSent(fn ($r) => $r->method() === 'POST'
+        && str_contains($r->url(), '/acct_cam/chats/101/messages')
+        && $r['mediaFiles'] === ['ofapi_media_abc']
+        && $r['text'] === 'look <strong>here</strong>');
+});
+
+it('omits text entirely when sending media with no caption', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 9, 'fromUser' => ['id' => 1]]])]);
+
+    mediaService()->sendMedia('acct_cam', '101', ['ofapi_media_abc'], '   ');
+
+    Http::assertSent(fn ($r) => $r['mediaFiles'] === ['ofapi_media_abc']
+        && ! array_key_exists('text', $r->data()));
+});
