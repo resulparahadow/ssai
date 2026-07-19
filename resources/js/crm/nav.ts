@@ -2,6 +2,7 @@ import {
     BookOpen,
     ChartColumnBig,
     Crown,
+    Images,
     LayoutGrid,
     Megaphone,
     MessageSquare,
@@ -61,6 +62,8 @@ export interface NavNode {
     children?: NavChild[];
     /** Children come from a shared Inertia prop at render time (e.g. 'creators'). */
     dynamic?: 'creators';
+    /** Base path a `dynamic` node links each creator to (e.g. '/conversations?creator=…'). */
+    basePath?: string;
     /** Phase-1: Overview is the only built view, so it is visible to every role. */
     alwaysOn?: boolean;
 }
@@ -81,6 +84,15 @@ export const NAV: NavNode[] = [
         icon: MessageSquare,
         cap: 'chat',
         dynamic: 'creators',
+        basePath: '/conversations',
+    },
+    {
+        key: 'vault',
+        label: 'Media Vault',
+        icon: Images,
+        cap: 'chat',
+        dynamic: 'creators',
+        basePath: '/media-vault',
     },
     {
         key: 'models',

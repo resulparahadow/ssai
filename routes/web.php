@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\PasswordChangeController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GenerationController;
+use App\Http\Controllers\MediaVaultController;
 use App\Http\Controllers\ModelController;
 use App\Http\Controllers\ModelOnlyFansController;
 use App\Http\Controllers\OnlyFansChatController;
@@ -27,6 +28,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Conversations — thin shell; all chat data is fetched LIVE from OnlyFans.
     Route::get('conversations', [ConversationController::class, 'index'])->name('conversations.index');
 
+    // Media Vault — thin shell; all vault data is fetched LIVE from OnlyFans (no persistence).
+    Route::get('media-vault', [MediaVaultController::class, 'index'])->name('media-vault.index');
+
     // OnlyFans live proxy (no persistence). {model} = AichModel; access scoped in the controller.
     Route::prefix('onlyfans/{model}')->name('onlyfans.')->group(function () {
         Route::get('chats', [OnlyFansChatController::class, 'chats'])->name('chats');
@@ -38,6 +42,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('media/upload', [OnlyFansChatController::class, 'uploadMedia'])->name('media.upload');
         Route::get('media/uploads/{upload}/status', [OnlyFansChatController::class, 'uploadStatus'])->name('media.upload.status');
         Route::get('media/vault', [OnlyFansChatController::class, 'vault'])->name('media.vault');
+        // Media Vault management. Static/`lists` segments MUST stay above the
+        // `media/vault/{media}` wildcard or it captures them.
+        Route::post('media/vault', [OnlyFansChatController::class, 'uploadToVault'])->name('media.vault.upload');
+        Route::get('media/vault/lists', [OnlyFansChatController::class, 'vaultLists'])->name('media.vault.lists');
+        Route::post('media/vault/lists', [OnlyFansChatController::class, 'createVaultList'])->name('media.vault.lists.create');
+        Route::get('media/vault/lists/{list}', [OnlyFansChatController::class, 'showVaultList'])->name('media.vault.lists.show');
+        Route::put('media/vault/lists/{list}', [OnlyFansChatController::class, 'renameVaultList'])->name('media.vault.lists.rename');
+        Route::post('media/vault/lists/{list}/media', [OnlyFansChatController::class, 'addToVaultList'])->name('media.vault.lists.add');
+        Route::delete('media/vault/lists/{list}/media', [OnlyFansChatController::class, 'removeFromVaultList'])->name('media.vault.lists.remove');
+        Route::get('media/vault/{media}', [OnlyFansChatController::class, 'vaultMedia'])->name('media.vault.item');
         Route::post('chats/{chat}/messages', [OnlyFansChatController::class, 'send'])->name('send');
         Route::delete('chats/{chat}/messages/{message}', [OnlyFansChatController::class, 'destroy'])->name('delete');
         Route::post('chats/{chat}/messages/{message}/like', [OnlyFansChatController::class, 'like'])->name('like');
@@ -69,6 +83,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Destructive/outward-facing actions on a real fan's account — manager/admin only.
         // The controller still scopes per-creator; this gate is the extra role bar.
         Route::middleware('can:manage-team')->group(function () {
+            // Hard-deletes on the creator's content library — manager/admin only.
+            Route::delete('media/vault/delete-media', [OnlyFansChatController::class, 'deleteVaultMedia'])->name('media.vault.delete');
+            Route::delete('media/vault/lists/{list}', [OnlyFansChatController::class, 'deleteVaultList'])->name('media.vault.lists.delete');
             Route::post('chats/{chat}/hide', [OnlyFansChatController::class, 'hide'])->name('hide');
             Route::post('users/{user}/block', [OnlyFansChatController::class, 'block'])->name('block');
             Route::delete('users/{user}/block', [OnlyFansChatController::class, 'unblock'])->name('unblock');

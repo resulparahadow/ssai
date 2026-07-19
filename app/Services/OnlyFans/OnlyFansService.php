@@ -215,6 +215,92 @@ class OnlyFansService
             ->all());
     }
 
+    /** Fetch a single vault media item (shares the message-media shape → normalizeMedia). */
+    public function getVaultMedia(string $account, string $mediaId): Response
+    {
+        return $this->client()->get("{$account}/media/vault/{$mediaId}");
+    }
+
+    /**
+     * Upload one file (multipart stream) OR a remote HTTPS url into the vault. Like
+     * uploadMedia() this posts with async=true and deliberately does NOT use client():
+     * retrying a multipart POST re-sends a file OnlyFans may already have accepted (a
+     * second, BILLED copy), and a consumed upload stream cannot be replayed. Poll
+     * getUploadStatus() until `completed`; the finished media then appears in
+     * listVaultMedia(). NB this posts to `media/vault`, not `media/upload` (uploadMedia's
+     * CDN single-use path) — the two uploads are distinct.
+     */
+    public function uploadMediaToVault(string $account, ?string $path, ?string $filename, ?string $fileUrl): Response
+    {
+        if (! $this->enabled()) {
+            throw new RuntimeException('ONLYFANS_API_KEY is not configured.');
+        }
+
+        $request = Http::baseUrl($this->baseUrl)
+            ->withToken($this->apiKey)
+            ->acceptJson()
+            ->timeout((int) config('services.onlyfans.upload_timeout', 300));
+
+        if ($path !== null) {
+            return $request
+                ->attach('file', fopen($path, 'r'), (string) $filename)
+                ->post("{$account}/media/vault", ['async' => 'true']);
+        }
+
+        return $request->post("{$account}/media/vault", ['file_url' => $fileUrl, 'async' => 'true']);
+    }
+
+    /** Delete one or more media from the vault permanently (manager+ in the UI). */
+    public function deleteVaultMedia(string $account, array $mediaIds): Response
+    {
+        return $this->client()->delete("{$account}/media/vault/delete-media", ['mediaIds' => array_values($mediaIds)]);
+    }
+
+    // ---- Media Vault lists ------------------------------------------------
+    // Vault "folders" grouping media (custom lists + built-in Posts/Messages/etc).
+
+    public function listVaultLists(string $account, array $params = []): Response
+    {
+        return $this->client()->get("{$account}/media/vault/lists", collect($params)
+            ->only(['query', 'limit', 'offset'])
+            ->filter(fn ($v) => $v !== null && $v !== '')
+            ->all());
+    }
+
+    public function createVaultList(string $account, string $name): Response
+    {
+        return $this->client()->post("{$account}/media/vault/lists", ['name' => $name]);
+    }
+
+    public function showVaultList(string $account, string $listId): Response
+    {
+        return $this->client()->get("{$account}/media/vault/lists/{$listId}");
+    }
+
+    public function renameVaultList(string $account, string $listId, string $name): Response
+    {
+        return $this->client()->put("{$account}/media/vault/lists/{$listId}", ['name' => $name]);
+    }
+
+    public function deleteVaultList(string $account, string $listId): Response
+    {
+        return $this->client()->delete("{$account}/media/vault/lists/{$listId}");
+    }
+
+    /**
+     * Add media to a list. The body key is `media_ids` here but `mediaIds` on remove —
+     * an intentional API asymmetry (verified against the docs); do NOT "normalise" them.
+     */
+    public function addMediaToVaultList(string $account, string $listId, array $mediaIds): Response
+    {
+        return $this->client()->post("{$account}/media/vault/lists/{$listId}/media", ['media_ids' => array_values($mediaIds)]);
+    }
+
+    public function removeMediaFromVaultList(string $account, string $listId, array $mediaIds): Response
+    {
+        return $this->client()->delete("{$account}/media/vault/lists/{$listId}/media", ['mediaIds' => array_values($mediaIds)]);
+    }
+
     /**
      * Send a message carrying media (upload ids and/or vault ids), with optional text.
      * Price is never sent — PPV stays blocked in v1.
@@ -862,6 +948,15 @@ class OnlyFansService
 
         return collect($items)->map(function (array $m): array {
             $files = $m['files'] ?? [];
+            $source = $this->bestVideoSource($m);
+
+            $urls = array_filter([
+                data_get($files, 'thumb.url'),
+                data_get($files, 'preview.url'),
+                data_get($files, 'squarePreview.url'),
+                data_get($files, 'full.url'),
+                $source,
+            ], fn ($u) => is_string($u) && $u !== '');
 
             return [
                 'id' => isset($m['id']) ? (string) $m['id'] : null,
@@ -870,12 +965,48 @@ class OnlyFansService
                 'thumb' => data_get($files, 'thumb.url'),
                 'preview' => data_get($files, 'preview.url') ?? data_get($files, 'squarePreview.url'),
                 'full' => data_get($files, 'full.url'),
-                'source' => $this->bestVideoSource($m),
+                'source' => $source,
                 'duration' => isset($m['duration']) ? (int) $m['duration'] : null,
                 'width' => data_get($files, 'full.width') ?? data_get($files, 'preview.width'),
                 'height' => data_get($files, 'full.height') ?? data_get($files, 'preview.height'),
+                // Vault media come back as fansapi.com presigned CDN urls that load directly in
+                // the browser (not IP-locked like cdn*.onlyfans.com). Flag them `direct` so the
+                // frontend skips the media proxy — whose SSRF guard 400s any non-onlyfans host.
+                // Message media stay on cdn*.onlyfans.com → direct=false → still proxied.
+                'direct' => $urls !== [] && ! collect($urls)->contains(fn ($u) => $this->isOnlyFansCdnUrl($u)),
             ];
         })->values()->all();
+    }
+
+    /**
+     * Compact a raw vault-list object (a custom folder, or a built-in list like Posts).
+     * listVaultLists carries only per-type counts; showVaultList additionally returns
+     * `medias`, normalized through normalizeMedia (vault media share the message-media
+     * shape) so the frontend renders them with the same proxy/lightbox as chat media.
+     *
+     * @param  array<string, mixed>  $raw
+     * @return array<string, mixed>
+     */
+    public function normalizeVaultList(array $raw): array
+    {
+        $out = [
+            'id' => isset($raw['id']) ? (string) $raw['id'] : null,
+            'type' => (string) ($raw['type'] ?? 'custom'),
+            'name' => (string) ($raw['name'] ?? ''),
+            'hasMedia' => (bool) ($raw['hasMedia'] ?? false),
+            'canUpdate' => (bool) ($raw['canUpdate'] ?? false),
+            'canDelete' => (bool) ($raw['canDelete'] ?? false),
+            'videosCount' => (int) ($raw['videosCount'] ?? 0),
+            'photosCount' => (int) ($raw['photosCount'] ?? 0),
+            'gifsCount' => (int) ($raw['gifsCount'] ?? 0),
+            'audiosCount' => (int) ($raw['audiosCount'] ?? 0),
+        ];
+
+        if (isset($raw['medias']) && is_array($raw['medias'])) {
+            $out['medias'] = $this->normalizeMedia(['media' => $raw['medias']]);
+        }
+
+        return $out;
     }
 
     /**

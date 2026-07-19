@@ -9,6 +9,7 @@ import type {
     OfMedia,
     OfMessage,
     OfPreviewKind,
+    OfVaultList,
 } from '@/types/crm';
 
 /**
@@ -190,6 +191,102 @@ export const ofApi = {
         req<{ items: OfMedia[]; hasMore: boolean }>(
             'GET',
             `${base(m)}/media/vault?${new URLSearchParams(params)}`,
+        ),
+    /**
+     * Upload one file INTO the vault (permanent), async → poll uploadStatus. XHR (not
+     * fetch) to report upload progress, exactly like uploadMedia; posts to media/vault,
+     * not media/upload (that's the CDN single-use path).
+     */
+    uploadToVault: (m: number, file: File, onProgress: (pct: number) => void) =>
+        new Promise<{ id: string; status: string }>((resolve, reject) => {
+            const form = new FormData();
+            form.append('file', file);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${base(m)}/media/vault`);
+            xhr.withCredentials = true;
+            xhr.setRequestHeader('Accept', 'application/json');
+            xhr.setRequestHeader('X-XSRF-TOKEN', cookie('XSRF-TOKEN'));
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    onProgress(Math.round((e.loaded / e.total) * 100));
+                }
+            };
+
+            xhr.onload = () => {
+                let body: Record<string, string> = {};
+
+                try {
+                    body = JSON.parse(xhr.responseText);
+                } catch {
+                    reject(new Error(`Upload failed (${xhr.status})`));
+
+                    return;
+                }
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(body as unknown as { id: string; status: string });
+                } else {
+                    reject(
+                        new Error(
+                            body.error ||
+                                body.message ||
+                                `Upload failed (${xhr.status})`,
+                        ),
+                    );
+                }
+            };
+
+            xhr.onerror = () =>
+                reject(new Error('Upload failed — network error.'));
+            xhr.onabort = () => reject(new Error('Upload cancelled.'));
+
+            xhr.send(form);
+        }),
+    /** Upload a remote HTTPS url into the vault (async → poll uploadStatus). */
+    uploadToVaultByUrl: (m: number, fileUrl: string) =>
+        postJson<{ id: string; status: string }>(`${base(m)}/media/vault`, {
+            file_url: fileUrl,
+        }),
+    vaultMediaItem: (m: number, id: string) =>
+        req<{ item: OfMedia | null }>('GET', `${base(m)}/media/vault/${id}`),
+    /** Permanently delete vault media (manager+; server-gated by can:manage-team). */
+    deleteVaultMedia: (m: number, ids: string[]) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/media/vault/delete-media`, {
+            mediaIds: ids,
+        }),
+
+    // ---- Vault lists ------------------------------------------------------
+    vaultLists: (m: number, params: Record<string, string> = {}) =>
+        req<{ lists: OfVaultList[]; hasMore: boolean }>(
+            'GET',
+            `${base(m)}/media/vault/lists?${new URLSearchParams(params)}`,
+        ),
+    createVaultList: (m: number, name: string) =>
+        postJson<{ list: OfVaultList }>(`${base(m)}/media/vault/lists`, {
+            name,
+        }),
+    showVaultList: (m: number, id: string) =>
+        req<{ list: OfVaultList }>('GET', `${base(m)}/media/vault/lists/${id}`),
+    renameVaultList: (m: number, id: string, name: string) =>
+        req<{ list: OfVaultList }>(
+            'PUT',
+            `${base(m)}/media/vault/lists/${id}`,
+            { name },
+        ),
+    /** Manager+ only. Deletes the list folder, not the media within it. */
+    deleteVaultList: (m: number, id: string) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/media/vault/lists/${id}`),
+    addToVaultList: (m: number, id: string, ids: string[]) =>
+        postJson<{ ok: boolean }>(`${base(m)}/media/vault/lists/${id}/media`, {
+            mediaIds: ids,
+        }),
+    removeFromVaultList: (m: number, id: string, ids: string[]) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/media/vault/lists/${id}/media`,
+            { mediaIds: ids },
         ),
     send: (
         m: number,

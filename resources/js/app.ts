@@ -32,6 +32,7 @@ createInertiaApp({
             case name === 'AiUsage':
             case name === 'Spenders':
             case name === 'Conversations':
+            case name === 'MediaVault':
             case name === 'Models':
             case name === 'ModelShow':
             case name === 'Team':

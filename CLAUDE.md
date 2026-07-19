@@ -136,9 +136,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - **Engine extras** — post-message analysis (`runAnalysis` / engine `/analyze`), PPV
   price suggestion, and the optional PHP port of the pipeline.
 - **CRM views** — DONE: app shell + Overview dashboard (Phase 2), **Conversations**
-  + **Creator Models** (Phase 4), **AI Usage** (`/analytics/ai-usage`). The remaining design
-  views (Chatting Performance, Smart Links, Channels, Creative, Content, Whales/Churn) are each
-  their own spec — inert sidebar placeholders today.
+  + **Creator Models** (Phase 4), **AI Usage** (`/analytics/ai-usage`), **Media Vault**
+  (`/media-vault`). The remaining design views (Chatting Performance, Smart Links, Channels,
+  Creative, Content, Whales/Churn) are each their own spec — inert sidebar placeholders today.
   - **AI Usage** (`/analytics/ai-usage`, manager/admin via `can:manage-team`) — restores the legacy
     `js/api.js` cost telemetry (`_ssaiCostLog` / `$/msg · Cache` card / cost-diagnostic modal). The
     engine now records a per-LLM-call usage ledger (`engine/callModel.js` → `makeRealCallApi`/`Mistral`
@@ -306,6 +306,46 @@ engine uses its in-process copy. Provider keys live in the engine's env
     DRM/blocked-country editing, fan notes/custom-name, fans-AI-summary, welcome media/price,
     **smart-link cohort-ARPS** (no 200 response shape is documented, so left unimplemented) +
     smart-link postbacks, shared/stored link variants, notification tabs-order.
+  - **Media Vault** (`/media-vault`) — a **standalone sidebar view, live OnlyFans proxy, nothing
+    persisted**, modelled on Conversations. The sidebar "Media Vault" item is a **dropdown of creator
+    models** (the same shared `creators` prop + `dynamic:'creators'` nav pattern; `SsSidebar` now
+    builds each dynamic child's href from the node's `basePath`, so Conversations `/conversations`
+    and this `/media-vault` share one code path). `MediaVaultController@index` is a thin shell
+    (`selectedCreator` only); `MediaVault.vue` resolves the model id from `creators` and has a
+    sub-switch **All media / Lists**. Built on the **chatter-facing `/onlyfans/{model}/…`** surface
+    (`OnlyFansChatController` + `ofApi`, per-creator access scope), reusing the existing
+    `vault`/`mediaFile`(proxy)/`uploadStatus` plumbing. New endpoints there: **vault media**
+    `POST media/vault` (upload — file **or** `file_url`, async → poll the existing
+    `media/uploads/{upload}/status`; NB posts to `media/vault`, distinct from `media/upload`'s CDN
+    single-use path), `GET media/vault/{media}` (one item), `DELETE media/vault/delete-media`
+    (`{mediaIds}`); **vault lists** `GET|POST media/vault/lists`, `GET|PUT media/vault/lists/{list}`
+    (show/rename), `POST|DELETE media/vault/lists/{list}/media` (add/remove). **Body-key asymmetry
+    (verified per docs, do NOT normalise):** add sends **`media_ids`**, remove sends **`mediaIds`** —
+    `OnlyFansService::addMediaToVaultList`/`removeMediaFromVaultList` translate from the CRM's uniform
+    `mediaIds`. **Route order:** `media/vault/lists*` + `media/vault/delete-media` are registered
+    ABOVE the `GET media/vault/{media}` wildcard. `OnlyFansService::normalizeVaultList` shapes list
+    payloads (+ reuses `normalizeMedia` for a list's `medias`). **Hard-deletes**
+    (`delete-media`, delete list) sit in the route group's `can:manage-team` subgroup — manager/admin
+    only (delete buttons hidden client-side for chatters via `can(role,'manageTeam')`); everyone
+    assigned can browse/upload/create/rename/add/remove. Components: `pages/MediaVault.vue` +
+    `components/crm/vault/{SsVaultGrid,SsVaultLists}.vue` (grid clones `SsVaultModal` + the
+    Conversations upload state machine; media renders via `SsMediaLightbox`). **Vault thumbnails are
+    `cdn.fansapi.com` presigned S3 urls — browser-loadable, NOT IP-locked like `cdn*.onlyfans.com`**,
+    so `normalizeMedia` sets `direct=true` for any non-onlyfans host and every tile renderer loads
+    `direct` media straight (`m.direct ? cdn : ofApi.mediaUrl(...)`); proxying a fansapi url 400s (the
+    proxy's SSRF guard only allows onlyfans.com). This is why `SsVaultGrid/Lists/Modal` +
+    the composer vault-pick preview all check `direct`.
+    **Video playback:** the vault LIST payload omits a video's playable source (`videoSources`/
+    `files.full.url` absent), so `SsVaultGrid`/`SsVaultLists` fetch the single-media detail
+    (`GET media/vault/{id}` → `vaultMediaItem`) on lightbox-open for a video with no `source` and
+    merge it in — non-DRM videos then play. A **genuinely DRM-protected** video (creator's DRM
+    Protection ON) still resolves to no source, so the lightbox's "DRM-protected — can't be played
+    here" note is correct and unfixable here (only the creator disabling DRM helps, future uploads
+    only — see the DRM notes on the Conversations entry).
+    Deferred: CDN single-use upload UI, send/attach-to-chat, per-item list-membership editing beyond
+    add/remove. **NB three doc/live points to confirm against a real key:** the `delete-media` path,
+    the `media_ids`/`mediaIds` add/remove keys, and that async `POST media/vault` returns a
+    `prefixed_id` the status poller resolves.
 - **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
   is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text + optional
   GIF (`giphyId`); PPV/paid still blocked (v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`

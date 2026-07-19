@@ -387,7 +387,8 @@ function revokeAttachment(att: ComposerAttachment | null) {
  *  against painting it as a locked tile. */
 function mediaRenderable(msg: OfMessage): boolean {
     return !!msg.media?.some(
-        (mm) => mm.canView && !!(mm.preview || mm.thumb || mm.full || mm.source),
+        (mm) =>
+            mm.canView && !!(mm.preview || mm.thumb || mm.full || mm.source),
     );
 }
 
@@ -571,6 +572,14 @@ function onPickVault(item: OfMedia) {
     revokeAttachment(cur.attachment);
     cur.gif = null;
 
+    // Vault thumbs are fansapi.com presigned urls (direct); only onlyfans.com needs the proxy.
+    const cdn = item.thumb ?? item.preview;
+    let previewUrl: string | null = null;
+
+    if (cdn) {
+        previewUrl = item.direct ? cdn : ofApi.mediaUrl(m.id, cdn);
+    }
+
     cur.attachment = {
         id: item.id,
         source: 'vault',
@@ -579,10 +588,7 @@ function onPickVault(item: OfMedia) {
         error: null,
         name: null,
         kind: (item.type as ComposerAttachment['kind']) ?? 'photo',
-        previewUrl:
-            item.thumb || item.preview
-                ? ofApi.mediaUrl(m.id, (item.thumb ?? item.preview) as string)
-                : null,
+        previewUrl,
     };
 }
 

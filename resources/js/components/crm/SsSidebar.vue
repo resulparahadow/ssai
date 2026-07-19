@@ -17,7 +17,11 @@ const props = defineProps<{ role: Role }>();
 const page = usePage();
 const { collapsed } = useCrmShell();
 
-const expanded = ref<Record<string, boolean>>({ chat: true, analytics: true });
+const expanded = ref<Record<string, boolean>>({
+    chat: true,
+    vault: true,
+    analytics: true,
+});
 
 function toggleGroup(key: string): void {
     expanded.value[key] = !expanded.value[key];
@@ -72,8 +76,9 @@ const orderedNav = computed(() => [
     ...NAV.filter((n) => nodeSoon(n)),
 ]);
 
-function convoHref(name: string): string {
-    return `/conversations?creator=${encodeURIComponent(name)}`;
+/** Link a dynamic-creators child to its view (Conversations, Media Vault, …). */
+function creatorHref(basePath: string, name: string): string {
+    return `${basePath}?creator=${encodeURIComponent(name)}`;
 }
 </script>
 
@@ -141,10 +146,16 @@ function convoHref(name: string): string {
                         <Link
                             v-for="c in creators"
                             :key="c.name"
-                            :href="convoHref(c.name)"
+                            :href="
+                                creatorHref(
+                                    node.basePath ?? '/conversations',
+                                    c.name,
+                                )
+                            "
                             class="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors"
                             :class="
-                                currentPath === '/conversations' &&
+                                currentPath ===
+                                    (node.basePath ?? '/conversations') &&
                                 currentCreator === c.name
                                     ? 'bg-ss-accent-soft font-medium text-ss-accent-text'
                                     : 'text-ss-text-2 hover:bg-ss-surface-2'

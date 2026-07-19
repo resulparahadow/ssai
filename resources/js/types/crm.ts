@@ -104,6 +104,21 @@ export interface OfMedia {
     direct?: boolean; // url is browser-loadable as-is (e.g. optimistic Giphy preview) — skip the OF media proxy
 }
 
+/** A Media Vault list (a "folder" grouping vault media). `medias` is only present on show. */
+export interface OfVaultList {
+    id: string | null;
+    type: string; // 'custom' for user folders; built-ins like 'posts'/'messages'
+    name: string;
+    hasMedia: boolean;
+    canUpdate: boolean;
+    canDelete: boolean;
+    videosCount: number;
+    photosCount: number;
+    gifsCount: number;
+    audiosCount: number;
+    medias?: OfMedia[];
+}
+
 /** A Giphy result from the OF Giphy proxy. Preview/url are Giphy CDN (browser-loadable). */
 export interface OfGif {
     id: string | null;

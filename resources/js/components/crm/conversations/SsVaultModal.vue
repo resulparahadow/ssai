@@ -67,6 +67,13 @@ function pick(f: string) {
     load(true);
 }
 
+/** Vault thumbs are fansapi.com presigned urls (direct); only onlyfans.com needs the proxy. */
+function tileSrc(m: OfMedia): string {
+    const cdn = (m.thumb ?? m.preview) as string;
+
+    return m.direct ? cdn : ofApi.mediaUrl(props.modelId, cdn);
+}
+
 function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
         emit('close');
@@ -145,12 +152,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
                         <!-- Audio has no thumb (files.thumb is null), so show a label tile. -->
                         <img
                             v-if="m.thumb || m.preview"
-                            :src="
-                                ofApi.mediaUrl(
-                                    props.modelId,
-                                    (m.thumb ?? m.preview) as string,
-                                )
-                            "
+                            :src="tileSrc(m)"
                             :alt="m.type"
                             class="h-full w-full object-cover"
                             loading="lazy"

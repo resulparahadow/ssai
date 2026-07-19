@@ -208,6 +208,137 @@ class OnlyFansChatController extends Controller
         ]);
     }
 
+    /** Fetch one vault media item (full object + its list membership). */
+    public function vaultMedia(Request $request, AichModel $model, string $media): JsonResponse
+    {
+        $res = $this->of->getVaultMedia($this->account($request, $model), $media);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        return response()->json([
+            'item' => $this->of->normalizeMedia(['media' => [$res->json('data') ?? []]])[0] ?? null,
+        ]);
+    }
+
+    /**
+     * Upload a file OR a remote HTTPS url into the vault (async). Returns the poll id +
+     * status in the SAME shape as uploadMedia(), so the existing uploadStatus poller works
+     * unchanged. The size rule is enforced here as JSON so an oversized file fails with a
+     * parseable 422 rather than nginx's 413 HTML page.
+     */
+    public function uploadToVault(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+
+        $this->validateJson($request, [
+            'file' => 'required_without:file_url|file|max:102400|mimetypes:image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/wav',
+            'file_url' => 'required_without:file|url',
+        ]);
+
+        $file = $request->file('file');
+        $res = $file
+            ? $this->of->uploadMediaToVault($acct, $file->getRealPath(), $file->getClientOriginalName(), null)
+            : $this->of->uploadMediaToVault($acct, null, null, (string) $request->input('file_url'));
+
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        return response()->json([
+            'id' => $res->json('prefixed_id'),
+            'status' => $res->json('status') ?? 'pending',
+        ]);
+    }
+
+    /** Delete one or more media from the vault permanently. Manager+ (route-gated). */
+    public function deleteVaultMedia(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, [
+            'mediaIds' => 'required|array|min:1',
+            'mediaIds.*' => 'required|string',
+        ]);
+
+        return $this->proxyAction($this->of->deleteVaultMedia($acct, $data['mediaIds']));
+    }
+
+    // ---- Vault lists ------------------------------------------------------
+
+    public function vaultLists(Request $request, AichModel $model): JsonResponse
+    {
+        $res = $this->of->listVaultLists($this->account($request, $model), $request->only(['query', 'limit', 'offset']));
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        return response()->json([
+            'lists' => collect($res->json('data.list') ?? [])->map(fn ($l) => $this->of->normalizeVaultList($l))->values(),
+            'hasMore' => (bool) ($res->json('data.hasMore') ?? false),
+        ]);
+    }
+
+    public function createVaultList(Request $request, AichModel $model): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, ['name' => 'required|string|max:255']);
+        $res = $this->of->createVaultList($acct, $data['name']);
+
+        return $res->successful()
+            ? response()->json(['list' => $this->of->normalizeVaultList($res->json('data') ?? [])])
+            : $this->forward($res);
+    }
+
+    public function showVaultList(Request $request, AichModel $model, string $list): JsonResponse
+    {
+        $res = $this->of->showVaultList($this->account($request, $model), $list);
+
+        return $res->successful()
+            ? response()->json(['list' => $this->of->normalizeVaultList($res->json('data') ?? [])])
+            : $this->forward($res);
+    }
+
+    public function renameVaultList(Request $request, AichModel $model, string $list): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, ['name' => 'required|string|max:255']);
+        $res = $this->of->renameVaultList($acct, $list, $data['name']);
+
+        return $res->successful()
+            ? response()->json(['list' => $this->of->normalizeVaultList($res->json('data') ?? [])])
+            : $this->forward($res);
+    }
+
+    /** Manager+ (route-gated). Deletes the list folder, not the media within it. */
+    public function deleteVaultList(Request $request, AichModel $model, string $list): JsonResponse
+    {
+        return $this->proxyAction($this->of->deleteVaultList($this->account($request, $model), $list));
+    }
+
+    public function addToVaultList(Request $request, AichModel $model, string $list): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        // The CRM speaks one key (`mediaIds`); the service translates to the OF API's
+        // asymmetric `media_ids` (add) / `mediaIds` (remove) body keys.
+        $data = $this->validateJson($request, [
+            'mediaIds' => 'required|array|min:1',
+            'mediaIds.*' => 'required|string',
+        ]);
+
+        return $this->proxyAction($this->of->addMediaToVaultList($acct, $list, $data['mediaIds']));
+    }
+
+    public function removeFromVaultList(Request $request, AichModel $model, string $list): JsonResponse
+    {
+        $acct = $this->account($request, $model);
+        $data = $this->validateJson($request, [
+            'mediaIds' => 'required|array|min:1',
+            'mediaIds.*' => 'required|string',
+        ]);
+
+        return $this->proxyAction($this->of->removeMediaFromVaultList($acct, $list, $data['mediaIds']));
+    }
+
     public function send(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
