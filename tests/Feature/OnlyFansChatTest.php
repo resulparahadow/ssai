@@ -19,11 +19,13 @@ beforeEach(function () {
     $this->model = AichModel::create(['name' => 'Camila', 'prompt' => 'You are Camila.', 'of_account_id' => 'acct_cam']);
 });
 
-it('renders the Conversations shell with the selected creator', function () {
+it('renders the Conversations shell (creator comes from the shared context)', function () {
     $this->actingAs(User::factory()->admin()->create())
-        ->get('/conversations?creator=Camila')
+        ->get('/conversations')
         ->assertOk()
-        ->assertInertia(fn (AssertableInertia $p) => $p->component('Conversations')->where('selectedCreator', 'Camila'));
+        ->assertInertia(fn (AssertableInertia $p) => $p
+            ->component('Conversations')
+            ->where('creators.0.name', 'Camila'));
 });
 
 it('lists chats live and normalises them', function () {

@@ -24,8 +24,12 @@ class DashboardService
     /** @var array<string, int> */
     private const PERIOD_DAYS = ['Today' => 1, '7d' => 7, '30d' => 30];
 
-    /** @return array<string, mixed> */
-    public function build(User $user, string $period = 'Today'): array
+    /**
+     * @param  string|null  $creatorModel  Scope every figure to this creator (name), or null
+     *                                     for all creators (the app-wide "All creators" mode).
+     * @return array<string, mixed>
+     */
+    public function build(User $user, string $period = 'Today', ?string $creatorModel = null): array
     {
         $period = array_key_exists($period, self::PERIOD_DAYS) ? $period : 'Today';
         $days = self::PERIOD_DAYS[$period];
@@ -42,6 +46,7 @@ class DashboardService
         $events = AichUsageEvent::query()
             ->where('created_at', '>=', $start)
             ->when(! $user->canSeeAllCreators(), fn ($q) => $q->where('user_id', $user->id))
+            ->when(! empty($creatorModel), fn ($q) => $q->where('creator_model', $creatorModel))
             ->get(['generation_id', 'user_id', 'creator_model', 'cost', 'cache_read_tokens', 'created_at']);
 
         return [
@@ -49,6 +54,8 @@ class DashboardService
             'periodOptions' => array_keys(self::PERIOD_DAYS),
             'role' => $user->role->value,
             'canViewAllCreators' => $user->canSeeAllCreators(),
+            // The active creator scope (name), or null for "All creators" — drives the header.
+            'selectedCreator' => $creatorModel,
             'aiKpis' => $this->aiKpis($events, $start, $days, $period),
             'aiSeries' => $this->aiSeries($events, $start, $days, $period),
             'creators' => $this->creatorActivity($events),

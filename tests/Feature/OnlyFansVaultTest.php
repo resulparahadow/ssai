@@ -15,11 +15,13 @@ beforeEach(function () {
     $this->model = AichModel::create(['name' => 'Camila', 'prompt' => 'You are Camila.', 'of_account_id' => 'acct_cam']);
 });
 
-it('renders the Media Vault shell with the selected creator', function () {
+it('renders the Media Vault shell (creator comes from the shared context)', function () {
     $this->actingAs(User::factory()->admin()->create())
-        ->get('/media-vault?creator=Camila')
+        ->get('/media-vault')
         ->assertOk()
-        ->assertInertia(fn (AssertableInertia $p) => $p->component('MediaVault')->where('selectedCreator', 'Camila'));
+        ->assertInertia(fn (AssertableInertia $p) => $p
+            ->component('MediaVault')
+            ->where('creators.0.name', 'Camila'));
 });
 
 // ---- Vault lists -----------------------------------------------------------

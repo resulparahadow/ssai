@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
+import { MessageSquare, Users } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import SsAiIntel from '@/components/crm/conversations/SsAiIntel.vue';
 import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
 import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
+import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import {
     chatComposer,
     chatsCache,
@@ -31,21 +34,17 @@ import type {
     SidebarCreator,
 } from '@/types/crm';
 
-const props = defineProps<{ selectedCreator: string | null }>();
 const page = usePage();
+const { selectedId } = useCreatorContext();
 
 const creators = computed<SidebarCreator[]>(
     () => (page.props.creators as SidebarCreator[]) ?? [],
 );
-const model = computed<SidebarCreator | null>(() => {
-    const list = creators.value;
-
-    if (!list.length) {
-        return null;
-    }
-
-    return list.find((c) => c.name === props.selectedCreator) ?? list[0];
-});
+// The globally-selected creator (from the sidebar). Null when "All creators" is active or none
+// is set — the thread area then prompts to pick one.
+const model = computed<SidebarCreator | null>(
+    () => creators.value.find((c) => c.id === selectedId.value) ?? null,
+);
 
 const chats = ref<OfChat[]>([]);
 const chatsLoading = ref(false);
@@ -1127,7 +1126,23 @@ onBeforeUnmount(() => {
 <template>
     <Head title="Conversations" />
 
-    <div class="flex h-full gap-4">
+    <SsCreatorPrompt
+        v-if="!creators.length"
+        class="h-full"
+        :icon="Users"
+        title="No creators assigned"
+        description="You don’t have any creator models assigned yet. Ask an admin to assign one so you can start chatting."
+    />
+    <SsCreatorPrompt
+        v-else-if="!model"
+        class="h-full"
+        :icon="MessageSquare"
+        title="Select a creator"
+        description="Pick a creator model to open its conversations. The whole app follows whichever creator you choose."
+        hint="Creator selector · top of the sidebar"
+    />
+
+    <div v-else class="flex h-full gap-4">
         <SsConvoList
             :chats="chats"
             :loading="chatsLoading"
@@ -1231,8 +1246,7 @@ onBeforeUnmount(() => {
             v-else
             class="grid flex-1 place-items-center rounded-xl border border-ss-border bg-ss-surface text-[13px] text-ss-text-3"
         >
-            <span v-if="!model">Pick a creator from the sidebar.</span>
-            <span v-else-if="chatsError">{{ chatsError }}</span>
+            <span v-if="chatsError">{{ chatsError }}</span>
             <span v-else-if="chatsLoading">Loading chats…</span>
             <span v-else>Select a conversation.</span>
         </div>

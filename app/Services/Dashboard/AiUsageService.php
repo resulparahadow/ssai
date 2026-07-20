@@ -9,7 +9,8 @@ use Illuminate\Support\Carbon;
 /**
  * Builds the AI Usage view payload from aich_usage_events. Reproduces the legacy
  * js/api.js telemetry: the `$/msg · Cache` summary + the last-N cost-diagnostic rows.
- * Manager/admin only (the route is manage-team gated), so no per-creator scoping.
+ * Manager/admin only (the route is manage-team gated). Honors the app-wide creator context:
+ * a `$creatorModel` scopes every figure to one creator; null = all creators.
  */
 class AiUsageService
 {
@@ -18,14 +19,20 @@ class AiUsageService
 
     private const RECENT_LIMIT = 25;
 
-    /** @return array<string, mixed> */
-    public function build(User $user, string $period = '7d'): array
+    /**
+     * @param  string|null  $creatorModel  Scope every figure to this creator (name), or null
+     *                                     for all creators (the app-wide "All creators" mode).
+     * @return array<string, mixed>
+     */
+    public function build(User $user, string $period = '7d', ?string $creatorModel = null): array
     {
         $period = array_key_exists($period, self::PERIOD_DAYS) ? $period : '7d';
         $days = self::PERIOD_DAYS[$period];
         $start = $period === 'Today' ? Carbon::today() : Carbon::today()->subDays($days - 1);
 
-        $base = AichUsageEvent::query()->where('created_at', '>=', $start);
+        $base = AichUsageEvent::query()
+            ->where('created_at', '>=', $start)
+            ->when(! empty($creatorModel), fn ($q) => $q->where('creator_model', $creatorModel));
 
         $totalCost = (float) (clone $base)->sum('cost');
         $totalCalls = (clone $base)->count();

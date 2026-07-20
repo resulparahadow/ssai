@@ -2,24 +2,17 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import { ChevronDown, ChevronRight, Lock } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import SsCreatorSelect from '@/components/crm/SsCreatorSelect.vue';
 import { useCrmShell } from '@/composables/useCrmShell';
 import { can, NAV } from '@/crm/nav';
 import type { NavNode } from '@/crm/nav';
 import type { Role } from '@/types/auth';
-
-interface CreatorEntry {
-    id: number;
-    name: string;
-    hasOf: boolean;
-}
 
 const props = defineProps<{ role: Role }>();
 const page = usePage();
 const { collapsed } = useCrmShell();
 
 const expanded = ref<Record<string, boolean>>({
-    chat: true,
-    vault: true,
     analytics: true,
 });
 
@@ -28,14 +21,6 @@ function toggleGroup(key: string): void {
 }
 
 const currentPath = computed(() => page.url.split('?')[0]);
-
-const currentCreator = computed(() =>
-    new URLSearchParams(page.url.split('?')[1] ?? '').get('creator'),
-);
-
-const creators = computed<CreatorEntry[]>(
-    () => (page.props.creators as CreatorEntry[]) ?? [],
-);
 
 function isActive(href?: string): boolean {
     if (!href) {
@@ -55,9 +40,9 @@ function allowed(node: NavNode): boolean {
     return !!node.alwaysOn || can(props.role, node.cap);
 }
 
-/** A leaf node (no children, not the dynamic creators group) with no route is not built yet. */
+/** A leaf node (no children) with no route is not built yet. */
 function leafSoon(node: NavNode): boolean {
-    return !node.children && !node.dynamic && !node.href;
+    return !node.children && !node.href;
 }
 
 /** A group is "coming soon" when none of its children are built (routed) yet. */
@@ -75,11 +60,6 @@ const orderedNav = computed(() => [
     ...NAV.filter((n) => !nodeSoon(n)),
     ...NAV.filter((n) => nodeSoon(n)),
 ]);
-
-/** Link a dynamic-creators child to its view (Conversations, Media Vault, …). */
-function creatorHref(basePath: string, name: string): string {
-    return `${basePath}?creator=${encodeURIComponent(name)}`;
-}
 </script>
 
 <template>
@@ -102,86 +82,14 @@ function creatorHref(basePath: string, name: string): string {
             </div>
         </div>
 
+        <!-- Global creator context: the creator the whole app operates within -->
+        <SsCreatorSelect :role="role" />
+
         <!-- Nav -->
         <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
             <template v-for="node in orderedNav" :key="node.key">
-                <!-- Dynamic group: Conversations → one child per creator model -->
-                <div v-if="node.dynamic === 'creators'">
-                    <button
-                        type="button"
-                        class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors"
-                        :class="
-                            allowed(node)
-                                ? 'text-ss-text-2 hover:bg-ss-surface-2'
-                                : 'cursor-default text-ss-text-3'
-                        "
-                        @click="allowed(node) && toggleGroup(node.key)"
-                    >
-                        <component
-                            :is="node.icon"
-                            :size="19"
-                            class="shrink-0"
-                        />
-                        <template v-if="!collapsed">
-                            <span class="flex-1 text-left font-medium">{{
-                                node.label
-                            }}</span>
-                            <Lock v-if="!allowed(node)" :size="15" />
-                            <component
-                                v-else
-                                :is="
-                                    expanded[node.key]
-                                        ? ChevronDown
-                                        : ChevronRight
-                                "
-                                :size="15"
-                            />
-                        </template>
-                    </button>
-
-                    <div
-                        v-if="allowed(node) && expanded[node.key] && !collapsed"
-                        class="mt-0.5 space-y-0.5 pl-3"
-                    >
-                        <Link
-                            v-for="c in creators"
-                            :key="c.name"
-                            :href="
-                                creatorHref(
-                                    node.basePath ?? '/conversations',
-                                    c.name,
-                                )
-                            "
-                            class="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors"
-                            :class="
-                                currentPath ===
-                                    (node.basePath ?? '/conversations') &&
-                                currentCreator === c.name
-                                    ? 'bg-ss-accent-soft font-medium text-ss-accent-text'
-                                    : 'text-ss-text-2 hover:bg-ss-surface-2'
-                            "
-                        >
-                            <span
-                                class="h-1.5 w-1.5 shrink-0 rounded-full"
-                                :class="c.hasOf ? 'bg-ss-pos' : 'bg-ss-text-3'"
-                                :title="
-                                    c.hasOf
-                                        ? 'OnlyFans connected'
-                                        : 'No OnlyFans account set'
-                                "
-                            />
-                            <span class="flex-1 truncate">{{ c.name }}</span>
-                        </Link>
-                        <span
-                            v-if="!creators.length"
-                            class="block px-3 py-1.5 text-[12px] text-ss-text-3"
-                            >No creators assigned</span
-                        >
-                    </div>
-                </div>
-
                 <!-- Static group with children -->
-                <div v-else-if="node.children">
+                <div v-if="node.children">
                     <button
                         type="button"
                         class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors"

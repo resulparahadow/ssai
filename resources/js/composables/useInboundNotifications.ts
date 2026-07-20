@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import { notificationPrefs } from '@/lib/notificationPrefs';
 import {
     ensureSubscribed,
@@ -13,10 +14,6 @@ export interface NotifyCreator {
     id: number;
     name: string;
 }
-
-// id → name, so a toast can deep-link to /conversations?creator=<name>. Refreshed on every
-// call (the shared `creators` Inertia prop is the source of truth).
-const creatorNames = new Map<number, string>();
 
 let registered = false;
 
@@ -41,19 +38,17 @@ function notify(payload: InboundPayload): void {
 
     const who = payload.fan.name || payload.fan.username || 'New message';
     const body = payload.message.text?.trim() || '📎 media';
-    const creator = creatorNames.get(payload.creatorId);
 
     toast(who, {
         description: body.length > 120 ? `${body.slice(0, 120)}…` : body,
-        action: creator
-            ? {
-                  label: 'Open',
-                  onClick: () =>
-                      router.visit(
-                          `/conversations?creator=${encodeURIComponent(creator)}`,
-                      ),
-              }
-            : undefined,
+        action: {
+            label: 'Open',
+            onClick: () => {
+                // Switch the global creator context to this creator, then open Conversations.
+                useCreatorContext().select(payload.creatorId);
+                router.visit('/conversations');
+            },
+        },
     });
 }
 
@@ -63,10 +58,6 @@ function notify(payload: InboundPayload): void {
  * Idempotent — safe to call from any authenticated layout on every navigation.
  */
 export function useInboundNotifications(creators: NotifyCreator[]): void {
-    for (const c of creators) {
-        creatorNames.set(c.id, c.name);
-    }
-
     ensureSubscribed(creators.map((c) => c.id));
 
     if (registered) {

@@ -54,6 +54,8 @@ export interface DashboardData {
     periodOptions: string[];
     role: Role;
     canViewAllCreators: boolean;
+    /** Active creator scope (name), or null for "All creators". */
+    selectedCreator: string | null;
     aiKpis: KpiCard[];
     aiSeries: SeriesPoint[];
     creators: CreatorRow[];
@@ -195,6 +197,18 @@ export interface SidebarCreator {
     id: number;
     name: string;
     hasOf: boolean;
+}
+
+/**
+ * The app-wide creator context shared by the server (`page.props.creatorContext`): which
+ * creator the app operates within. `selectedId: null` + `mode: 'all'` = "All creators".
+ * The client store (useCreatorContext) is the UI source of truth; this is the server's
+ * validated view, used to repair a stale selection and scope SSR pages.
+ */
+export interface CreatorContext {
+    selectedId: number | null;
+    mode: 'all' | 'creator';
+    canSeeAll: boolean;
 }
 
 // AI Intelligence — the strategy object the engine returns from /generate.

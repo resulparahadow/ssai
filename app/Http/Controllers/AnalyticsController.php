@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AichModel;
 use App\Models\User;
 use App\Services\OnlyFans\OnlyFansService;
+use App\Support\CreatorContext;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -188,6 +189,18 @@ class AnalyticsController extends Controller
         $allowed = $this->connectedIds($request->user());
         if (empty($allowed)) {
             $this->fail('No OnlyFans accounts are connected.');
+        }
+
+        // Clamp to the app-wide creator context: when a single creator is selected (not "All
+        // creators"), the allowed set shrinks to that creator's account, so a crafted
+        // account_ids[] can't reach another creator's data.
+        $contextName = app(CreatorContext::class)->selectedNameForRequest($request);
+        if ($contextName !== null) {
+            $ofId = AichModel::query()->where('name', $contextName)->value('of_account_id');
+            $allowed = $ofId ? array_values(array_intersect($allowed, [(string) $ofId])) : [];
+            if (empty($allowed)) {
+                $this->fail('The selected creator has no OnlyFans account connected.');
+            }
         }
 
         $requested = array_values(array_filter((array) $request->input('account_ids', [])));

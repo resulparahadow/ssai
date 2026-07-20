@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
 import { Calendar, Copy } from '@lucide/vue';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { toast } from 'vue-sonner';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 
 interface SysBlock {
     idx: number;
@@ -45,6 +46,13 @@ interface UsagePayload {
 }
 
 const props = defineProps<{ usage: UsagePayload }>();
+
+const { selection } = useCreatorContext();
+
+// Re-fetch the (server-rendered) usage payload when the global creator context changes.
+watch(selection, () => {
+    router.reload({ only: ['usage'] });
+});
 
 const s = computed(() => props.usage.summary);
 

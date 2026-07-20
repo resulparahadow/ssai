@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { Calendar } from '@lucide/vue';
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import SsBarChart from '@/components/crm/SsBarChart.vue';
 import SsSparkline from '@/components/crm/SsSparkline.vue';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import { ssColor } from '@/crm/nav';
 import type { User } from '@/types/auth';
 import type { DashboardData } from '@/types/crm';
@@ -11,6 +12,8 @@ import type { DashboardData } from '@/types/crm';
 defineProps<{ dashboard: DashboardData }>();
 
 const page = usePage();
+const { selection } = useCreatorContext();
+
 const firstName = computed(
     () => (page.props.auth.user as User).name.split(' ')[0],
 );
@@ -28,6 +31,12 @@ function setPeriod(period: string): void {
         { preserveScroll: true, preserveState: true, only: ['dashboard'] },
     );
 }
+
+// Re-fetch the (server-rendered) dashboard when the global creator context changes. The
+// selection cookie is written synchronously before this fires, so the reload scopes correctly.
+watch(selection, () => {
+    router.reload({ only: ['dashboard'] });
+});
 </script>
 
 <template>
@@ -41,7 +50,11 @@ function setPeriod(period: string): void {
                     {{ greeting }}, {{ firstName }}
                 </h2>
                 <p class="text-sm text-ss-text-2">
-                    Here's how the team is performing.
+                    {{
+                        dashboard.selectedCreator
+                            ? `Showing ${dashboard.selectedCreator}.`
+                            : "Here's how the team is performing."
+                    }}
                 </p>
             </div>
             <div

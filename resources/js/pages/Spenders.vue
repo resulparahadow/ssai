@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
 import { ChevronDown, Plus, RefreshCw, RotateCcw, X } from '@lucide/vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import { ofModel } from '@/lib/onlyfansModel';
 import {
     DEFAULT_THRESHOLDS,
@@ -11,10 +12,17 @@ import {
 } from '@/lib/spenderThresholds';
 import type { OfFanRow, SidebarCreator } from '@/types/crm';
 
-// ---- shared creators (app-wide prop) ----
+// ---- shared creators (app-wide prop), scoped to the active creator context ----
 const page = usePage<{ creators: SidebarCreator[] }>();
+const { selectedId } = useCreatorContext();
 const creators = computed<SidebarCreator[]>(() => page.props.creators ?? []);
-const connected = computed(() => creators.value.filter((c) => c.hasOf));
+// Just the selected creator, or all creators when "All creators" is active.
+const scopedCreators = computed<SidebarCreator[]>(() => {
+    const id = selectedId.value;
+
+    return id == null ? creators.value : creators.value.filter((c) => c.id === id);
+});
+const connected = computed(() => scopedCreators.value.filter((c) => c.hasOf));
 
 // ---- thresholds ----
 const thresholds = computed(() => thresholdStore.values);
@@ -134,6 +142,9 @@ async function loadAll(fresh: boolean): Promise<void> {
 
 onMounted(() => loadAll(false));
 
+// Re-scope when the global creator context changes (loads the newly-selected creator on demand).
+watch(selectedId, () => loadAll(false));
+
 // ---- bucketing (client-side; recomputes when thresholds change) ----
 interface CreatorRow {
     creator: SidebarCreator;
@@ -143,7 +154,7 @@ interface CreatorRow {
 }
 
 const perCreator = computed<CreatorRow[]>(() =>
-    creators.value.map((creator) => {
+    scopedCreators.value.map((creator) => {
         const st = stateFor(creator.id);
         const ts = thresholds.value;
         const counts = ts.map(
@@ -660,7 +671,7 @@ function bracketLabel(n: number): string {
                         </template>
 
                         <!-- empty -->
-                        <tr v-if="!creators.length">
+                        <tr v-if="!scopedCreators.length">
                             <td
                                 :colspan="thresholds.length + 2"
                                 class="px-4 py-10 text-center text-ss-text-3"

@@ -21,7 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // forwarded headers so HTTPS/scheme + client IP are detected correctly.
         $middleware->trustProxies(at: '*');
 
-        $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
+        // `ss_creator` is the app-wide creator-context selection, written from the browser
+        // (localStorage mirror) and re-validated server-side — a non-sensitive id, so plaintext.
+        $middleware->encryptCookies(except: ['appearance', 'sidebar_state', 'ss_creator']);
 
         // Server-to-server webhooks present no CSRF token.
         $middleware->validateCsrfTokens(except: ['webhooks/*']);

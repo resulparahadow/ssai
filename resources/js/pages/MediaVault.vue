@@ -1,28 +1,26 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
-import { FolderOpen, Images, RefreshCw } from '@lucide/vue';
+import { FolderOpen, Images, RefreshCw, Users } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import SsVaultGrid from '@/components/crm/vault/SsVaultGrid.vue';
 import SsVaultLists from '@/components/crm/vault/SsVaultLists.vue';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import { can } from '@/crm/nav';
 import type { Role } from '@/types/auth';
 import type { SidebarCreator } from '@/types/crm';
 
-const props = defineProps<{ selectedCreator: string | null }>();
 const page = usePage();
+const { selectedId } = useCreatorContext();
 
 const creators = computed<SidebarCreator[]>(
     () => (page.props.creators as SidebarCreator[]) ?? [],
 );
-const model = computed<SidebarCreator | null>(() => {
-    const list = creators.value;
-
-    if (!list.length) {
-        return null;
-    }
-
-    return list.find((c) => c.name === props.selectedCreator) ?? list[0];
-});
+// The globally-selected creator (from the sidebar). Null when "All creators" is active or none
+// is set — the view then prompts to pick one.
+const model = computed<SidebarCreator | null>(
+    () => creators.value.find((c) => c.id === selectedId.value) ?? null,
+);
 
 // UI-only role gate — the server's `can:manage-team` on the delete routes is the real bar.
 const role = computed<Role>(
@@ -78,12 +76,21 @@ const TABS = [
             </button>
         </div>
 
-        <div
-            v-if="!model"
-            class="grid flex-1 place-items-center text-[13px] text-ss-text-3"
-        >
-            No creators assigned.
-        </div>
+        <SsCreatorPrompt
+            v-if="!creators.length"
+            class="flex-1"
+            :icon="Users"
+            title="No creators assigned"
+            description="You don’t have any creator models assigned yet. Ask an admin to assign one to browse its vault."
+        />
+        <SsCreatorPrompt
+            v-else-if="!model"
+            class="flex-1"
+            :icon="Images"
+            title="Select a creator"
+            description="Pick a creator model to open its media vault. The whole app follows whichever creator you choose."
+            hint="Creator selector · top of the sidebar"
+        />
 
         <div
             v-else-if="!model.hasOf"

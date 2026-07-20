@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\AichModel;
 use App\Models\User;
+use App\Support\CreatorContext;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -37,15 +38,21 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $creators = $this->creatorsFor($request->user());
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
                 'user' => $request->user(),
             ],
-            // Creator models the user may work, with conversation counts — drives the
-            // Conversations dropdown in the sidebar (one entry per model).
-            'creators' => $this->creatorsFor($request->user()),
+            // Creator models the user may work — drives the global creator selector at the top
+            // of the sidebar (one entry per model).
+            'creators' => $creators,
+            // The app-wide creator context (which creator/"all" the app operates within),
+            // resolved from the untrusted `ss_creator` cookie against $creators. Lets SSR pages
+            // scope server-side and lets the client repair a stale selection on first paint.
+            'creatorContext' => app(CreatorContext::class)->resolveRequest($request, $creators),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

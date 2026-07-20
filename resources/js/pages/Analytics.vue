@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
 import { LoaderCircle } from '@lucide/vue';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import SsBarChart from '@/components/crm/SsBarChart.vue';
 import SsInlineError from '@/components/crm/SsInlineError.vue';
+import { useCreatorContext } from '@/composables/useCreatorContext';
 import { ofAnalytics } from '@/lib/ofAnalytics';
 import type {
     OfAnalyticsAccount,
@@ -20,11 +21,24 @@ import type {
 
 const props = defineProps<{ accounts: OfAnalyticsAccount[] }>();
 
-const hasAccounts = computed(() => props.accounts.length > 0);
+const { selectedId } = useCreatorContext();
+
+// Accounts in scope for the active creator context: all connected when "All creators",
+// else just the selected creator's account. The whole page scopes to these (and the server
+// clamps `account_ids` to the same set, so a stale selection can't reach another creator).
+const visibleAccounts = computed<OfAnalyticsAccount[]>(() => {
+    const id = selectedId.value;
+
+    return id == null
+        ? props.accounts
+        : props.accounts.filter((a) => a.id === id);
+});
+const hasAnyAccounts = computed(() => props.accounts.length > 0);
+const hasAccounts = computed(() => visibleAccounts.value.length > 0);
 
 // ---- Shared account + date filter (drives earnings + transactions) ----------
 const selected = ref<Set<string>>(
-    new Set(props.accounts.map((a) => a.accountId)),
+    new Set(visibleAccounts.value.map((a) => a.accountId)),
 );
 const selectedIds = computed(() => [...selected.value]);
 
@@ -40,7 +54,7 @@ function toggle(id: string): void {
     selected.value = s;
 }
 function selectAll(): void {
-    selected.value = new Set(props.accounts.map((a) => a.accountId));
+    selected.value = new Set(visibleAccounts.value.map((a) => a.accountId));
 }
 function selectNone(): void {
     selected.value = new Set();
@@ -290,7 +304,7 @@ async function loadProfitability(): Promise<void> {
 
 // ---- Profitability history (per creator) ------------------------------------
 const profitHist = section<OfProfitabilityHistoryRow[]>();
-const histModelId = ref<number | null>(props.accounts[0]?.id ?? null);
+const histModelId = ref<number | null>(visibleAccounts.value[0]?.id ?? null);
 const histMonths = ref(12);
 
 async function loadProfitHistory(): Promise<void> {
@@ -329,6 +343,22 @@ onMounted(() => {
     }
 });
 
+// Re-scope to the active creator when the global context changes: pin the account selection to
+// the context (one account, or all), clear the button-loaded sections so they can't show the
+// previous creator's data, and reload the account-driven earnings/transactions.
+watch(selectedId, () => {
+    selected.value = new Set(visibleAccounts.value.map((a) => a.accountId));
+    histModelId.value = visibleAccounts.value[0]?.id ?? null;
+    cmp.data.value = null;
+    fc.data.value = null;
+    profit.data.value = null;
+    profitHist.data.value = null;
+
+    if (hasAccounts.value) {
+        loadRange();
+    }
+});
+
 // Compact select styling reused across the page.
 const selectCls =
     'rounded-lg border border-ss-border bg-ss-surface px-2.5 py-1.5 text-[12px] text-ss-text';
@@ -352,8 +382,11 @@ const runBtnCls =
             v-if="!hasAccounts"
             class="rounded-xl border border-ss-border bg-ss-surface p-6 text-center text-sm text-ss-text-3"
         >
-            No OnlyFans accounts are connected. Connect an account on a Creator
-            Model to see analytics.
+            {{
+                hasAnyAccounts
+                    ? 'The selected creator has no connected OnlyFans account. Pick another creator or “All creators”.'
+                    : 'No OnlyFans accounts are connected. Connect an account on a Creator Model to see analytics.'
+            }}
         </p>
 
         <template v-else>
@@ -384,7 +417,7 @@ const runBtnCls =
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     <button
-                        v-for="a in accounts"
+                        v-for="a in visibleAccounts"
                         :key="a.accountId"
                         type="button"
                         class="rounded-lg px-2.5 py-1 text-[12px] font-medium transition-colors"
@@ -950,7 +983,7 @@ const runBtnCls =
                     <div class="flex items-end gap-2">
                         <select v-model.number="histModelId" :class="selectCls">
                             <option
-                                v-for="a in accounts"
+                                v-for="a in visibleAccounts"
                                 :key="a.id"
                                 :value="a.id"
                             >
