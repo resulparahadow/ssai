@@ -32,6 +32,7 @@ export const nextCache = new Map<string, Record<string, string> | null>();
 // also survives page remounts.
 export interface ComposerState {
     draft: string; // what's in the typing bar (unsent) — drives the list "Draft:" badge
+    context: string; // agent directive for the next generate ("he just tipped $50", etc.) — steers the AI, not sent to the fan
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
@@ -48,6 +49,7 @@ export function chatComposer(chatId: string): ComposerState {
     if (!composerStore[chatId]) {
         composerStore[chatId] = {
             draft: '',
+            context: '',
             suggestion: null,
             gif: null,
             attachment: null,

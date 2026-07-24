@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
     Check,
+    MessageSquareText,
     Paperclip,
     RefreshCw,
     Send,
@@ -18,6 +19,7 @@ const props = defineProps<{
     creator: string;
     modelId: number;
     draft: string;
+    context: string;
     suggestion: string | null;
     attachedGif: OfGif | null;
     attachment: ComposerAttachment | null;
@@ -30,6 +32,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     'update:draft': [value: string];
+    'update:context': [value: string];
     'update:attachedGif': [value: OfGif | null];
     'update:attachment': [value: ComposerAttachment | null];
     'pick-file': [file: File];
@@ -43,6 +46,9 @@ const emit = defineEmits<{
 
 const showPicker = ref(false);
 const showEmoji = ref(false);
+// Opens the "guide the AI" box automatically when a directive is already set (e.g.
+// switching back to a chat where one was typed) so it isn't silently in effect.
+const showContext = ref(props.context.trim().length > 0);
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const showVault = ref(false);
 const dragging = ref(false);
@@ -100,6 +106,17 @@ function onInput(e: Event) {
 watch(
     () => props.draft,
     () => nextTick(autoGrow),
+);
+
+// Never leave a set directive hidden — a non-empty context silently steers the next
+// generation, so reveal the box whenever one is present (e.g. after a chat switch).
+watch(
+    () => props.context,
+    (v) => {
+        if (v.trim().length > 0) {
+            showContext.value = true;
+        }
+    },
 );
 
 onMounted(autoGrow);
@@ -337,6 +354,43 @@ function onKeydown(e: KeyboardEvent) {
             </button>
         </div>
 
+        <!-- Guide-the-AI box: a directive for the NEXT generate only. Steers the AI
+             (wins over its default read); it is never sent to the fan. -->
+        <div
+            v-if="showContext"
+            class="rounded-xl border border-ss-accent/30 bg-ss-accent-soft p-2.5"
+        >
+            <div class="mb-1.5 flex items-center gap-1.5">
+                <MessageSquareText :size="13" class="text-ss-accent-text" />
+                <span class="text-[11px] font-semibold text-ss-accent-text"
+                    >Tell SSAI what to focus on · used on the next generate, not
+                    sent to the fan</span
+                >
+                <span class="flex-1" />
+                <button
+                    v-if="props.context"
+                    type="button"
+                    class="text-[11px] font-medium text-ss-text-3 hover:text-ss-text-2"
+                    title="Clear this directive"
+                    @click="emit('update:context', '')"
+                >
+                    Clear
+                </button>
+            </div>
+            <textarea
+                :value="props.context"
+                rows="2"
+                placeholder="e.g. he just tipped $50 · coming back after 2 weeks cold · about to send a PPV, run the promise ritual · ghosted, need re-engagement"
+                class="w-full resize-none rounded-lg border border-ss-border bg-ss-surface px-2.5 py-1.5 text-[13px] leading-snug text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
+                @input="
+                    emit(
+                        'update:context',
+                        ($event.target as HTMLTextAreaElement).value,
+                    )
+                "
+            />
+        </div>
+
         <!-- Can't-send notice (e.g. a muted fan): OnlyFans would 400 the send. -->
         <p v-if="!props.canSend" class="text-[11px] text-ss-text-3">
             Can't send to this chat{{
@@ -368,6 +422,25 @@ function onKeydown(e: KeyboardEvent) {
                 <Sparkles
                     :size="16"
                     :class="props.generating ? 'animate-pulse' : ''"
+                />
+            </button>
+
+            <button
+                type="button"
+                class="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors"
+                :class="
+                    showContext
+                        ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
+                        : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                "
+                title="Guide the AI — tell SSAI what to focus on before generating"
+                @click="showContext = !showContext"
+            >
+                <MessageSquareText :size="16" />
+                <span
+                    v-if="props.context.trim().length > 0"
+                    class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-ss-surface bg-ss-accent"
+                    title="A directive is set for the next generate"
                 />
             </button>
 

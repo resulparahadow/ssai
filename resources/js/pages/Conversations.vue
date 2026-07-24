@@ -140,6 +140,7 @@ async function generate() {
             })),
             customer: { id: chatId },
             api: 'claude',
+            context: st.context.trim(),
         });
 
         st.suggestion = data.draft || null;
@@ -880,6 +881,18 @@ async function fetchFan(chatId: string, background = false) {
         const got = f.fan as OfFan;
         fanCache.set(chatId, got);
 
+        // Reconcile restricted-state from the fresh getUser payload. The chat row's
+        // `restricted` is derived from the chats-list `fan.isRestricted`, which OnlyFans
+        // serves from an eventually-consistent cache that lags a restrict/unrestrict — so
+        // on reload the header/list would otherwise revert to the stale value. getUser
+        // reflects the change immediately (same source the model-show Users tab trusts),
+        // so let it win. Mutate the list row in place to keep the chatsCache array identity.
+        const row = chats.value.find((c) => c.id === chatId);
+
+        if (row && row.restricted !== got.isRestricted) {
+            row.restricted = got.isRestricted;
+        }
+
         if (selected.value?.id === chatId) {
             fan.value = got;
         }
@@ -1178,6 +1191,7 @@ onBeforeUnmount(() => {
                         :creator="model.name"
                         :model-id="model.id"
                         :draft="cur.draft"
+                        :context="cur.context"
                         :suggestion="cur.suggestion"
                         :attached-gif="cur.gif"
                         :attachment="cur.attachment"
@@ -1187,6 +1201,7 @@ onBeforeUnmount(() => {
                         :can-send="selected?.canSend ?? true"
                         :can-send-reason="selected?.canSendReason ?? null"
                         @update:draft="cur.draft = $event"
+                        @update:context="cur.context = $event"
                         @update:attached-gif="cur.gif = $event"
                         @update:attachment="setAttachment"
                         @pick-file="onPickFile"

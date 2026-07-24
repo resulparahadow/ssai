@@ -579,12 +579,26 @@ class OnlyFansChatController extends Controller
 
     public function restrict(Request $request, AichModel $model, string $user): JsonResponse
     {
-        return $this->proxyAction($this->of->restrictUser($this->account($request, $model), $user));
+        $acct = $this->account($request, $model);
+        $res = $this->of->restrictUser($acct, $user);
+        $this->debugLog('restrict', [
+            'account' => $acct, 'user' => $user,
+            'status' => $res->status(), 'body' => $res->json(),
+        ]);
+
+        return $this->proxyAction($res);
     }
 
     public function unrestrict(Request $request, AichModel $model, string $user): JsonResponse
     {
-        return $this->proxyAction($this->of->unrestrictUser($this->account($request, $model), $user));
+        $acct = $this->account($request, $model);
+        $res = $this->of->unrestrictUser($acct, $user);
+        $this->debugLog('unrestrict', [
+            'account' => $acct, 'user' => $user,
+            'status' => $res->status(), 'body' => $res->json(),
+        ]);
+
+        return $this->proxyAction($res);
     }
 
     /** "Unfollow" on OnlyFans = drop the creator's own subscription to the fan. */
@@ -601,6 +615,12 @@ class OnlyFansChatController extends Controller
             return $this->forward($res);
         }
         $d = $res->json('data') ?? [];
+        $this->debugLog('getUser', [
+            'account' => $acct, 'user' => $user,
+            'id_in_payload' => $d['id'] ?? null,
+            'isRestricted' => $d['isRestricted'] ?? null,
+            'isBlocked' => $d['isBlocked'] ?? null,
+        ]);
         // Lifetime spend/tips and subscription state both come from the same getUser
         // payload (no extra API call, no extra credits).
         $spend = $this->of->extractFanSpend($d);
@@ -797,6 +817,16 @@ class OnlyFansChatController extends Controller
         }
 
         return $model->of_account_id;
+    }
+
+    /** TEMP debug sink — writes to a bind-mounted file readable from the host. */
+    private function debugLog(string $tag, array $ctx): void
+    {
+        file_put_contents(
+            storage_path('logs/restrict-debug.log'),
+            '['.now()->toDateTimeString()."] {$tag} ".json_encode($ctx, JSON_UNESCAPED_SLASHES).PHP_EOL,
+            FILE_APPEND
+        );
     }
 
     private function forward(Response $res): JsonResponse
