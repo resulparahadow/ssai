@@ -10,6 +10,7 @@ const fakeStrategy = {
     message_length: 'short', caption_required: false, agent_override_active: false,
     trust_level: 2, archetype: 'Explorer', temperature: 'warm', message_purpose: 'deepen rapport',
     skeleton_step: 'Chit Chat',
+    next_planned_move: 'run_promise_ritual',
 };
 const callApi = async (_s, _u, _m, _f, t) => (t && String(t).startsWith('strategy')) ? JSON.stringify(fakeStrategy) : 'hey you 🙈';
 const callMistral = async () => 'hola 🙈';
@@ -31,7 +32,7 @@ const callMistral = async () => 'hola 🙈';
     assert.ok(t && typeof t === 'object', 'telemetry present');
     assert.ok('lastAnalysis' in t, 'telemetry.lastAnalysis key present');
     assert.strictEqual(t.lastAnalysis && t.lastAnalysis.archetype, 'Explorer', 'folded analysis carries archetype');
-    assert.ok('nextPlannedMove' in t, 'telemetry.nextPlannedMove key present');
+    assert.strictEqual(t.nextPlannedMove, 'run_promise_ritual', 'nextPlannedMove reflects this turn\'s planned move');
     assert.ok('nextPlannedMoveAtMsg' in t, 'telemetry.nextPlannedMoveAtMsg key present');
     console.log('✓ state_check: carry-forward telemetry fields present');
 })().catch((e) => { console.error('STATE_CHECK FAILED:', e.message); process.exit(1); });
