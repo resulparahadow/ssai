@@ -68,8 +68,12 @@ class EngineClient
                 '_profile' => $profile, // populated from CustomerProfile when present, else null
                 '_sextingModeToggle' => $opts['sexting'] ?? 'AUTO',
                 '_tipModeToggle' => $opts['tipMode'] ?? 'AUTO',
-                '_promiseStatus' => 'not_started',
-                '_storyFrameworkStep' => 0,
+                '_lastStrategy' => $opts['state']['last_strategy'] ?? null,
+                '_lastAnalysis' => $opts['state']['last_analysis'] ?? null,
+                '_nextPlannedMove' => $opts['state']['next_planned_move'] ?? null,
+                '_nextPlannedMoveAtMsg' => $opts['state']['next_planned_move_at_msg'] ?? null,
+                '_promiseStatus' => $opts['state']['promise_status'] ?? 'not_started',
+                '_storyFrameworkStep' => (int) ($opts['state']['story_framework_step'] ?? 0),
             ],
             'creatorStatus' => $status->map(fn (CreatorStatus $e) => [
                 'category' => $e->category,
