@@ -6,6 +6,7 @@ use App\Models\AichChatIntel;
 use App\Models\AichModel;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
+use App\Services\OnlyFans\ChatStateService;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\Client\ConnectionException;
@@ -31,6 +32,7 @@ class OnlyFansChatController extends Controller
         protected EngineClient $engine,
         protected AiUsageRecorder $usage,
         protected FanProfileService $profiles,
+        protected ChatStateService $states,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -693,6 +695,7 @@ class OnlyFansChatController extends Controller
         // feed it to the engine so the brain sees a returning customer, not a $0 lurker.
         $customer = $data['customer'] ?? ['id' => $chat];
         $profile = $this->profiles->loadForGenerate($model, $account, $chat, $customer);
+        $state = $this->states->find($model, $chat);
 
         try {
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
@@ -704,6 +707,7 @@ class OnlyFansChatController extends Controller
                 // lifetime as session spend would wrongly trip the ACTIVE-BUYER / session-spender
                 // anti-exit guards for anyone who has ever spent.
                 'profile' => $this->profiles->toEngineProfile($profile),
+                'state' => $this->states->toEngineState($state),
                 'subscription_status' => $profile->subscription_status ?? 'subscribed',
                 'crm_notes' => (string) ($profile->crm_notes ?? ''),
                 'sexting' => $profile->sexting_mode ?? 'AUTO',
@@ -793,6 +797,24 @@ class OnlyFansChatController extends Controller
         $profile = $this->profiles->applyManualEdit($this->profiles->findOrNew($model, $chat), $data);
 
         return response()->json(['profile' => $this->profiles->toPanel($profile)]);
+    }
+
+    /**
+     * Commit the carried strategy state from a generation the chatter adopted
+     * (Accept / Accept & Send). This becomes the "previous" the next generate builds on.
+     * Metadata only — the strategy + telemetry objects the generate response returned.
+     */
+    public function commitState(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+        $data = $this->validateJson($request, [
+            'strategy' => 'required|array',
+            'telemetry' => 'nullable|array',
+        ]);
+
+        $this->states->commit($model, $chat, $data['strategy'], $data['telemetry'] ?? [], $request->user()?->id);
+
+        return response()->json(['ok' => true]);
     }
 
     // ---- helpers ----------------------------------------------------------

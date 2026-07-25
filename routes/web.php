@@ -63,6 +63,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('chats/{chat}/intel', [OnlyFansChatController::class, 'intel'])->name('intel');
         Route::get('chats/{chat}/profile', [OnlyFansChatController::class, 'profile'])->name('profile');
         Route::patch('chats/{chat}/profile', [OnlyFansChatController::class, 'updateProfile'])->name('profile.update');
+        Route::post('chats/{chat}/state', [OnlyFansChatController::class, 'commitState'])->name('state');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
 
