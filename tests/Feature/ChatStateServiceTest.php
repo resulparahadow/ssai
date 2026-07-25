@@ -51,3 +51,17 @@ it('upserts in place on a second commit', function () {
     expect(AichChatState::where('chat_id', '101')->count())->toBe(1);
     expect($this->svc->find($this->model, '101')->last_strategy['phase'])->toBe('sell');
 });
+
+it('preserves progress when a later commit carries no telemetry', function () {
+    $this->svc->commit($this->model, '101', ['phase' => 'sell'], [
+        'promiseStatus' => 'in_progress',
+        'storyFrameworkStep' => 3,
+    ], null);
+
+    // A second commit with empty telemetry (e.g. engine returned none) must NOT reset progress.
+    $this->svc->commit($this->model, '101', ['phase' => 'sell'], [], null);
+
+    $s = $this->svc->toEngineState($this->svc->find($this->model, '101'));
+    expect($s['promise_status'])->toBe('in_progress');
+    expect($s['story_framework_step'])->toBe(3);
+});

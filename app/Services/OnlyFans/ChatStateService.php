@@ -49,17 +49,25 @@ class ChatStateService
      */
     public function commit(AichModel $model, string $chatId, array $strategy, array $telemetry, ?int $userId): AichChatState
     {
+        $attributes = [
+            'last_strategy' => $strategy,
+            'committed_by' => $userId,
+        ];
+
+        // Progress fields come from the engine telemetry. Only overwrite them when
+        // telemetry is actually present, so a telemetry-less commit can't reset a
+        // chat's promise/story progress back to defaults.
+        if ($telemetry !== []) {
+            $attributes['last_analysis'] = $telemetry['lastAnalysis'] ?? null;
+            $attributes['next_planned_move'] = $telemetry['nextPlannedMove'] ?? null;
+            $attributes['next_planned_move_at_msg'] = $telemetry['nextPlannedMoveAtMsg'] ?? null;
+            $attributes['promise_status'] = $telemetry['promiseStatus'] ?? 'not_started';
+            $attributes['story_framework_step'] = (int) ($telemetry['storyFrameworkStep'] ?? 0);
+        }
+
         return AichChatState::withoutGlobalScopes()->updateOrCreate(
             ['creator_model' => $model->name, 'chat_id' => $chatId],
-            [
-                'last_strategy' => $strategy,
-                'last_analysis' => $telemetry['lastAnalysis'] ?? null,
-                'next_planned_move' => $telemetry['nextPlannedMove'] ?? null,
-                'next_planned_move_at_msg' => $telemetry['nextPlannedMoveAtMsg'] ?? null,
-                'promise_status' => $telemetry['promiseStatus'] ?? 'not_started',
-                'story_framework_step' => (int) ($telemetry['storyFrameworkStep'] ?? 0),
-                'committed_by' => $userId,
-            ],
+            $attributes,
         );
     }
 }

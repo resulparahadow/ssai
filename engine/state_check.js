@@ -34,5 +34,13 @@ const callMistral = async () => 'hola 🙈';
     assert.strictEqual(t.lastAnalysis && t.lastAnalysis.archetype, 'Explorer', 'folded analysis carries archetype');
     assert.strictEqual(t.nextPlannedMove, 'run_promise_ritual', 'nextPlannedMove reflects this turn\'s planned move');
     assert.ok('nextPlannedMoveAtMsg' in t, 'telemetry.nextPlannedMoveAtMsg key present');
+    // Proves promiseStatus/storyFrameworkStep are wired to real session values via the
+    // _pendingPassCAdvance-first fallback chain (mirrors nextPlannedMove above). Fully
+    // exercising a gated promise/story *advance* (i.e. _pendingPassCAdvance actually
+    // populated) is a live-test item — the doctrine gates make it impractical to force
+    // deterministically in this synthetic harness; the sourcing correctness itself is
+    // code-verified against the browser accept handler (legacy/js/app.js:2814-2820).
+    assert.strictEqual(t.promiseStatus, 'in_progress', 'promiseStatus surfaces the session value');
+    assert.strictEqual(t.storyFrameworkStep, 2, 'storyFrameworkStep surfaces the session value');
     console.log('✓ state_check: carry-forward telemetry fields present');
 })().catch((e) => { console.error('STATE_CHECK FAILED:', e.message); process.exit(1); });
