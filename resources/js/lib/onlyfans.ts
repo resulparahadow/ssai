@@ -354,6 +354,15 @@ export const ofApi = {
             'GET',
             `${base(m)}/chats/${chat}/intel`,
         ),
+    /** Commit carried strategy state from an adopted generation (Accept / Accept & Send). */
+    commitState: (
+        m: number,
+        chat: string,
+        payload: {
+            strategy: AiStrategy | null;
+            telemetry: Record<string, unknown> | null;
+        },
+    ) => req<{ ok: boolean }>('POST', `${base(m)}/chats/${chat}/state`, payload),
     /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). */
     getProfile: (m: number, chat: string) =>
         req<{ profile: OfFanProfile }>(

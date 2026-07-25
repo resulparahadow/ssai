@@ -146,6 +146,7 @@ async function generate() {
         st.suggestion = data.draft || null;
         st.strategy = data.strategy;
         st.strategyGeneratedAt = data.generatedAt ?? new Date().toISOString();
+        st.telemetry = data.telemetry ?? null;
 
         if (!data.draft) {
             st.error =
@@ -160,14 +161,31 @@ async function generate() {
     }
 }
 
-/** Accept the suggestion into the typing bar to edit before sending. */
-function acceptSuggestion() {
-    const st = cur.value;
+/** Persist the adopted generation's strategy so the next Generate builds on it.
+ *  Fire-and-forget — a failed commit must never block the chatter. */
+function commitStrategyMemory(chatId: string) {
+    const m = model.value;
+    const st = chatComposer(chatId);
 
-    if (!st || !st.suggestion) {
+    if (!m || !st.strategy) {
         return;
     }
 
+    ofApi
+        .commitState(m.id, chatId, { strategy: st.strategy, telemetry: st.telemetry })
+        .catch(() => {});
+}
+
+/** Accept the suggestion into the typing bar to edit before sending. */
+function acceptSuggestion() {
+    const st = cur.value;
+    const chatId = selected.value?.id;
+
+    if (!st || !st.suggestion || !chatId) {
+        return;
+    }
+
+    commitStrategyMemory(chatId);
     st.draft = st.suggestion;
     st.suggestion = null;
 }
@@ -175,11 +193,13 @@ function acceptSuggestion() {
 /** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
 async function acceptAndSend() {
     const st = cur.value;
+    const chatId = selected.value?.id;
 
-    if (!st || !st.suggestion) {
+    if (!st || !st.suggestion || !chatId) {
         return;
     }
 
+    commitStrategyMemory(chatId);
     const text = st.suggestion;
     st.suggestion = null;
     await send(text);

@@ -41,6 +41,7 @@ export interface ComposerState {
     error: string | null;
     strategy: AiStrategy | null;
     strategyGeneratedAt: string | null; // ISO time the strategy was generated (for "generated X ago")
+    telemetry: Record<string, unknown> | null; // last generate's telemetry (carry-forward state committed on accept/send)
 }
 
 const composerStore = reactive<Record<string, ComposerState>>({});
@@ -58,6 +59,7 @@ export function chatComposer(chatId: string): ComposerState {
             error: null,
             strategy: null,
             strategyGeneratedAt: null,
+            telemetry: null,
         };
     }
 
