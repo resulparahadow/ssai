@@ -8,6 +8,7 @@ use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\ChatStateService;
 use App\Services\OnlyFans\FanProfileService;
+use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
@@ -33,6 +34,7 @@ class OnlyFansChatController extends Controller
         protected AiUsageRecorder $usage,
         protected FanProfileService $profiles,
         protected ChatStateService $states,
+        protected LiveThreadMapper $mapper,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -680,16 +682,18 @@ class OnlyFansChatController extends Controller
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
             'messages.*.text' => 'nullable|string',
+            'messages.*.time' => 'nullable|string',
+            'messages.*.price' => 'nullable|numeric',
+            'messages.*.isFree' => 'nullable|boolean',
+            'messages.*.isOpened' => 'nullable|boolean',
+            'messages.*.isTip' => 'nullable|boolean',
             'customer' => 'array',
             'context' => 'nullable|string',
             'api' => 'nullable|in:claude,auto,mistral',
         ]);
 
-        $messages = collect($data['messages'] ?? [])->map(fn ($m) => [
-            'sender' => ($m['from'] ?? 'fan') === 'fan' ? 'customer' : 'model',
-            'text' => $m['text'] ?? '',
-            'ts_iso' => $m['time'] ?? now()->toIso8601String(),
-        ])->values()->all();
+        $mapped = $this->mapper->map($data['messages'] ?? [], (int) config('services.engine.session_gap_hours', 12));
+        $messages = $mapped['messages'];
 
         // Load-or-create the persisted fan memory (refreshes spend from OnlyFans) and
         // feed it to the engine so the brain sees a returning customer, not a $0 lurker.
@@ -701,11 +705,11 @@ class OnlyFansChatController extends Controller
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $data['context'] ?? '',
                 'api' => $data['api'] ?? 'claude',
-                // OnlyFans spend is LIFETIME — it belongs on _profile (drives trust cap / tier /
-                // depth gate / sexting+tip detection). SESSION spend (this conversation) stays $0:
-                // it's only derivable from per-message PPV/tip data, which isn't mapped yet. Feeding
-                // lifetime as session spend would wrongly trip the ACTIVE-BUYER / session-spender
-                // anti-exit guards for anyone who has ever spent.
+                // SESSION spend (this conversation), derived by LiveThreadMapper from the thread's
+                // opened PPVs + tips within the gap-based window. Lifetime spend still rides on
+                // _profile (below). Together these drive wall state + active-buyer/tier/tip logic.
+                'total_spend' => $mapped['total_spend'],
+                'tips_spend' => $mapped['tips_spend'],
                 'profile' => $this->profiles->toEngineProfile($profile),
                 'state' => $this->states->toEngineState($state),
                 'subscription_status' => $profile->subscription_status ?? 'subscribed',

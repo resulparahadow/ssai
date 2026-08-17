@@ -61,6 +61,7 @@ return [
     'engine' => [
         'url' => env('ENGINE_URL', 'http://127.0.0.1:8787'),
         'timeout' => (int) env('ENGINE_TIMEOUT', 60),
+        'session_gap_hours' => (int) env('ENGINE_SESSION_GAP_HOURS', 12),
     ],
 
 ];
