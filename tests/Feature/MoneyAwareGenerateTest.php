@@ -45,7 +45,7 @@ it('feeds session PPV spend, tips, and a ppv bubble into the engine', function (
         $hasPpv = collect(data_get($r->data(), 'session.messages', []))
             ->contains(fn ($m) => ($m['sender'] ?? null) === 'ppv');
 
-        return str_contains($total, '25') && str_contains($tips, '10') && $hasPpv;
+        return $total === '$25' && $tips === '$10' && $hasPpv;
     });
 });
 

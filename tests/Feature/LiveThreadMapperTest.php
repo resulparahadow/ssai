@@ -88,3 +88,30 @@ it('returns empty messages and zero spend for an empty thread', function () {
     expect($out['total_spend'])->toBe(0.0);
     expect($out['tips_spend'])->toBe(0.0);
 });
+
+it('treats an all-untimestamped thread as one session', function () {
+    $out = mapThread([
+        ['from' => 'creator', 'text' => 'ppv a', 'price' => 20, 'isFree' => false, 'isOpened' => true, 'isTip' => false],
+        ['from' => 'fan', 'text' => 'thanks'],
+    ]);
+
+    // No timestamps → no gap → whole thread is one session → the PPV is in-window.
+    expect($out['total_spend'])->toBe(20.0);
+    expect(collect($out['messages'])->firstWhere('sender', 'ppv'))->not->toBeNull();
+});
+
+it('starts the session at the most recent long gap when several gaps exist', function () {
+    $now = now();
+    $out = mapThread([
+        ['from' => 'creator', 'text' => 'old', 'time' => $now->copy()->subDays(4)->toIso8601String(),
+            'price' => 40, 'isFree' => false, 'isOpened' => true, 'isTip' => false],
+        // gap 1 (>12h)
+        ['from' => 'fan', 'text' => 'mid', 'time' => $now->copy()->subDays(2)->toIso8601String()],
+        // gap 2 (>12h) — session starts AFTER this one
+        ['from' => 'creator', 'text' => 'recent ppv', 'time' => $now->copy()->subMinutes(5)->toIso8601String(),
+            'price' => 25, 'isFree' => false, 'isOpened' => true, 'isTip' => false],
+    ], 12);
+
+    // Only the most-recent-gap session counts: the $25 PPV, not the $40 one.
+    expect($out['total_spend'])->toBe(25.0);
+});

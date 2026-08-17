@@ -682,6 +682,8 @@ class OnlyFansChatController extends Controller
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
             'messages.*.text' => 'nullable|string',
+            // Load-bearing: without a rule, Laravel's validate() strips `time` from $data['messages'],
+            // collapsing LiveThreadMapper's gap-based session detection to a single session. Do not remove.
             'messages.*.time' => 'nullable|string',
             'messages.*.price' => 'nullable|numeric',
             'messages.*.isFree' => 'nullable|boolean',

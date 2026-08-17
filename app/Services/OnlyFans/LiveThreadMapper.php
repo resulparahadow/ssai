@@ -56,6 +56,10 @@ class LiveThreadMapper
                     $totalSpend += $m['price'];
                 }
             } elseif ($inWindow && $m['isTip']) {
+                // Live tips arrive with the amount in `price` today (normalizeMessage emits no
+                // tipAmount, so the `tipAmount ??` read is inert in production). It's forward-compat
+                // for live-verify #1: if OnlyFans stores a tip's value in a dedicated field, capture
+                // it in normalizeMessage + OfMessage + the generate payload + validation so it reaches here.
                 $tipsSpend += $m['tipAmount'] ?? $m['price'];
             }
 
