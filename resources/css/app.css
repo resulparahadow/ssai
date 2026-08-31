@@ -113,6 +113,42 @@
             'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
             'Noto Color Emoji';
     }
+
+    /*
+     * Loading sweep for media that is still downloading. Drawn as an ::after overlay so the
+     * thumbnail underneath stays fully visible — a normal skeleton would hide it, and for a
+     * DRM video the poster is the only thing we can show during the (slow) decrypt.
+     */
+    .ss-shimmer {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .ss-shimmer::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(
+            90deg,
+            transparent,
+            rgb(255 255 255 / 0.22),
+            transparent
+        );
+        animation: ss-shimmer 1.6s ease-in-out infinite;
+    }
+
+    @keyframes ss-shimmer {
+        100% {
+            transform: translateX(100%);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .ss-shimmer::after {
+            animation: none;
+        }
+    }
 }
 
 :root {

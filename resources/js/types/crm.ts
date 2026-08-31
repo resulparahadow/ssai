@@ -100,10 +100,11 @@ export interface OfMedia {
     preview: string | null; // poster for video; medium preview for photo
     full: string | null; // full-res image; null for DRM/locked video
     source: string | null; // playable MP4 (highest videoSources res); null = DRM/locked video
+    createdAt: string | null; // ISO timestamp the media was added to the vault
     duration: number | null; // seconds, video
     width: number | null;
     height: number | null;
-    direct?: boolean; // url is browser-loadable as-is (e.g. optimistic Giphy preview) — skip the OF media proxy
+    drm?: boolean; // Widevine-protected: no `source`, but playable via the DRM download endpoint
 }
 
 /** A Media Vault list (a "folder" grouping vault media). `medias` is only present on show. */

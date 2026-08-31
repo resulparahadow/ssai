@@ -210,7 +210,9 @@ class OnlyFansService
     public function listVaultMedia(string $account, array $params = []): Response
     {
         return $this->client()->get("{$account}/media/vault", collect($params)
-            ->only(['type', 'limit', 'offset'])
+            // `list` scopes to one vault list — the ONLY way to read a list's real contents;
+            // the list-detail endpoint returns a 3-item thumbnail preview with no ids.
+            ->only(['type', 'list', 'query', 'limit', 'offset'])
             ->filter(fn ($v) => $v !== null && $v !== '')
             ->all());
     }
@@ -259,12 +261,23 @@ class OnlyFansService
     // ---- Media Vault lists ------------------------------------------------
     // Vault "folders" grouping media (custom lists + built-in Posts/Messages/etc).
 
+    /** Upstream cap on `limit` for the vault-lists endpoint (422s above it; undocumented). */
+    private const VAULT_LISTS_MAX_LIMIT = 30;
+
     public function listVaultLists(string $account, array $params = []): Response
     {
-        return $this->client()->get("{$account}/media/vault/lists", collect($params)
+        $params = collect($params)
             ->only(['query', 'limit', 'offset'])
             ->filter(fn ($v) => $v !== null && $v !== '')
-            ->all());
+            ->all();
+
+        // This endpoint 422s above limit=30 — an undocumented cap (the spec shows only a
+        // default of 24). Clamp so an over-eager caller pages instead of failing.
+        if (isset($params['limit'])) {
+            $params['limit'] = min((int) $params['limit'], self::VAULT_LISTS_MAX_LIMIT);
+        }
+
+        return $this->client()->get("{$account}/media/vault/lists", $params);
     }
 
     public function createVaultList(string $account, string $name): Response
@@ -765,6 +778,31 @@ class OnlyFansService
             ->get($url);
     }
 
+    /**
+     * Download a DRM-protected (Widevine) vault video as a DECRYPTED mp4.
+     *
+     * This is the ONLY way to play a DRM video: OnlyFans exposes no `videoSources` and no
+     * `files.full.url` for them, just an encrypted FairPlay/Widevine manifest. OnlyFansAPI
+     * resolves the license, decrypts, and 302s to dl.fansapi.com, which streams the file
+     * (Guzzle follows the redirect). Bytes are billed and first-byte latency is 8-15s, so it
+     * gets its own timeout and the caller caches the result.
+     *
+     * Writes straight to `$sink`: a decrypted video runs to hundreds of MB and must never be
+     * buffered in PHP memory. On a non-2xx the sink holds the error JSON, not a video — the
+     * caller deletes it.
+     */
+    public function downloadDrmMedia(string $account, string $mediaId, string $sink): Response
+    {
+        if (! $this->enabled()) {
+            throw new RuntimeException('ONLYFANS_API_KEY is not configured.');
+        }
+
+        return Http::withToken($this->apiKey)
+            ->timeout((int) config('services.onlyfans.drm_timeout', 300))
+            ->sink($sink)
+            ->get($this->baseUrl.'/'.$account.'/media/download/drm/'.rawurlencode($mediaId));
+    }
+
     /** SSRF guard: only proxy https URLs on an onlyfans.com host. */
     public function isOnlyFansCdnUrl(string $url): bool
     {
@@ -775,6 +813,22 @@ class OnlyFansService
         $host = (string) (parse_url($url, PHP_URL_HOST) ?: '');
 
         return $host !== '' && (bool) preg_match('/(^|\.)onlyfans\.com$/i', $host);
+    }
+
+    /**
+     * A url on OnlyFansAPI's own CDN (`cdn.fansapi.com` presigned S3, `dl.fansapi.com`
+     * streams). Unlike cdn*.onlyfans.com these are NOT IP-locked, so the browser loads them
+     * directly — there is nothing to proxy and proxying would only re-bill.
+     */
+    public function isVendorCdnUrl(string $url): bool
+    {
+        if (! str_starts_with($url, 'https://')) {
+            return false;
+        }
+
+        $host = (string) (parse_url($url, PHP_URL_HOST) ?: '');
+
+        return $host !== '' && (bool) preg_match('/(^|\.)fansapi\.com$/i', $host);
     }
 
     // ---- Pure normalisers (mirror legacy js/onlyfans.js) ------------------
@@ -909,8 +963,8 @@ class OnlyFansService
 
     /**
      * Build a renderable media item for a Giphy GIF id. The OnlyFans message only stores the
-     * `giphyId`, so we point at Giphy's public CDN (id-addressable, no signing/IP-lock). `direct`
-     * tells the frontend to load it as-is rather than through the OF media proxy.
+     * `giphyId`, so we point at Giphy's public CDN (id-addressable, no signing/IP-lock), which
+     * the client loads as-is since it isn't an onlyfans.com host.
      *
      * @return array<string, mixed>
      */
@@ -927,12 +981,14 @@ class OnlyFansService
             'duration' => null,
             'width' => null,
             'height' => null,
-            'direct' => true,
         ];
     }
 
     /**
-     * Pull a compact, frontend-ready media list out of a raw OnlyFans message. Keeps just the
+     * Pull a compact, frontend-ready media list out of a raw OnlyFans message. Every url is
+     * passed through verbatim: a single item mixes CDN hosts across its own files (thumb on
+     * cdn2.onlyfans.com, preview on cdn.fansapi.com), so only the client's `mediaSrc()` can
+     * decide, per url, whether it needs the IP-locked-CDN proxy. Keeps just the
      * signed thumbnail/preview/full CloudFront URLs + display metadata; `preview`/`thumb` is the
      * poster for a video, `source` is its playable MP4 (from `videoSources`), and locked/PPV or
      * DRM media has no `source` (only a poster) with `canView=false` for locked items.
@@ -950,30 +1006,30 @@ class OnlyFansService
             $files = $m['files'] ?? [];
             $source = $this->bestVideoSource($m);
 
-            $urls = array_filter([
-                data_get($files, 'thumb.url'),
-                data_get($files, 'preview.url'),
-                data_get($files, 'squarePreview.url'),
-                data_get($files, 'full.url'),
-                $source,
-            ], fn ($u) => is_string($u) && $u !== '');
+            // A vault LIST hands its medias back in a compact `{type, url}` shape — a 300x300
+            // thumbnail, with no id and no `files` (verified live 2026-08-24). Normalising that
+            // as a full media object leaves every url null and the grid renders empty, so treat
+            // the one url as each rendition.
+            $compact = (! is_array($files) || $files === []) && is_string($m['url'] ?? null)
+                ? $m['url']
+                : null;
 
             return [
                 'id' => isset($m['id']) ? (string) $m['id'] : null,
                 'type' => (string) ($m['type'] ?? 'photo'),
-                'canView' => (bool) ($m['canView'] ?? false),
-                'thumb' => data_get($files, 'thumb.url'),
-                'preview' => data_get($files, 'preview.url') ?? data_get($files, 'squarePreview.url'),
-                'full' => data_get($files, 'full.url'),
+                'canView' => (bool) ($m['canView'] ?? $compact !== null),
+                'thumb' => data_get($files, 'thumb.url') ?? $compact,
+                'preview' => data_get($files, 'preview.url') ?? data_get($files, 'squarePreview.url') ?? $compact,
+                'full' => data_get($files, 'full.url') ?? $compact,
                 'source' => $source,
+                'createdAt' => $m['createdAt'] ?? null,
                 'duration' => isset($m['duration']) ? (int) $m['duration'] : null,
                 'width' => data_get($files, 'full.width') ?? data_get($files, 'preview.width'),
                 'height' => data_get($files, 'full.height') ?? data_get($files, 'preview.height'),
-                // Vault media come back as fansapi.com presigned CDN urls that load directly in
-                // the browser (not IP-locked like cdn*.onlyfans.com). Flag them `direct` so the
-                // frontend skips the media proxy — whose SSRF guard 400s any non-onlyfans host.
-                // Message media stay on cdn*.onlyfans.com → direct=false → still proxied.
-                'direct' => $urls !== [] && ! collect($urls)->contains(fn ($u) => $this->isOnlyFansCdnUrl($u)),
+                // A DRM video and a locked PPV video look identical from here (a video with no
+                // `source`), but only the DRM one can be fetched — decrypted — from the DRM
+                // download endpoint. `files.drm` (the FairPlay/Widevine manifest) is the tell.
+                'drm' => data_get($files, 'drm') !== null,
             ];
         })->values()->all();
     }

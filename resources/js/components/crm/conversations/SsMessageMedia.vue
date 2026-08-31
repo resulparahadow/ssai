@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ImageOff, LoaderCircle, Lock, Play } from '@lucide/vue';
 import { computed, ref } from 'vue';
-import { ofApi } from '@/lib/onlyfans';
+import { mediaSrc } from '@/lib/onlyfans';
 import type { OfMedia } from '@/types/crm';
 import SsMediaLightbox from './SsMediaLightbox.vue';
 
@@ -12,8 +12,8 @@ const props = defineProps<{
     hidePrice?: boolean; // caller renders its own price (e.g. the chat bubble's pay pill)
 }>();
 
-// CDN urls are IP-locked, so the thumbnail must load through our proxy. `direct`
-// media (e.g. an optimistic Giphy preview) is already browser-loadable as-is.
+// mediaSrc decides per url whether it needs the proxy: IP-locked OnlyFans CDN urls do,
+// browser-loadable ones (vendor CDN, Giphy) don't.
 function poster(m: OfMedia): string | null {
     const cdn = m.preview || m.thumb || null;
 
@@ -21,7 +21,7 @@ function poster(m: OfMedia): string | null {
         return null;
     }
 
-    return m.direct ? cdn : ofApi.mediaUrl(props.modelId, cdn);
+    return mediaSrc(props.modelId, cdn);
 }
 
 function usable(m: OfMedia): boolean {
@@ -113,12 +113,10 @@ function open(i: number) {
                         preload="none"
                         class="h-8 max-w-full"
                         :src="
-                            m.direct
-                                ? ((m.source ?? m.full) as string)
-                                : ofApi.mediaUrl(
-                                      props.modelId,
-                                      (m.source ?? m.full) as string,
-                                  )
+                            mediaSrc(
+                                props.modelId,
+                                (m.source ?? m.full) as string,
+                            )
                         "
                     />
                     <span

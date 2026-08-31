@@ -25,7 +25,7 @@ import SsPayPill from '@/components/crm/conversations/SsPayPill.vue';
 import SsPinnedModal from '@/components/crm/conversations/SsPinnedModal.vue';
 import SsRenameModal from '@/components/crm/conversations/SsRenameModal.vue';
 import { usd } from '@/lib/money';
-import { ofApi } from '@/lib/onlyfans';
+import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { Role } from '@/types/auth';
 import type { OfChat, OfFan, OfMessage } from '@/types/crm';
 
@@ -325,7 +325,7 @@ function thumb(item: Record<string, unknown>): string | null {
         files.full?.url ||
         null) as string | null;
 
-    return cdn ? ofApi.mediaUrl(props.modelId, cdn) : null;
+    return cdn ? mediaSrc(props.modelId, cdn) : null;
 }
 </script>
 

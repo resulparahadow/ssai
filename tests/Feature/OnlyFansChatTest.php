@@ -234,7 +234,6 @@ it('rebuilds a sent GIF from giphyId when text + media are empty', function () {
         ->assertJsonPath('messages.0.mediaCount', 1)
         ->assertJsonPath('messages.0.media.0.type', 'gif')
         ->assertJsonPath('messages.0.media.0.canView', true)
-        ->assertJsonPath('messages.0.media.0.direct', true)
         ->assertJsonPath('messages.0.media.0.preview', 'https://media.giphy.com/media/26gsdCX7tCsAeygLe/200w.gif')
         ->assertJsonPath('messages.0.media.0.full', 'https://media.giphy.com/media/26gsdCX7tCsAeygLe/giphy.gif');
 });
@@ -268,6 +267,23 @@ it('rejects a non-OnlyFans media url (SSRF guard)', function () {
     $this->actingAs(User::factory()->admin()->create())
         ->get("/onlyfans/{$this->model->id}/media?url=".urlencode('https://evil.example.com/secret'))
         ->assertStatus(400);
+});
+
+/**
+ * One OnlyFans media item mixes CDN hosts across its own files — thumb on cdn2.onlyfans.com,
+ * preview on cdn.fansapi.com — so a caller can hand the proxy a vendor-CDN url. Those are
+ * presigned S3 and load in the browser directly, so redirect instead of failing: proxying them
+ * is impossible (the SSRF guard) and pointless (not IP-locked).
+ */
+it('redirects a vendor-CDN media url instead of rejecting it', function () {
+    Http::fake();
+    $url = 'https://cdn.fansapi.com/of/cdn2/files/8/84/abc/960x1280_xyz.jpg?X-Amz-Signature=sig';
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->get("/onlyfans/{$this->model->id}/media?url=".urlencode($url))
+        ->assertRedirect($url);
+
+    Http::assertNothingSent(); // browser-loadable: never worth a billed download
 });
 
 it('sends text to OnlyFans and blocks PPV', function () {

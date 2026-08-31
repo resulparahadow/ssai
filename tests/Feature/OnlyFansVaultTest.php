@@ -133,10 +133,10 @@ it('removes media from a list with the mediaIds body key', function () {
         && $r['mediaIds'] === ['7']);
 });
 
-// Vault media come back as fansapi.com presigned urls (browser-loadable) — not IP-locked
-// cdn*.onlyfans.com. `direct` tells the frontend to skip the proxy (whose SSRF guard 400s
-// a fansapi host). Regression guard for the "media 400" bug.
-it('flags fansapi presigned vault media as direct and onlyfans media as proxied', function () {
+// Media urls must survive normalisation byte-for-byte, on either CDN host: the client picks
+// proxy-vs-direct per url from the host itself (`mediaSrc`). Rewriting or dropping one host
+// here is what produced the "media 400" bug. Hosts also mix WITHIN one item.
+it('passes media urls through untouched on both CDN hosts', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response([
         'data' => [
             'list' => [
@@ -150,8 +150,8 @@ it('flags fansapi presigned vault media as direct and onlyfans media as proxied'
     $this->actingAs(User::factory()->admin()->create())
         ->getJson("/onlyfans/{$this->model->id}/media/vault")
         ->assertOk()
-        ->assertJsonPath('items.0.direct', true)
-        ->assertJsonPath('items.1.direct', false);
+        ->assertJsonPath('items.0.thumb', 'https://cdn.fansapi.com/of/cdn2/files/x.jpg?X-Amz-Signature=abc')
+        ->assertJsonPath('items.1.thumb', 'https://cdn2.onlyfans.com/files/y.jpg');
 });
 
 // The vault LIST omits a video's playable source; the single-media detail endpoint resolves it
@@ -170,10 +170,35 @@ it('returns a single vault media item with a resolved video source', function ()
         ->assertOk()
         ->assertJsonPath('item.id', '55')
         ->assertJsonPath('item.type', 'video')
-        ->assertJsonPath('item.source', 'https://cdn.fansapi.com/of/v720.mp4?X-Amz-Signature=s')
-        ->assertJsonPath('item.direct', true);
+        ->assertJsonPath('item.source', 'https://cdn.fansapi.com/of/v720.mp4?X-Amz-Signature=s');
 
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '/acct_cam/media/vault/55'));
+});
+
+/**
+ * A vault LIST returns its medias in a compact `{type, url}` shape (a 300x300 thumbnail) —
+ * NOT the full media object with `files.*`. Verified live 2026-08-24. Normalising it as a full
+ * object yields all-null urls, which renders as an empty grid.
+ */
+it('renders a vault list whose medias come back as bare type/url thumbnails', function () {
+    $thumb = 'https://cdn.fansapi.com/of/cdn2/files/d/d7/abc/300x300_851e9e7.jpg?X-Amz-Signature=s';
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'data' => [
+            'id' => 29195314, 'type' => 'custom', 'name' => 'PPV 1', 'hasMedia' => true,
+            'canUpdate' => true, 'canDelete' => true,
+            'videosCount' => 0, 'photosCount' => 1, 'gifsCount' => 0, 'audiosCount' => 0,
+            'medias' => [['type' => 'photo', 'url' => $thumb]],
+        ],
+    ])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault/lists/29195314")
+        ->assertOk()
+        ->assertJsonPath('list.medias.0.type', 'photo')
+        ->assertJsonPath('list.medias.0.thumb', $thumb)
+        ->assertJsonPath('list.medias.0.preview', $thumb)
+        // Nothing to hide behind a lock: the thumbnail is right there.
+        ->assertJsonPath('list.medias.0.canView', true);
 });
 
 // ---- Upload to vault -------------------------------------------------------
@@ -276,4 +301,70 @@ it('routes media/vault/lists without the {media} wildcard capturing it', functio
         ->assertOk();
 
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '/acct_cam/media/vault/lists'));
+});
+
+// The list-detail endpoint only ever returns a 3-item thumbnail preview with no ids. The real
+// contents come from the vault-media endpoint's `list` filter (verified live 2026-08-30), which
+// returns full objects — so the Lists view must drive that, not showVaultList.
+it('forwards the list, query and type filters when listing vault media', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault?list=29195314&query=beach&type=video")
+        ->assertOk();
+
+    Http::assertSent(function ($r) {
+        $url = rawurldecode($r->url());
+
+        return str_contains($url, '/acct_cam/media/vault')
+            && str_contains($url, 'list=29195314')
+            && str_contains($url, 'query=beach')
+            && str_contains($url, 'type=video');
+    });
+});
+
+it('omits filters that were not requested', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault")
+        ->assertOk();
+
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), 'list=') && ! str_contains($r->url(), 'query='));
+});
+
+// The grid tiles show when a media was added, so the normalizer has to carry it.
+it('exposes createdAt on vault media', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [[
+        'id' => 7, 'type' => 'photo', 'canView' => true, 'createdAt' => '2026-06-14T01:22:14+00:00',
+        'files' => ['thumb' => ['url' => 'https://cdn.fansapi.com/of/t.jpg']],
+    ]], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault")
+        ->assertOk()
+        ->assertJsonPath('items.0.createdAt', '2026-06-14T01:22:14+00:00');
+});
+
+// The vault-LISTS endpoint caps `limit` at 30 and 422s above it — undocumented (the spec shows
+// only a default of 24). Clamp rather than forward, so a caller asking for more gets results
+// instead of a VALIDATION_ERROR.
+it('clamps the vault lists limit to the undocumented upstream maximum', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault/lists?limit=50")
+        ->assertOk();
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'limit=30'));
+});
+
+it('leaves a vault lists limit under the maximum alone', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault/lists?limit=10")
+        ->assertOk();
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'limit=10'));
 });

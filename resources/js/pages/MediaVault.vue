@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
-import { FolderOpen, Images, RefreshCw, Users } from '@lucide/vue';
+import { Images, RefreshCw, Users } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import SsVaultGrid from '@/components/crm/vault/SsVaultGrid.vue';
-import SsVaultLists from '@/components/crm/vault/SsVaultLists.vue';
+import SsVaultRail from '@/components/crm/vault/SsVaultRail.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { can } from '@/crm/nav';
 import type { Role } from '@/types/auth';
-import type { SidebarCreator } from '@/types/crm';
+import type { OfVaultList, SidebarCreator } from '@/types/crm';
 
 const page = usePage();
 const { selectedId } = useCreatorContext();
@@ -30,14 +30,13 @@ const role = computed<Role>(
 );
 const canManage = computed(() => can(role.value, 'manageTeam'));
 
-const tab = ref<'media' | 'lists'>('media');
+// The open list (left rail selection); null = the whole vault.
+const openList = ref<OfVaultList | null>(null);
+const openListId = computed(() => openList.value?.id ?? null);
+const openListName = computed(() => openList.value?.name ?? 'All media');
+
 // Bumped by Refresh; the children watch it and reload.
 const reloadNonce = ref(0);
-
-const TABS = [
-    { key: 'media', label: 'All media', icon: Images },
-    { key: 'lists', label: 'Lists', icon: FolderOpen },
-] as const;
 </script>
 
 <template>
@@ -100,40 +99,24 @@ const TABS = [
             Creator Models to manage its vault.
         </div>
 
-        <template v-else>
-            <!-- Sub-switch: All media / Lists -->
-            <div class="flex gap-1 border-b border-ss-border px-5 py-2">
-                <button
-                    v-for="t in TABS"
-                    :key="t.key"
-                    type="button"
-                    class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors"
-                    :class="
-                        tab === t.key
-                            ? 'bg-ss-accent-soft text-ss-accent-text'
-                            : 'text-ss-text-2 hover:bg-ss-surface-2'
-                    "
-                    @click="tab = t.key"
-                >
-                    <component :is="t.icon" :size="15" />
-                    {{ t.label }}
-                </button>
-            </div>
-
-            <div class="min-h-0 flex-1 overflow-y-auto">
-                <SsVaultGrid
-                    v-show="tab === 'media'"
-                    :model-id="model.id"
-                    :can-manage="canManage"
-                    :reload="reloadNonce"
-                />
-                <SsVaultLists
-                    v-show="tab === 'lists'"
-                    :model-id="model.id"
-                    :can-manage="canManage"
-                    :reload="reloadNonce"
-                />
-            </div>
-        </template>
+        <!-- Lists on the left, that list's media on the right. -->
+        <div v-else class="flex min-h-0 flex-1">
+            <SsVaultRail
+                class="w-72 shrink-0"
+                :model-id="model.id"
+                :can-manage="canManage"
+                :reload="reloadNonce"
+                :selected-id="openListId"
+                @select="openList = $event"
+            />
+            <SsVaultGrid
+                class="min-w-0 flex-1"
+                :model-id="model.id"
+                :can-manage="canManage"
+                :reload="reloadNonce"
+                :list-id="openListId"
+                :list-name="openListName"
+            />
+        </div>
     </div>
 </template>

@@ -17,7 +17,7 @@ import {
     nextCache,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
-import { messagePreviewKind, ofApi } from '@/lib/onlyfans';
+import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     ensureSubscribed,
     onInboundMessage,
@@ -240,9 +240,9 @@ async function send(override?: string) {
     st.error = null;
     st.gif = null; // drop the attached-GIF preview from the composer the moment Send is clicked
 
-    // The GIF we're sending, mapped to a renderable media item. Its Giphy CDN url is
-    // browser-loadable as-is (`direct` skips the OF proxy). Kept on the confirmed bubble
-    // too, since OnlyFans' send response doesn't echo the GIF back as media.
+    // The GIF we're sending, mapped to a renderable media item. Its Giphy CDN url isn't an
+    // onlyfans.com host, so `mediaSrc` loads it as-is. Kept on the confirmed bubble too,
+    // since OnlyFans' send response doesn't echo the GIF back as media.
     const gifMedia: OfMessage['media'] = gif
         ? [
               {
@@ -253,10 +253,10 @@ async function send(override?: string) {
                   preview: gif.preview,
                   full: gif.url,
                   source: null,
+                  createdAt: null,
                   duration: null,
                   width: gif.width || null,
                   height: gif.height || null,
-                  direct: true,
               },
           ]
         : [];
@@ -287,12 +287,10 @@ async function send(override?: string) {
                       preview: att.previewUrl,
                       full: att.previewUrl,
                       source: att.previewUrl,
+                      createdAt: null,
                       duration: null,
                       width: null,
                       height: null,
-                      // blob:/proxied previews are already browser-loadable — skip the
-                      // OF media proxy, exactly as Giphy previews do.
-                      direct: true,
                   },
               ]
             : gifMedia,
@@ -601,7 +599,7 @@ function onPickVault(item: OfMedia) {
     let previewUrl: string | null = null;
 
     if (cdn) {
-        previewUrl = item.direct ? cdn : ofApi.mediaUrl(m.id, cdn);
+        previewUrl = mediaSrc(m.id, cdn);
     }
 
     cur.attachment = {

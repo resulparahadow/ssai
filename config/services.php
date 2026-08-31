@@ -55,6 +55,12 @@ return [
         // Uploads forward up to 100MB to OnlyFans; the 30s default is far too short.
         // Only `uploadMedia()` uses this — every other call keeps `timeout`.
         'upload_timeout' => (int) env('ONLYFANS_UPLOAD_TIMEOUT', 300),
+        // A DRM download waits 8-15s for the license exchange + decrypt BEFORE the first
+        // byte, then streams a whole video. Only `downloadDrmMedia()` uses this. Vault videos
+        // reach 250MB+, and the endpoint does NOT support Range, so a timeout throws the
+        // partial file away and the retry re-bills from zero — be generous. nginx's
+        // `fastcgi_read_timeout` must stay >= this or it cuts the request first.
+        'drm_timeout' => (int) env('ONLYFANS_DRM_TIMEOUT', 1800),
     ],
 
     // Node sidecar that runs the real legacy generation engine (engine/server.js).

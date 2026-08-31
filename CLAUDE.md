@@ -194,8 +194,8 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `OnlyFansService::listGiphyTrending`/`searchGiphy` → `normalizeGif`). Picking a GIF attaches it
     above the typing bar (per-chat `ComposerState.gif`); Send posts `{ text?, giphyId }` to the same
     send endpoint (`sendGif` adds the `giphyId` body param; text stays optional). The optimistic
-    bubble previews the Giphy CDN url directly via a new `OfMedia.direct` flag that bypasses the
-    OF media proxy in `SsMessageMedia`/`SsMediaLightbox` (Giphy urls aren't IP-locked, unlike OF CDN);
+    bubble previews the Giphy CDN url directly — `mediaSrc()` proxies only onlyfans.com hosts, and
+    a Giphy url isn't one (it isn't IP-locked, unlike OF CDN);
     the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
     PPV/tip + file-media sends remain deferred.
     **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
@@ -207,15 +207,49 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `files.full.url`, so **non-DRM videos play inline**. But creators with OnlyFans "DRM Protection"
     ON (`GET {acct}/settings/drm` → `enabled`) serve videos as encrypted FairPlay(HLS)/Widevine(DASH)
     ONLY — `files.full.url` + `videoSources` are null, leaving just `files.drm.manifest`+`signature`
-    (CloudFront, IP-locked). `source` is then null and the lightbox shows the poster + a "🔒
-    DRM-protected video — can't be played here" note. **Playing/decrypting DRM videos is NOT possible
-    via OnlyFansAPI** and should NOT be re-investigated: OnlyFansAPI support confirmed there is no
-    decrypted-MP4 export and no DRM license/key endpoint. Verified: `media/scrape file_type=full` →
-    400, Get-Vault-Media returns the same locked object, and the signed `.m3u8` DOES fetch through the
-    download proxy (append the `drm.signature` `Policy`/`Signature`/`Key-Pair-Id` + `Tag=2`) but the
-    media playlist is `#EXT-X-KEY:METHOD=SAMPLE-AES,KEYFORMAT="com.apple.streamingkeydelivery"`
-    (FairPlay) — undecryptable client-side. Only forward paths: the creator disables DRM (affects
-    FUTURE uploads only, `PATCH {acct}/settings/drm`) or the API vendor adds a decrypt feature. **CDN urls are
+    (CloudFront, IP-locked). `source` is then null. **DRM videos ARE playable since 2026-08-21** — the vendor
+    shipped a decrypt endpoint, `GET {acct}/media/download/drm/{media_id}`, which resolves the
+    Widevine license server-side, decrypts, and 302s to `dl.fansapi.com` streaming a plain MP4.
+    (This reverses the earlier "impossible" finding — the old workarounds are still dead ends and
+    need no re-investigation: `media/scrape file_type=full` → 400, Get-Vault-Media returns the same
+    locked object, and the signed `.m3u8` fetches but is `#EXT-X-KEY:METHOD=SAMPLE-AES,
+    KEYFORMAT="com.apple.streamingkeydelivery"` FairPlay, undecryptable client-side.) It is
+    **slow (8-15s to first byte) and billed per byte**, so it is cached:
+    `normalizeMedia` exposes **`drm`** (true when `files.drm` exists — the one way to tell our own
+    DRM video, which is fetchable, from locked PPV media, which is not); opening such a video in
+    `SsMediaLightbox` starts the download immediately behind a spinner (no call-to-action button —
+    the fetch is the click), hitting `GET /onlyfans/{model}/media/drm/{media}` (`OnlyFansChatController::drmMediaFile` →
+    `OnlyFansService::downloadDrmMedia`, own `services.onlyfans.drm_timeout`, streamed to a sink —
+    never buffered in memory). The MP4 caches at `storage/app/private/of-drm/{acct}/{id}.mp4`
+    (a `.part` file renamed only on success) and is served with `response()->file()`, so the
+    browser can **seek** and a re-watch costs nothing; a `Cache::lock` stops two chatters paying
+    for the same video twice, and `php artisan of:prune-drm-cache --days=7` (scheduled weekly)
+    keeps the cache bounded. **Sizing/timeouts (learned the hard way 2026-08-30):** real vault
+    videos reach **250MB+** (not the 10MB of the first sample), so on a slow link a download runs
+    for many minutes. `services.onlyfans.drm_timeout` defaults to **1800s** and nginx's
+    `fastcgi_read_timeout` is **1800s** — BOTH must stay high; whichever is lower cuts the request
+    first, and the earlier 300s pair produced "The DRM download timed out". The `Cache::lock` TTL
+    is derived from `drm_timeout` (+60s) for the same reason: a lock that expires mid-download lets
+    a second click start a duplicate, and duplicates are billed twice. **The endpoint does NOT
+    support Range/resume** (tested live: sending `Range` returns 302 then drops the connection),
+    so a timeout discards the `.part` file and the retry re-bills from zero — which is why the
+    timeouts are generous rather than tight. The button surfaces the upstream 402 ("insufficient credits") / 422
+    ("not DRM-protected") verbatim, via a 1-byte `Range` probe — a bare `<video>` reports every
+    failure as an opaque `error` event. Guards: `tests/Feature/OnlyFansDrmMediaTest.php`.
+    **The endpoint resolves Media Vault ids ONLY — verified live 2026-08-24:** a chat-message
+    media id returns OnlyFans' own 404 `"Media Not Found"`, so the lightbox maps 404 to "This
+    video can only be played from the Media Vault" plus an **Open Media Vault** link (no retry —
+    retrying can never succeed; the vault opens on the same creator via the app-wide creator
+    context, so the link needs no query param). There is no way to map a chat media id to its
+    vault twin: hash-matching the CDN filename (`{size}_{hash}.jpg`) fails, 0/3 against 79
+    indexed vault items. **Measured live (local, 4.8 Mbit/s link):**
+    TTFB 7.6s, then ~430 KB/s → 31.7s total for a 9s/9.9MB clip. The payload is a **fragmented
+    MP4 (`ftyp|moov|moof+mdat…`), moov first**, so it is progressively playable in principle —
+    but the transfer ran ~2.6x slower than the video's own 8.8 Mbit/s bitrate, so streaming it
+    would stall; download-then-play is correct. That 430 KB/s was ~71% of the machine's total
+    bandwidth (Cloudflare 50MB control: 605 KB/s), i.e. **the local link, not the vendor, is the
+    bottleneck** — expect far faster on a server, where the fixed 7.6s decrypt dominates. The creator can still turn DRM off entirely
+    (`PATCH {acct}/settings/drm`, FUTURE uploads only). **CDN urls are
     IP-locked** (`cdn*.onlyfans.com` is bound to the proxy IP → 403/`ERR_BLOCKED_BY_ORB` in the
     browser), so every media src loads through `GET /onlyfans/{model}/media?url=<cdn>`
     (`OnlyFansChatController::mediaFile` → `OnlyFansService::downloadMedia`, the API's
@@ -311,8 +345,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     models** (the same shared `creators` prop + `dynamic:'creators'` nav pattern; `SsSidebar` now
     builds each dynamic child's href from the node's `basePath`, so Conversations `/conversations`
     and this `/media-vault` share one code path). `MediaVaultController@index` is a thin shell
-    (`selectedCreator` only); `MediaVault.vue` resolves the model id from `creators` and has a
-    sub-switch **All media / Lists**. Built on the **chatter-facing `/onlyfans/{model}/…`** surface
+    (`selectedCreator` only); `MediaVault.vue` resolves the model id from `creators` and is a
+    **two-panel layout**: `SsVaultRail` (left — "All media" pinned on top, then the vault lists
+    with per-type counts, plus search/create/rename/delete) drives `SsVaultGrid` (right — that
+    list's media, type pills, vault search, upload, select/bulk actions, lightbox). Built on the **chatter-facing `/onlyfans/{model}/…`** surface
     (`OnlyFansChatController` + `ofApi`, per-creator access scope), reusing the existing
     `vault`/`mediaFile`(proxy)/`uploadStatus` plumbing. New endpoints there: **vault media**
     `POST media/vault` (upload — file **or** `file_url`, async → poll the existing
@@ -324,24 +360,42 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `OnlyFansService::addMediaToVaultList`/`removeMediaFromVaultList` translate from the CRM's uniform
     `mediaIds`. **Route order:** `media/vault/lists*` + `media/vault/delete-media` are registered
     ABOVE the `GET media/vault/{media}` wildcard. `OnlyFansService::normalizeVaultList` shapes list
-    payloads (+ reuses `normalizeMedia` for a list's `medias`). **Hard-deletes**
+    payloads. **Read a list's contents with `GET media/vault?list={id}` — NEVER from
+    `showVaultList`.** That list-detail endpoint's `medias` is a **3-item thumbnail preview**:
+    compact `{type, url}` objects (300x300, no `id`, no `files`), capped at 3 regardless of the
+    list's real size, and the endpoint takes no pagination params (verified live + against the
+    OpenAPI spec, 2026-08-30). Driving the UI from it gave "only 3 media per list" and a
+    "Locked video" lightbox, because there is no id/source to play. The `list` query param on the
+    vault-media endpoint returns the **full** objects instead (ids, `files`, `videoSources`,
+    `files.drm`, `createdAt`), paginated by `hasMore` — verified live: `?list=29195314` returned
+    exactly the 6 items its counts declared. `listVaultMedia` forwards
+    **`type`/`list`/`query`/`limit`/`offset`** (the API also documents `field`/`sort`, unused).
+    **`listVaultLists` caps `limit` at 30** — an UNDOCUMENTED upstream maximum (the spec shows only
+    a default of 24); above it the API 422s `VALIDATION_ERROR "The limit field must not be greater
+    than 30."`, so the service clamps rather than forwards. NB the media and lists endpoints have
+    different caps: vault media allows 10-100, vault lists only 30.
+    **Hard-deletes**
     (`delete-media`, delete list) sit in the route group's `can:manage-team` subgroup — manager/admin
     only (delete buttons hidden client-side for chatters via `can(role,'manageTeam')`); everyone
     assigned can browse/upload/create/rename/add/remove. Components: `pages/MediaVault.vue` +
-    `components/crm/vault/{SsVaultGrid,SsVaultLists}.vue` (grid clones `SsVaultModal` + the
+    `components/crm/vault/{SsVaultRail,SsVaultGrid}.vue` (grid clones `SsVaultModal` + the
     Conversations upload state machine; media renders via `SsMediaLightbox`). **Vault thumbnails are
     `cdn.fansapi.com` presigned S3 urls — browser-loadable, NOT IP-locked like `cdn*.onlyfans.com`**,
-    so `normalizeMedia` sets `direct=true` for any non-onlyfans host and every tile renderer loads
-    `direct` media straight (`m.direct ? cdn : ofApi.mediaUrl(...)`); proxying a fansapi url 400s (the
-    proxy's SSRF guard only allows onlyfans.com). This is why `SsVaultGrid/Lists/Modal` +
-    the composer vault-pick preview all check `direct`.
+    so they must NOT go through the media proxy (whose SSRF guard only allows onlyfans.com).
+    **Proxy-vs-direct is decided PER URL by `mediaSrc(modelId, url)` (`lib/onlyfans.ts`) — never per
+    media item.** A single OnlyFans media object mixes hosts across its own files (`thumb` on
+    `cdn2.onlyfans.com`, `preview` on `cdn.fansapi.com`), so the old per-item `OfMedia.direct` flag
+    (true only when NO url was onlyfans) sent fansapi urls through the proxy and 400'd them; it is
+    gone, and every renderer calls `mediaSrc` instead. Defence in depth: `mediaFile` now **302s** a
+    `*.fansapi.com` url back to the browser rather than 400ing, so a missed call site degrades to a
+    slower load instead of a broken image (`OnlyFansService::isVendorCdnUrl`).
     **Video playback:** the vault LIST payload omits a video's playable source (`videoSources`/
-    `files.full.url` absent), so `SsVaultGrid`/`SsVaultLists` fetch the single-media detail
+    `files.full.url` absent), so `SsVaultGrid` fetches the single-media detail
     (`GET media/vault/{id}` → `vaultMediaItem`) on lightbox-open for a video with no `source` and
     merge it in — non-DRM videos then play. A **genuinely DRM-protected** video (creator's DRM
-    Protection ON) still resolves to no source, so the lightbox's "DRM-protected — can't be played
-    here" note is correct and unfixable here (only the creator disabling DRM helps, future uploads
-    only — see the DRM notes on the Conversations entry).
+    Protection ON) still resolves to no source, but the detail payload carries `files.drm`, so the
+    shared lightbox auto-loads it here — the vault is in fact the ONLY home of the DRM download
+    endpoint (see the DRM notes on the Conversations entry).
     Deferred: CDN single-use upload UI, send/attach-to-chat, per-item list-membership editing beyond
     add/remove. **NB three doc/live points to confirm against a real key:** the `delete-media` path,
     the `media_ids`/`mediaIds` add/remove keys, and that async `POST media/vault` returns a

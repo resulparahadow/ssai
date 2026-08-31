@@ -7,19 +7,24 @@ import {
     Link2,
     ListPlus,
     LoaderCircle,
+    Play,
+    Search,
     Trash2,
     Upload,
     X,
 } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import SsMediaLightbox from '@/components/crm/conversations/SsMediaLightbox.vue';
-import { ofApi } from '@/lib/onlyfans';
+import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { OfMedia, OfVaultList } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
     canManage: boolean;
     reload: number;
+    /** Vault list to show, or null for the whole vault. */
+    listId: string | null;
+    listName: string;
 }>();
 
 const FILTERS = [
@@ -37,6 +42,7 @@ const MAX_BYTES = 100 * 1024 * 1024; // 100MB — OnlyFans' direct-upload cap
 
 const items = ref<OfMedia[]>([]);
 const filter = ref('');
+const query = ref('');
 const loading = ref(false);
 const hasMore = ref(false);
 const error = ref<string | null>(null);
@@ -82,6 +88,13 @@ async function load(reset: boolean) {
     const mine = ++token;
     const offset = reset ? 0 : items.value.length;
 
+    // Drop the old media immediately: showing the previous list's items under a new list's
+    // heading reads as "these are its contents" until the response lands.
+    if (reset) {
+        items.value = [];
+        hasMore.value = false;
+    }
+
     try {
         const params: Record<string, string> = {
             limit: String(PAGE),
@@ -90,6 +103,16 @@ async function load(reset: boolean) {
 
         if (filter.value) {
             params.type = filter.value;
+        }
+
+        // `list` is the only way to read a list's real contents — the list-detail endpoint
+        // returns a 3-item thumbnail preview with no ids.
+        if (props.listId) {
+            params.list = props.listId;
+        }
+
+        if (query.value.trim()) {
+            params.query = query.value.trim();
         }
 
         const r = await ofApi.vault(props.modelId, params);
@@ -118,11 +141,34 @@ function pickFilter(f: string) {
     load(true);
 }
 
+/** Switching lists starts a clean view — stale filters would look like an empty list. */
+watch(
+    () => props.listId,
+    () => {
+        filter.value = '';
+        query.value = '';
+        clearSelection();
+        load(true);
+    },
+);
+
+function formatDate(iso: string | null): string {
+    if (!iso) {
+        return '';
+    }
+
+    const d = new Date(iso);
+
+    return Number.isNaN(d.getTime())
+        ? ''
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 /** Vault thumbs are fansapi.com presigned urls (direct); only onlyfans.com needs the proxy. */
 function tileSrc(m: OfMedia): string {
     const cdn = (m.thumb ?? m.preview) as string;
 
-    return m.direct ? cdn : ofApi.mediaUrl(props.modelId, cdn);
+    return mediaSrc(props.modelId, cdn);
 }
 
 onMounted(() => load(true));
@@ -407,277 +453,335 @@ async function deleteSelected() {
 </script>
 
 <template>
-    <div class="p-4">
-        <!-- Toolbar -->
-        <div class="mb-3 flex flex-wrap items-center gap-2">
-            <div class="flex flex-wrap gap-1">
-                <button
-                    v-for="f in FILTERS"
-                    :key="f.value"
-                    type="button"
-                    class="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
-                    :class="
-                        filter === f.value
-                            ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
-                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
-                    "
-                    @click="pickFilter(f.value)"
-                >
-                    {{ f.label }}
-                </button>
-            </div>
-
+    <div class="flex h-full min-h-0 flex-col">
+        <!-- Header -->
+        <div
+            class="flex flex-wrap items-center gap-2 border-b border-ss-border px-4 py-3"
+        >
+            <h2 class="min-w-0 truncate text-[15px] font-semibold text-ss-text">
+                {{ listName }}
+            </h2>
             <span class="flex-1" />
-
-            <button
-                type="button"
-                class="flex items-center gap-1.5 rounded-lg border border-ss-border px-3 py-1.5 text-[12px] font-semibold transition-colors"
-                :class="
-                    selectionMode
-                        ? 'bg-ss-surface-2 text-ss-text'
-                        : 'text-ss-text-2 hover:bg-ss-surface-2'
-                "
-                @click="toggleSelectionMode"
+            <div
+                class="flex w-56 items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface-2 px-2"
             >
-                <Check :size="14" />
-                {{ selectionMode ? 'Cancel' : 'Select' }}
-            </button>
-
+                <Search :size="14" class="shrink-0 text-ss-text-3" />
+                <input
+                    v-model="query"
+                    type="search"
+                    placeholder="Search vault"
+                    class="w-full bg-transparent py-1.5 text-[12px] text-ss-text outline-none placeholder:text-ss-text-3"
+                    @keyup.enter="load(true)"
+                    @search="load(true)"
+                />
+            </div>
             <button
                 type="button"
                 class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90"
                 @click="showUpload = !showUpload"
             >
                 <Upload :size="14" />
-                Upload
+                Add media
             </button>
         </div>
 
-        <!-- Upload panel -->
-        <div
-            v-if="showUpload"
-            class="mb-3 rounded-xl border border-ss-border bg-ss-surface-2 p-3"
-        >
-            <div class="flex flex-wrap items-center gap-2">
-                <input
-                    ref="fileInput"
-                    type="file"
-                    multiple
-                    accept="image/*,video/*,audio/*"
-                    class="hidden"
-                    @change="onFilesPicked"
-                />
+        <div class="min-h-0 flex-1 overflow-y-auto p-4">
+            <!-- Toolbar -->
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+                <div class="flex flex-wrap gap-1">
+                    <button
+                        v-for="f in FILTERS"
+                        :key="f.value"
+                        type="button"
+                        class="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                        :class="
+                            filter === f.value
+                                ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
+                                : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                        "
+                        @click="pickFilter(f.value)"
+                    >
+                        {{ f.label }}
+                    </button>
+                </div>
+
+                <span class="flex-1" />
+
                 <button
                     type="button"
-                    class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2"
-                    @click="fileInput?.click()"
+                    class="flex items-center gap-1.5 rounded-lg border border-ss-border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+                    :class="
+                        selectionMode
+                            ? 'bg-ss-surface-2 text-ss-text'
+                            : 'text-ss-text-2 hover:bg-ss-surface-2'
+                    "
+                    @click="toggleSelectionMode"
                 >
-                    <Upload :size="14" />
-                    Choose files
+                    <Check :size="14" />
+                    {{ selectionMode ? 'Cancel' : 'Select' }}
                 </button>
-                <span class="text-[11px] text-ss-text-3">or</span>
-                <div class="flex min-w-[220px] flex-1 items-center gap-2">
-                    <div
-                        class="flex flex-1 items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-2"
-                    >
-                        <Link2 :size="14" class="shrink-0 text-ss-text-3" />
-                        <input
-                            v-model="urlInput"
-                            type="url"
-                            placeholder="Paste a media URL (https://…)"
-                            class="w-full bg-transparent py-1.5 text-[12px] text-ss-text outline-none placeholder:text-ss-text-3"
-                            @keyup.enter="submitUrl"
-                        />
-                    </div>
+            </div>
+
+            <!-- Upload panel -->
+            <div
+                v-if="showUpload"
+                class="mb-3 rounded-xl border border-ss-border bg-ss-surface-2 p-3"
+            >
+                <div class="flex flex-wrap items-center gap-2">
+                    <input
+                        ref="fileInput"
+                        type="file"
+                        multiple
+                        accept="image/*,video/*,audio/*"
+                        class="hidden"
+                        @change="onFilesPicked"
+                    />
                     <button
                         type="button"
-                        class="flex items-center gap-1 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                        :disabled="!urlInput.trim() || uploadingUrl"
-                        @click="submitUrl"
+                        class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2"
+                        @click="fileInput?.click()"
+                    >
+                        <Upload :size="14" />
+                        Choose files
+                    </button>
+                    <span class="text-[11px] text-ss-text-3">or</span>
+                    <div class="flex min-w-[220px] flex-1 items-center gap-2">
+                        <div
+                            class="flex flex-1 items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-2"
+                        >
+                            <Link2 :size="14" class="shrink-0 text-ss-text-3" />
+                            <input
+                                v-model="urlInput"
+                                type="url"
+                                placeholder="Paste a media URL (https://…)"
+                                class="w-full bg-transparent py-1.5 text-[12px] text-ss-text outline-none placeholder:text-ss-text-3"
+                                @keyup.enter="submitUrl"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            class="flex items-center gap-1 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                            :disabled="!urlInput.trim() || uploadingUrl"
+                            @click="submitUrl"
+                        >
+                            <LoaderCircle
+                                v-if="uploadingUrl"
+                                :size="14"
+                                class="animate-spin"
+                            />
+                            Add
+                        </button>
+                    </div>
+                </div>
+                <p class="mt-1.5 text-[11px] text-ss-text-3">
+                    Files up to 100MB; URLs up to 1GB. Uploads process in the
+                    background and appear here when ready.
+                </p>
+
+                <!-- Upload progress list -->
+                <ul v-if="uploads.length" class="mt-2 space-y-1">
+                    <li
+                        v-for="u in uploads"
+                        :key="u.key"
+                        class="flex items-center gap-2 rounded-lg bg-ss-surface px-2.5 py-1.5 text-[12px]"
                     >
                         <LoaderCircle
-                            v-if="uploadingUrl"
+                            v-if="
+                                u.status === 'uploading' ||
+                                u.status === 'processing'
+                            "
                             :size="14"
-                            class="animate-spin"
+                            class="shrink-0 animate-spin text-ss-accent-text"
                         />
-                        Add
+                        <CheckCircle2
+                            v-else-if="u.status === 'ready'"
+                            :size="14"
+                            class="shrink-0 text-ss-pos"
+                        />
+                        <AlertCircle
+                            v-else
+                            :size="14"
+                            class="shrink-0 text-ss-neg"
+                        />
+                        <span class="min-w-0 flex-1 truncate text-ss-text-2">{{
+                            u.name
+                        }}</span>
+                        <span
+                            v-if="u.status === 'uploading'"
+                            class="font-ss-mono text-[11px] text-ss-text-3"
+                            >{{ u.progress }}%</span
+                        >
+                        <span
+                            v-else-if="u.status === 'processing'"
+                            class="text-[11px] text-ss-text-3"
+                            >Processing…</span
+                        >
+                        <span
+                            v-else-if="u.status === 'ready'"
+                            class="text-[11px] text-ss-pos"
+                            >Ready</span
+                        >
+                        <span v-else class="truncate text-[11px] text-ss-neg">{{
+                            u.error
+                        }}</span>
+                    </li>
+                </ul>
+                <div
+                    v-if="uploads.length && !uploadsBusy"
+                    class="mt-2 text-right"
+                >
+                    <button
+                        type="button"
+                        class="text-[11px] font-semibold text-ss-text-3 hover:text-ss-text-2"
+                        @click="uploads = []"
+                    >
+                        Clear
                     </button>
                 </div>
             </div>
-            <p class="mt-1.5 text-[11px] text-ss-text-3">
-                Files up to 100MB; URLs up to 1GB. Uploads process in the
-                background and appear here when ready.
-            </p>
 
-            <!-- Upload progress list -->
-            <ul v-if="uploads.length" class="mt-2 space-y-1">
-                <li
-                    v-for="u in uploads"
-                    :key="u.key"
-                    class="flex items-center gap-2 rounded-lg bg-ss-surface px-2.5 py-1.5 text-[12px]"
-                >
-                    <LoaderCircle
-                        v-if="
-                            u.status === 'uploading' ||
-                            u.status === 'processing'
-                        "
-                        :size="14"
-                        class="shrink-0 animate-spin text-ss-accent-text"
-                    />
-                    <CheckCircle2
-                        v-else-if="u.status === 'ready'"
-                        :size="14"
-                        class="shrink-0 text-ss-pos"
-                    />
-                    <AlertCircle
-                        v-else
-                        :size="14"
-                        class="shrink-0 text-ss-neg"
-                    />
-                    <span class="min-w-0 flex-1 truncate text-ss-text-2">{{
-                        u.name
-                    }}</span>
-                    <span
-                        v-if="u.status === 'uploading'"
-                        class="font-ss-mono text-[11px] text-ss-text-3"
-                        >{{ u.progress }}%</span
-                    >
-                    <span
-                        v-else-if="u.status === 'processing'"
-                        class="text-[11px] text-ss-text-3"
-                        >Processing…</span
-                    >
-                    <span
-                        v-else-if="u.status === 'ready'"
-                        class="text-[11px] text-ss-pos"
-                        >Ready</span
-                    >
-                    <span v-else class="truncate text-[11px] text-ss-neg">{{
-                        u.error
-                    }}</span>
-                </li>
-            </ul>
-            <div v-if="uploads.length && !uploadsBusy" class="mt-2 text-right">
+            <!-- Selection action bar -->
+            <div
+                v-if="selectionMode"
+                class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ss-accent/40 bg-ss-accent-soft px-3 py-2"
+            >
+                <span class="text-[12px] font-semibold text-ss-accent-text">
+                    {{ selected.size }} selected
+                </span>
+                <span class="flex-1" />
                 <button
                     type="button"
-                    class="text-[11px] font-semibold text-ss-text-3 hover:text-ss-text-2"
-                    @click="uploads = []"
+                    class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
+                    :disabled="!selected.size"
+                    @click="openListPicker"
                 >
-                    Clear
+                    <ListPlus :size="14" />
+                    Add to list
+                </button>
+                <button
+                    v-if="canManage"
+                    type="button"
+                    class="flex items-center gap-1.5 rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-1.5 text-[12px] font-semibold text-ss-neg hover:bg-ss-neg/20 disabled:opacity-50"
+                    :disabled="!selected.size || deleting"
+                    @click="deleteSelected"
+                >
+                    <LoaderCircle
+                        v-if="deleting"
+                        :size="14"
+                        class="animate-spin"
+                    />
+                    <Trash2 v-else :size="14" />
+                    Delete
                 </button>
             </div>
-        </div>
 
-        <!-- Selection action bar -->
-        <div
-            v-if="selectionMode"
-            class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ss-accent/40 bg-ss-accent-soft px-3 py-2"
-        >
-            <span class="text-[12px] font-semibold text-ss-accent-text">
-                {{ selected.size }} selected
-            </span>
-            <span class="flex-1" />
-            <button
-                type="button"
-                class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
-                :disabled="!selected.size"
-                @click="openListPicker"
+            <p v-if="actionError" class="mb-2 text-[12px] text-ss-neg">
+                {{ actionError }}
+            </p>
+
+            <!-- Grid -->
+            <p v-if="error" class="py-6 text-center text-[12px] text-ss-neg">
+                {{ error }}
+            </p>
+            <div
+                v-else-if="loading && items.length === 0"
+                class="grid place-items-center py-16"
             >
-                <ListPlus :size="14" />
-                Add to list
-            </button>
-            <button
-                v-if="canManage"
-                type="button"
-                class="flex items-center gap-1.5 rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-1.5 text-[12px] font-semibold text-ss-neg hover:bg-ss-neg/20 disabled:opacity-50"
-                :disabled="!selected.size || deleting"
-                @click="deleteSelected"
+                <LoaderCircle :size="22" class="animate-spin text-ss-text-3" />
+            </div>
+            <p
+                v-else-if="items.length === 0"
+                class="py-12 text-center text-[12px] text-ss-text-3"
             >
-                <LoaderCircle v-if="deleting" :size="14" class="animate-spin" />
-                <Trash2 v-else :size="14" />
-                Delete
-            </button>
-        </div>
-
-        <p v-if="actionError" class="mb-2 text-[12px] text-ss-neg">
-            {{ actionError }}
-        </p>
-
-        <!-- Grid -->
-        <p v-if="error" class="py-6 text-center text-[12px] text-ss-neg">
-            {{ error }}
-        </p>
-        <p
-            v-else-if="!loading && items.length === 0"
-            class="py-12 text-center text-[12px] text-ss-text-3"
-        >
-            Nothing in the vault for this filter.
-        </p>
-        <div
-            v-else
-            class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8"
-        >
-            <button
-                v-for="(m, i) in items"
-                :key="`${m.id}-${i}`"
-                type="button"
-                class="group relative aspect-square overflow-hidden rounded-lg border bg-ss-surface-2"
-                :class="
-                    m.id && selected.has(m.id)
-                        ? 'border-ss-accent ring-2 ring-ss-accent'
-                        : 'border-ss-border hover:border-ss-accent'
-                "
-                :title="m.type"
-                @click="onTile(m, i)"
+                Nothing in the vault for this filter.
+            </p>
+            <div
+                v-else
+                class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
             >
-                <img
-                    v-if="m.thumb || m.preview"
-                    :src="tileSrc(m)"
-                    :alt="m.type"
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                />
-                <span
-                    v-else
-                    class="grid h-full w-full place-items-center text-[10px] font-semibold text-ss-text-3 uppercase"
-                    >{{ m.type }}</span
-                >
-
-                <!-- Selection check -->
-                <span
-                    v-if="selectionMode"
-                    class="absolute top-1 left-1 grid h-5 w-5 place-items-center rounded-full border"
+                <button
+                    v-for="(m, i) in items"
+                    :key="`${m.id}-${i}`"
+                    type="button"
+                    class="group cursor-pointer overflow-hidden rounded-xl border bg-ss-surface-2 text-left"
                     :class="
                         m.id && selected.has(m.id)
-                            ? 'border-ss-accent bg-ss-accent text-white'
-                            : 'border-white/70 bg-black/40 text-transparent'
+                            ? 'border-ss-accent ring-2 ring-ss-accent'
+                            : 'border-ss-border hover:border-ss-accent'
                     "
+                    :title="m.type"
+                    @click="onTile(m, i)"
                 >
-                    <Check :size="12" />
-                </span>
+                    <span class="relative block aspect-square">
+                        <img
+                            v-if="m.thumb || m.preview"
+                            :src="tileSrc(m)"
+                            :alt="m.type"
+                            class="h-full w-full object-cover"
+                            loading="lazy"
+                        />
+                        <span
+                            v-else
+                            class="grid h-full w-full place-items-center text-[10px] font-semibold text-ss-text-3 uppercase"
+                            >{{ m.type }}</span
+                        >
 
-                <span
-                    v-if="m.duration"
-                    class="absolute right-1 bottom-1 rounded bg-black/70 px-1 text-[9px] text-white"
-                    >{{ m.duration }}s</span
+                        <!-- Selection check -->
+                        <span
+                            v-if="selectionMode"
+                            class="absolute top-1.5 left-1.5 grid h-5 w-5 place-items-center rounded-full border"
+                            :class="
+                                m.id && selected.has(m.id)
+                                    ? 'border-ss-accent bg-ss-accent text-white'
+                                    : 'border-white/70 bg-black/40 text-transparent'
+                            "
+                        >
+                            <Check :size="12" />
+                        </span>
+
+                        <span
+                            v-if="m.type === 'video'"
+                            class="absolute inset-0 grid place-items-center"
+                        >
+                            <span
+                                class="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-colors group-hover:bg-black/75"
+                            >
+                                <Play :size="18" fill="currentColor" />
+                            </span>
+                        </span>
+
+                        <span
+                            v-if="m.duration"
+                            class="absolute right-1.5 bottom-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
+                            >{{ m.duration }}s</span
+                        >
+                    </span>
+
+                    <span
+                        class="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-ss-text-3"
+                    >
+                        <span class="uppercase">{{ m.type }}</span>
+                        <span class="flex-1" />
+                        <span>{{ formatDate(m.createdAt) }}</span>
+                    </span>
+                </button>
+            </div>
+
+            <div class="mt-3 grid place-items-center">
+                <LoaderCircle
+                    v-if="loading && items.length > 0"
+                    :size="18"
+                    class="animate-spin text-ss-text-3"
+                />
+                <button
+                    v-else-if="hasMore"
+                    type="button"
+                    class="rounded-lg border border-ss-border px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2"
+                    @click="load(false)"
                 >
-            </button>
-        </div>
-
-        <div class="mt-3 grid place-items-center">
-            <LoaderCircle
-                v-if="loading"
-                :size="18"
-                class="animate-spin text-ss-text-3"
-            />
-            <button
-                v-else-if="hasMore"
-                type="button"
-                class="rounded-lg border border-ss-border px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2"
-                @click="load(false)"
-            >
-                Load more
-            </button>
+                    Load more
+                </button>
+            </div>
         </div>
 
         <!-- Lightbox -->

@@ -10,12 +10,14 @@ use App\Services\OnlyFans\ChatStateService;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
@@ -118,6 +120,15 @@ class OnlyFansChatController extends Controller
         $url = (string) $request->query('url', '');
 
         if (! $this->of->isOnlyFansCdnUrl($url)) {
+            // A single OnlyFans media item mixes hosts across its own files (thumb on
+            // cdn2.onlyfans.com, preview on cdn.fansapi.com), so a caller can legitimately
+            // land here with a vendor-CDN url. Those load in the browser as they are — hand
+            // it back rather than failing, so a missed check degrades to a slower load
+            // instead of a broken image.
+            if ($this->of->isVendorCdnUrl($url)) {
+                return redirect()->away($url);
+            }
+
             abort(400, 'Unsupported media URL.');
         }
 
@@ -145,6 +156,98 @@ class OnlyFansChatController extends Controller
         return response($cached['body'])
             ->header('Content-Type', $cached['ct'])
             ->header('Cache-Control', 'private, max-age=86400');
+    }
+
+    /**
+     * Serve a DRM-protected video as a playable, decrypted mp4.
+     *
+     * The upstream DRM endpoint is slow (8-15s of license exchange + decrypt before the first
+     * byte) and billed per byte delivered, so the result is cached on disk and served with
+     * `response()->file()` — which answers Range requests, so the browser can seek, and costs
+     * nothing on repeat views. A lock stops two chatters opening the same video from paying
+     * for it twice; the loser waits and finds the file already there.
+     */
+    public function drmMediaFile(Request $request, AichModel $model, string $media): HttpResponse
+    {
+        $acct = $this->account($request, $model);
+
+        // Both halves become a path on our disk — keep them to characters that cannot escape it.
+        if (! ctype_digit($media)) {
+            abort(400, 'Invalid media id.');
+        }
+        $dir = 'of-drm/'.preg_replace('/[^A-Za-z0-9_-]/', '', $acct);
+        $path = "{$dir}/{$media}.mp4";
+
+        $disk = Storage::disk('local');
+
+        if (! $disk->exists($path)) {
+            if ($error = $this->cacheDrmVideo($acct, $media, $dir, $path)) {
+                return $error;
+            }
+        }
+
+        return response()->file($disk->path($path), [
+            'Content-Type' => 'video/mp4',
+            'Cache-Control' => 'private, max-age=86400',
+        ]);
+    }
+
+    /**
+     * Fetch one decrypted DRM video onto disk. Returns an error response to forward, or null
+     * once the file is cached.
+     *
+     * Held under a lock so two people opening the same video don't both pay for it: the second
+     * waits, then finds the file already downloaded. The mp4 lands at a `.part` path first and
+     * is renamed only on success, so a failed or half-finished download can never be served as
+     * a video.
+     */
+    private function cacheDrmVideo(string $acct, string $media, string $dir, string $path): ?HttpResponse
+    {
+        $disk = Storage::disk('local');
+        // The lock has to outlive the download it guards: if it expires mid-flight a second
+        // viewer starts a duplicate — and duplicates are billed per byte, twice.
+        $timeout = (int) config('services.onlyfans.drm_timeout', 1800);
+        $lock = Cache::lock("ofdrm:{$acct}:{$media}", $timeout + 60);
+
+        try {
+            $lock->block(120);
+        } catch (LockTimeoutException) {
+            return response()->json(['error' => 'This video is still being prepared. Try again in a moment.'], 409);
+        }
+
+        try {
+            // Whoever held the lock may have just finished the download we were waiting on.
+            if ($disk->exists($path)) {
+                return null;
+            }
+
+            $disk->makeDirectory($dir);
+            $temp = $disk->path("{$dir}/{$media}.part");
+
+            try {
+                $res = $this->of->downloadDrmMedia($acct, $media, $temp);
+            } catch (ConnectionException) {
+                @unlink($temp);
+
+                return response()->json([
+                    'error' => 'The video took too long to download. Large videos can take several minutes — try again.',
+                ], 504);
+            }
+
+            if (! $res->successful()) {
+                // The sink holds the upstream error JSON (402 out of credits, 422 not
+                // DRM-protected, …) — never a video. Drop it and forward the status.
+                @unlink($temp);
+
+                return $this->forward($res);
+            }
+
+            rename($temp, $disk->path($path));
+
+            return null;
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
@@ -194,6 +297,8 @@ class OnlyFansChatController extends Controller
         $acct = $this->account($request, $model);
         $res = $this->of->listVaultMedia($acct, [
             'type' => $request->query('type'),
+            'list' => $request->query('list'),
+            'query' => $request->query('query'),
             'limit' => $request->query('limit', 48),
             'offset' => $request->query('offset', 0),
         ]);

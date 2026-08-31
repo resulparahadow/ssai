@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { LoaderCircle, X } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { ofApi } from '@/lib/onlyfans';
+import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { OfMedia } from '@/types/crm';
 
 const props = defineProps<{ modelId: number }>();
@@ -71,7 +71,7 @@ function pick(f: string) {
 function tileSrc(m: OfMedia): string {
     const cdn = (m.thumb ?? m.preview) as string;
 
-    return m.direct ? cdn : ofApi.mediaUrl(props.modelId, cdn);
+    return mediaSrc(props.modelId, cdn);
 }
 
 function onKey(e: KeyboardEvent) {

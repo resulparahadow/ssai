@@ -128,6 +128,13 @@ export const ofApi = {
     mediaUrl: (m: number, cdnUrl: string) =>
         `${base(m)}/media?url=${encodeURIComponent(cdnUrl)}`,
     /**
+     * Playable source for a DRM-protected video. The first request decrypts it upstream
+     * (8-15s, billed per byte); the server caches the mp4, so later requests are free and
+     * seekable. Only call it for media with `drm` and no `source`.
+     */
+    drmMediaUrl: (m: number, mediaId: string) =>
+        `${base(m)}/media/drm/${encodeURIComponent(mediaId)}`,
+    /**
      * Upload one file and return its media id.
      *
      * Deliberately XMLHttpRequest, not the fetch `req()` helper used everywhere else in
@@ -457,3 +464,29 @@ export const ofApi = {
     unfollow: (m: number, fanId: string) =>
         req<{ ok: boolean }>('DELETE', `${base(m)}/users/${fanId}/subscribe`),
 };
+
+/**
+ * Resolve one media url to something the browser can actually load.
+ *
+ * OnlyFans CDN urls (cdn*.onlyfans.com) are IP-locked to the server and 403 in the browser, so
+ * they must go through our proxy. Everything else — the vendor's presigned cdn.fansapi.com,
+ * Giphy, a local blob preview — loads as-is and must NOT be proxied, since the proxy's SSRF
+ * guard only accepts onlyfans.com hosts.
+ *
+ * The decision is per URL, never per media item: one OnlyFans item routinely mixes hosts across
+ * its own files (thumb on cdn2.onlyfans.com, preview on cdn.fansapi.com). Deciding once for the
+ * whole item sent fansapi urls through the proxy and 400'd them.
+ */
+export function mediaSrc(modelId: number, url: string): string {
+    let host = '';
+
+    try {
+        host = new URL(url, window.location.origin).hostname;
+    } catch {
+        return url; // not a parseable url (blob:, data:) — hand it back untouched
+    }
+
+    return host === 'onlyfans.com' || host.endsWith('.onlyfans.com')
+        ? ofApi.mediaUrl(modelId, url)
+        : url;
+}
