@@ -1,309 +1,516 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repository.
+
+## What this is
+
+SmartStars CRM — a Laravel + Inertia + Vue rewrite of the legacy browser app. The
+goal is to scale the product (proper backend + frontend separation, real
+server-side logic, role-based access) behind the `SSAI-new-design.html` design.
+
+**This rewrite is being built in phases.** Phase 1 (done): foundation — repo
+restructure, Laravel scaffold, MySQL schema mirror, auth/roles, AI provider
+boundary, OnlyFans webhook stub. Phase 2 (done): the SmartStars design shell
+(sidebar/topbar/theme/role-preview) + the Overview dashboard wired to real,
+role-scoped data. Phase 3 (done): the legacy generation engine runs **exactly**
+inside the project via a Node sidecar (`engine/`) — Laravel calls it over HTTP.
+Later phases build the other CRM views and may port the engine to PHP. See
+`docs/superpowers/specs/` for the specs.
+
+## Stack
+
+- **Laravel 13.x**, PHP 8.3+
+- **Inertia 2 + Vue 3 + Vite** (TypeScript) — the `--vue` starter kit; auth via **Fortify**
+- **MySQL 8** (`ssai_crm` database)
+- **Pest** for tests · Tailwind for styling
 
 ## Repository shape
 
-This is a browser app — no build step, no package manager, no test framework, no CI. To run: open `SSAI.html` in Chrome, or serve via `python3 -m http.server 8000` and visit `http://localhost:8000/SSAI.html` (needed for Claude in Chrome / extension access since Chrome blocks `file://` for extensions).
-
-**File layout** (NOT single-file — was refactored to multi-file at some point post-v0.4.1.5; older CLAUDE.md versions describe the obsolete single-file layout):
-
 ```
-SSAI-v0.4.5.1/
-├── SSAI.html              ← shell only: topbar, sidebar, dashboard, modals
-├── CLAUDE.md              ← this file
-├── README.md              ← brief README
-├── DEV_SPEC.md   ← canonical handoff doc for the dev (read this first)
-├── css/
-│   ├── base.css
-│   ├── layout.css
-│   └── modals.css
-├── js/
-│   ├── api.js             ← callApi (Claude) + callMistral
-│   ├── app.js             ← main logic (~8500 lines): generate(), posture, UI rendering, etc.
-│   ├── auth.js            ← Supabase auth + role gating
-│   ├── config.js          ← SSAI_VERSION + SB_URL/SB_KEY + PROXY_URL constants
-│   ├── doctrine.js        ← DEFAULT_TRAINING template literal (~1700 lines) + SHA256 + verifier
-│   ├── supabase-client.js ← Supabase client init
-│   ├── team.js            ← manager/chatter team management
-│   └── ui.js              ← bubble formatting (fmtMsgForAI), gap detection, global error handler
-├── tests/                 ← harness.js (regression suite) + ab_*/batch_driver/slop_scan helpers
-├── sql/                   ← doctrine_v*_push.sql (Supabase brain-row pushes — rollback refs) + gen_push_sql.js
-└── docs/                  ← working/reference docs (audits, live results, test matrices, persona drafts)
+.
+├── app/
+│   ├── Enums/UserRole.php            ← admin | manager | chatter (+ capability helpers)
+│   ├── Models/                       ← Eloquent mirror of the legacy schema
+│   │   ├── Concerns/BelongsToChatter.php   ← auto-stamps user_id + applies access scope
+│   │   └── Scopes/CreatorAccessScope.php   ← row-level access (replaces Supabase RLS)
+│   ├── Services/
+│   │   ├── AI/{AnthropicService,MistralService}.php   ← server-held keys (proxy ports, STUBS)
+│   │   ├── OnlyFans/OnlyFansService.php               ← OF client (helpers real, sync STUB)
+│   │   └── Doctrine/DoctrineService.php               ← active row + integrity hash
+│   ├── Http/Controllers/Webhooks/OnlyFansWebhookController.php  ← messages.received → broadcast
+│   ├── Events/OnlyFansMessageReceived.php  ← broadcasts inbound on private creator.{id}
+│   ├── Broadcasting/CreatorChannel.php     ← authorizes that channel (creator access scope)
+│   └── Providers/AppServiceProvider.php  ← role gates defined in configureGates()
+├── database/migrations/              ← schema (mirror of legacy Supabase tables + doctrines)
+├── resources/
+│   ├── css/app.css                   ← Tailwind v4 + SmartStars design tokens (ss-* utilities)
+│   └── js/
+│       ├── layouts/SmartStarsLayout.vue   ← CRM design shell (routed in app.ts for Dashboard)
+│       ├── components/crm/                ← SsSidebar, SsTopbar, Ss{Sparkline,Donut,BarChart}
+│       ├── composables/useCrmShell.ts     ← sidebar-collapse + admin role-preview state
+│       ├── crm/nav.ts                     ← nav tree + PERM matrix + ssColor()
+│       └── pages/Dashboard.vue            ← Overview view (real data via DashboardController)
+├── routes/web.php                    ← inertia routes + webhooks/onlyfans
+├── tests/Feature/                    ← Pest (CreatorAccess, RoleGate, OnlyFansWebhook, +starter)
+├── engine/                           ← Node sidecar that RUNS the real legacy generate()
+│   ├── loadEngine.js                 ← loads legacy js into one vm context + bridges globals
+│   ├── callModel.js                  ← headless callApi/callMistral (server keys)
+│   ├── runGenerate.js                ← driver: payload → real generate() → draft/strategy/telemetry
+│   └── server.js                     ← HTTP /generate, /health  (smoke.js, parity.js next to it)
+├── app/Services/Engine/EngineClient.php  ← maps MySQL → legacy session shape, calls the engine
+├── Dockerfile · compose.prod.yaml    ← prod stack: 3 image targets (app/web/engine) + 8 services
+├── compose.caddy.yaml                ← TLS overlay: Caddy auto-HTTPS edge in front of nginx `web`
+├── docker/                           ← entrypoint.sh, nginx/, php*/, caddy/Caddyfile (+ README runbook)
+├── deploy.sh                         ← on-server update helper (git pull → build app → up -d)
+├── legacy/                           ← the ENTIRE old vanilla-JS app, archived read-only
+│                                       (legacy/package.json restores CommonJS for tests/harness.js)
+├── docs/DEPLOY-ubuntu.md             ← fresh-Ubuntu-24.04 deploy runbook
+├── docs/superpowers/specs/           ← phase specs
+└── SSAI-new-design.html              ← the design prototype (visual reference for Phase 2)
 ```
 
-**Current versions:**
-- App: `0.4.4.7` (in `js/config.js` as `SSAI_VERSION`)
-- Doctrine: `v0.4.5.1` (in `js/doctrine.js` header line + footer). v0.4.5.0 (2026-06-12) rewrote PART 11 objection registers to beat-format + bilingual for OBJ 1/2/3/4/6/9/10, added NEW OBJECTION 11 (recovery-to-resale), PART 9 whale-$37 cross-ref, PART 23 sexting multiplier 1.4×→1.25×. v0.4.5.1 (2026-06-14) fixed a stale PART 4 multiplier ref (1.4×→1.25×, the v0.4.5.0 change had missed it) + cut PART 1 paragraph/bullet redundancy. **Supabase `__global_training__` push DONE + VERIFIED 2026-06-14** — manager ran `sql/doctrine_v0.4.5.1_push.sql` in the SQL Editor (supabase.com is hard-blocked for browser automation — nav + js exec both permission-denied — so this is always manager-run); live hash check from localhost = MATCHES, len 132232, tier system. All three integrity layers agree, no drift warning.
-- Doctrine SHA256: `a1bcbcef27519268fd005622a9e124965a4b8e7732c24cc5303ccda0760ade0e` (was `62ffaa6e…`, `ca53389d…`; in `js/doctrine.js` as `DEFAULT_TRAINING_SHA256` — grep `DEFAULT_TRAINING_SHA256=`, don't trust a line number; len 132232)
-
-The `<title>` in `SSAI.html` is set on load from `SSAI_VERSION` — don't hand-edit, just bump the constant. The brand label in the topbar reads from the same constant.
+`legacy/` is the previous Supabase + vanilla-JS app (its own `legacy/CLAUDE.md`
+and `legacy/DEV_SPEC.md` document it). It is reference only — not wired into the
+new app. The behavioural IP (doctrine text, posture rules, generation pipeline)
+still lives there and is ported later under coordination.
 
 ## Backend boundary
 
-Backend is Supabase (Postgres + auth + Edge Functions). The app only talks to:
-- `SB_URL` / `SB_KEY` — Supabase project (anon key is committed in `js/config.js`; RLS does the actual access control).
-- `PROXY_URL` (`/functions/v1/anthropic-proxy`) — Edge Function that holds the real Anthropic key and forwards browser calls.
-- `MISTRAL_PROXY_URL` (`/functions/v1/mistral-proxy`) — same pattern for Mistral via OpenRouter.
+There is **no Supabase**. Laravel owns the database (MySQL), auth (Fortify +
+sessions), and will own the AI calls. Provider API keys live in server config
+(`config/services.php` → `anthropic`, `openrouter`, `onlyfans`) and **never**
+reach the browser — an improvement over the legacy `ssai_*` proxy token.
 
-Proxy mode is default ON. The browser only carries a low-value proxy token (`ssai_*`). To bypass for local debugging: `localStorage.ss_use_proxy='false'` + put a real key in `localStorage.ss_claude` / `ss_openrouter`. See `useProxy()` / `callApi()` / `callMistral()`.
+## Schema
 
-The Anthropic model is hardcoded to `claude-sonnet-4-6` in `js/api.js`. Mistral is `mistralai/mistral-nemo` via OpenRouter.
+Migrations recreate the legacy tables faithfully (in-memory `_`-prefixed JS
+telemetry fields are intentionally NOT persisted): `aich_models`,
+`creator_status`, `customer_profiles`, `model_assignments`, `aich_sessions`,
+`aich_messages`, `aich_events`, `aich_feedback_queue`, `aich_vn_used`. Postgres
+`jsonb` → MySQL `json`. The legacy `chatters` RBAC folds into `users` (adds a
+`role` enum + `must_change_password`). One intentional improvement: the doctrine
+"brain" moves out of an `aich_models` row into its own versioned, hashed
+`doctrines` table.
 
-## Supabase tables in use
+## Access control
 
-- `chatters`, `model_assignments` — auth/RBAC. Roles: `manager` | `chatter`. Manager sees everything; chatter sees only own sessions and assigned creator models.
-- `aich_sessions`, `aich_messages`, `aich_events`, `aich_vn_used` — per-conversation state and analytics events. All four have `chatter_id` auto-injected on insert via `installChatterIdAutoInject()` — do not bypass `sb.from(...)` and write through a different client.
-- `aich_models` — creator personas + content libraries; also stores `__global_training__` row (the live brain copy, RLS-locked for writes — see "Doctrine integrity" below).
-- `aich_models_backups` — append-only audit log of every UPDATE/DELETE on `aich_models`, fired by the `snapshot_aich_models()` BEFORE trigger. (Trigger had a `RETURN OLD` bug on UPDATE that silently no-op'd all aich_models writes — fixed via SQL editor on 2026-05-12, see DEV_SPEC.md for the corrected function body.)
-- `customer_profiles` — long-term per-customer memory (trust level, archetype, total_spend, key_details).
-- `creator_status` — real-life status entries fetched per-generation by `fetchActiveCreatorStatus()`.
-- `aich_feedback_queue` — manager-reviewed corrections. As of v0.4.1.4, approval APPENDS to existing `feedback_rules` (not replaces); manager can edit the combined list in Models tab to resolve contradictions.
+- **Roles**: `admin | manager | chatter` (`App\Enums\UserRole`). Admin > Manager > Chatter.
+- **Row-level**: `CreatorAccessScope` (a global scope on conversation models)
+  restricts chatters to their assigned `creator_model`s; admins/managers are
+  unrestricted; no authenticated user (console/seeders/tests) = no-op.
+- **Ownership**: `BelongsToChatter` auto-stamps `user_id` on create (the legacy
+  `installChatterIdAutoInject()`), applied to `AichSession`/`AichMessage`/`AichEvent`.
+- **Feature gates**: `view-all-creators`, `manage-team` (manager+), `view-agency-profit`
+  (admin only) — defined in `AppServiceProvider::configureGates()`. The Vue shell
+  hides UI per role, but these gates are the actual enforcement.
 
-### Event types (introduced v0.4.1.4 → v0.4.4.0)
+## AI generation engine (Phase 3 — runs the exact legacy logic)
 
-- `agent_override` — fired when context box is non-empty at generate time. Payload includes the directive, posture state, TW state, miss-locked state, and session_ppv_count. Lets manager audit when chatters override the brain.
-- `tip_recorded` — fired when an incoming customer message has the "Came with tip" toggle on. Payload: amount, new_total_tips.
-- `sexting_mode_toggled` — fired when the agent cycles the sexting AUTO / FORCE_ON / FORCE_OFF chip. Payload: prior state, new state, sexting_active flag.
-- `tip_mode_toggled` (v0.4.4.0) — fired when the agent cycles the TIP-LED AUTO / FORCE_ON / FORCE_OFF chip. Payload: prior state, new state, tip_primary flag. Mirrors `sexting_mode_toggled`.
-- `spend_override` — fired when a manager edits session or lifetime spend via the spend-edit modal. Payload: scope (`session`|`lifetime`), from, to.
+The legacy two-call pipeline runs **unmodified** in the `engine/` Node sidecar
+(it loads the real `legacy/js/*.js`). Laravel never reimplements it: `EngineClient`
+maps a MySQL `AichSession` (+ persona, profile, creator status) into the legacy
+session shape and POSTs to `engine/server.js`; `GenerationController`
+(`POST /conversations/{session}/generate`) persists the returned draft as a
+draft-log `AichMessage`. The exact `DEFAULT_TRAINING` doctrine is seeded into the
+`doctrines` table (sha `a1bcbcef…`, `DoctrineService::integrityOk()` passes) and the
+engine uses its in-process copy. Provider keys live in the engine's env
+(`ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`), never the browser.
 
-## Two-call generation pipeline
+- **Do NOT edit `legacy/js/*` to change behavior** — the engine's whole point is byte-identical parity. Enhancements go in `engine/` wrappers or the (future) PHP port.
+- **Concurrent generations are isolated per request.** The legacy JS keeps all state in
+  shared globals (`sessions`/`activeId`/`callApi`), so a single shared VM context would let
+  overlapping generations clobber each other mid-await (one chat's run stealing another's
+  session/transport). `loadEngine.js` compiles the legacy bundle **once** into a reusable
+  `vm.Script`, and `createEngine()` runs it into a **fresh VM context per generate** (~1.5ms
+  setup, no disk re-read) — `runGenerate.js` uses it, so N chats generate in parallel safely.
+  `loadEngine()` is now a cached **read-only** singleton (health/doctrine/parity/warmup only —
+  never generation). NB: end-to-end parallelism also needs a concurrent PHP frontend — Docker
+  (php-fpm) and prod deliver it; `composer run dev` (`php artisan serve`) is single-threaded so
+  it still serializes at the PHP layer regardless of the engine.
+- Parity guards: `node engine/parity.js`, `node engine/smoke.js`, `node engine/concurrency_check.js`, `node legacy/tests/harness.js` (283/0).
+- Input guards (each proves the engine REACTS to one PHP-supplied input, not just receives it):
+  `node engine/money_check.js` (session ppv/tip → `tipPrimary`), `node engine/state_check.js`
+  (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier).
+- The `AnthropicService`/`MistralService` PHP stubs still THROW — a future PHP port
+  (intended foundation: the first-party **Laravel AI SDK**) can replace the sidecar.
 
-`generate()` in `js/app.js` is the central function (~1200 lines). Read it before touching any prompt-construction or routing code. The flow is:
+## Deferred to later specs (do NOT assume these exist)
 
-1. **Pre-compute session telemetry** — posture (`recomputePosture` → `computePosture`), customer tier, wall state (`computeWallState`), forcing move, fork detection (`detectFork`), investment signals (`detectInvestmentSignals`), trust capping by **effective** spend (`capTrustBySpend` over `effectiveSessionSpend`/`effectiveLifetimeSpend` = PPV + tips), **sexting state (`detectSextingActive`)**, **tip-primary state (`detectTipPrimary` → `_tipPrimary`)**, **time context block**, **agent override block (from context box)**.
-2. **Strategy call (Claude)** — produces a JSON strategy object with phase, ritual_step, tone, price_rule, caption_required, etc. Validated and clamped by `validateStrategy`, `clampStrategyByPosture`, `clampStrategyByDepthGate`, `clampStrategyByRegisterMatch`. Strategy can now set `agent_override_active: true` to defer wall enforcement for one turn.
-3. **Generator call** — depending on `api` mode (`auto` | `claude` | `mistral`):
-   - `claude`: Claude writes the message directly using the strategy.
-   - `mistral`: Claude returns the strategy JSON, then `callMistral()` executes it. Used for explicit content (Anthropic refuses; Mistral doesn't).
-   - `auto`: Claude decides per-message whether to route to Mistral.
-4. **Post-processing** — `scanForBanned`, `registerFilterCheck`, `stripReasoningLeaks`.
-5. **Analysis call** — `runAnalysis()` updates the customer profile (trust, archetype, key_details).
+- **Engine extras** — post-message analysis (`runAnalysis` / engine `/analyze`), PPV
+  price suggestion, and the optional PHP port of the pipeline.
+- **CRM views** — DONE: app shell + Overview dashboard (Phase 2), **Conversations**
+  + **Creator Models** (Phase 4), **AI Usage** (`/analytics/ai-usage`), **Media Vault**
+  (`/media-vault`). The remaining design views (Chatting Performance, Smart Links, Channels,
+  Creative, Content, Whales/Churn) are each their own spec — inert sidebar placeholders today.
+  - **AI Usage** (`/analytics/ai-usage`, manager/admin via `can:manage-team`) — restores the legacy
+    `js/api.js` cost telemetry (`_ssaiCostLog` / `$/msg · Cache` card / cost-diagnostic modal). The
+    engine now records a per-LLM-call usage ledger (`engine/callModel.js` → `makeRealCallApi`/`Mistral`
+    take a ledger; `runGenerate` returns `usage[]`) with the exact legacy cost math (Sonnet $3/$15, Opus
+    $5/$25, cacheRead 0.1×, cacheWrite 2×; Mistral uses OpenRouter's exact `usage.cost`). Both generate
+    paths (`OnlyFansChatController::generate` live, `GenerationController` dev) persist it via
+    `AiUsageRecorder` into **`aich_usage_events`** — **metadata only, NO message text** (token counts,
+    cost, cache hit, duration, call_type, model, creator, chat id, grouped by `generation_id`). The page
+    (`AiUsageService` → `AiUsageController` → `AiUsage.vue`) reproduces the legacy `$/msg` + cache-hit%
+    summary (green ≥70 / red <40, "—" under 3 calls) and the last-25 cost-diagnostic table (cache
+    HIT/MISS/NO CACHE, r·cR·cW token breakdown, sys-block sizes with the `<1024`-prefix ⚠ warning,
+    Copy-JSON). Period filter Today/7d/30d. Guards: `node engine/usage_check.js`.
+  - **Conversations** (`/conversations`) — a **live OnlyFans proxy; no message text is persisted**
+    (Phase 6 replaced the old DB-backed version). The only server-side persistence is metadata-only
+    carve-outs: AI Intel (`AichChatIntel`, strategy-only), the usage ledger (`aich_usage_events`), and
+    **fan memory** (`customer_profiles` — trust/archetype/memory/toggles, see the Fan-tab card below). The sidebar "Conversations" item is a
+    **dropdown of creator models** (shared `creators` prop from `HandleInertiaRequests`);
+    picking one opens `/conversations?creator=<name>`. The Vue page fetches everything LIVE
+    client-side (`resources/js/lib/onlyfans.ts`) via `OnlyFansChatController` (`/onlyfans/{model}/…`):
+    list chats, list/get/search messages, chat media gallery, send (text + optional **GIF**),
+    delete, like/unlike, fan details, GIF picker (Giphy trending/search), and AI `generate`
+    (a transient engine session built from the live thread — no DB row). Access is scoped in the
+    controller (chatter → assigned creators).
+    **Chat actions** (thread header: `[mute] [pinned] [note] [gallery] [⋯ fan settings]`) —
+    mute/unmute, a pinned-messages modal (`SsPinnedModal`, also pin/unpin per bubble), the
+    OnlyFans fan note (`SsNoteModal`), and `SsFanSettingsMenu` (open OF profile, rename, mark
+    read/unread + manager/admin-only hide/unfollow/restrict/block, gated by `can:manage-team` on
+    a nested route sub-group). Spec-verified path asymmetries — mute is `POST …/mute` but unmute
+    is **`DELETE …/unmute`**; pin is `POST …/pin` but unpin is **`DELETE …/unpin`** (do not
+    "normalise" these). Pinned messages reuse `listMessages(filter=pinned)`, routed as
+    `chats/{chat}/pinned` — a **sibling** of `messages`, so it can't collide with
+    `messages/{message}`. `isMutedNotifications`/`countPinnedMessages`/**`fan.isRestricted`**
+    (+ `isBlocked`) all ride along on the chat list (verified live), so mute/pin/restricted state
+    costs no per-chat call. A restricted fan is flagged by a `ShieldMinus` in the `SsConvoList`
+    row + a "Restricted" pill in the `SsChatThread` header, both off `chat.restricted`; the
+    fan-settings menu reads and patches **that row** (not the cached fan detail, whose
+    `isRestricted` goes stale the moment we toggle) via `changed` → `chat-changed` → `patchChat`.
+    **Fan custom name → `displayName`, NOT `name` (verified live 2026-07-15).** `PUT
+    {acct}/fans/{fan}/custom-name` leaves `name` as the fan's real OnlyFans name and returns the
+    custom name in **`displayName`** (`''` when unset). Every fan-bearing payload (`listChats`,
+    `getUserDetails`, `listAllFans`, …) carries it. `OnlyFansService::displayNameOf()` is the one
+    label resolver — custom name if non-empty, else `name`/`username`/`id` — used by
+    `normalizeChat` + the chat controller's `user()`/`rename`, so a rename shows immediately AND
+    survives a list refresh. Reading `name` back after a rename returns the *old* label and looks
+    like a silent no-op.
+    **The fan note is OnlyFans-owned**, `customer_profiles.crm_notes` is only its local mirror so
+    `generate` can feed it to the AI without a billed call per generation: reads let OnlyFans win
+    and mirror down; writes hit OnlyFans first and mirror **only after a 2xx**; a note predating
+    the mirror (local set, OF empty) returns `synced: false` rather than being dropped. `crm_notes`
+    is deliberately absent from `PATCH /profile` — one write path only.
+    **GIF sending:** `SsComposer` has a **GIF** button opening `SsGifPicker` (a popover over the
+    Giphy proxy — `GET /onlyfans/{model}/giphy/{trending,search?q&limit&offset}` →
+    `OnlyFansService::listGiphyTrending`/`searchGiphy` → `normalizeGif`). Picking a GIF attaches it
+    above the typing bar (per-chat `ComposerState.gif`); Send posts `{ text?, giphyId }` to the same
+    send endpoint (`sendGif` adds the `giphyId` body param; text stays optional). The optimistic
+    bubble previews the Giphy CDN url directly — `mediaSrc()` proxies only onlyfans.com hosts, and
+    a Giphy url isn't one (it isn't IP-locked, unlike OF CDN);
+    the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
+    PPV/tip + file-media sends remain deferred.
+    **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
+    (`normalizeMedia`: type/canView/thumb/preview/full/`source`/duration/dims) instead of only
+    `mediaCount`; `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ +
+    duration, locked/PPV = 🔒 + price) and `SsMediaLightbox` is the full-screen viewer (prev/next +
+    arrow/Esc) that plays a video from its `source`. **Video playback is DRM-gated (vendor-confirmed
+    2026-07-13):** `bestVideoSource` resolves a playable MP4 from `videoSources` (highest res) or
+    `files.full.url`, so **non-DRM videos play inline**. But creators with OnlyFans "DRM Protection"
+    ON (`GET {acct}/settings/drm` → `enabled`) serve videos as encrypted FairPlay(HLS)/Widevine(DASH)
+    ONLY — `files.full.url` + `videoSources` are null, leaving just `files.drm.manifest`+`signature`
+    (CloudFront, IP-locked). `source` is then null. **DRM videos ARE playable since 2026-08-21** — the vendor
+    shipped a decrypt endpoint, `GET {acct}/media/download/drm/{media_id}`, which resolves the
+    Widevine license server-side, decrypts, and 302s to `dl.fansapi.com` streaming a plain MP4.
+    (This reverses the earlier "impossible" finding — the old workarounds are still dead ends and
+    need no re-investigation: `media/scrape file_type=full` → 400, Get-Vault-Media returns the same
+    locked object, and the signed `.m3u8` fetches but is `#EXT-X-KEY:METHOD=SAMPLE-AES,
+    KEYFORMAT="com.apple.streamingkeydelivery"` FairPlay, undecryptable client-side.) It is
+    **slow (8-15s to first byte) and billed per byte**, so it is cached:
+    `normalizeMedia` exposes **`drm`** (true when `files.drm` exists — the one way to tell our own
+    DRM video, which is fetchable, from locked PPV media, which is not); opening such a video in
+    `SsMediaLightbox` starts the download immediately behind a spinner (no call-to-action button —
+    the fetch is the click), hitting `GET /onlyfans/{model}/media/drm/{media}` (`OnlyFansChatController::drmMediaFile` →
+    `OnlyFansService::downloadDrmMedia`, own `services.onlyfans.drm_timeout`, streamed to a sink —
+    never buffered in memory). The MP4 caches at `storage/app/private/of-drm/{acct}/{id}.mp4`
+    (a `.part` file renamed only on success) and is served with `response()->file()`, so the
+    browser can **seek** and a re-watch costs nothing; a `Cache::lock` stops two chatters paying
+    for the same video twice, and `php artisan of:prune-drm-cache --days=7` (scheduled weekly)
+    keeps the cache bounded. **Sizing/timeouts (learned the hard way 2026-08-30):** real vault
+    videos reach **250MB+** (not the 10MB of the first sample), so on a slow link a download runs
+    for many minutes. `services.onlyfans.drm_timeout` defaults to **1800s** and nginx's
+    `fastcgi_read_timeout` is **1800s** — BOTH must stay high; whichever is lower cuts the request
+    first, and the earlier 300s pair produced "The DRM download timed out". The `Cache::lock` TTL
+    is derived from `drm_timeout` (+60s) for the same reason: a lock that expires mid-download lets
+    a second click start a duplicate, and duplicates are billed twice. **The endpoint does NOT
+    support Range/resume** (tested live: sending `Range` returns 302 then drops the connection),
+    so a timeout discards the `.part` file and the retry re-bills from zero — which is why the
+    timeouts are generous rather than tight. The button surfaces the upstream 402 ("insufficient credits") / 422
+    ("not DRM-protected") verbatim, via a 1-byte `Range` probe — a bare `<video>` reports every
+    failure as an opaque `error` event. Guards: `tests/Feature/OnlyFansDrmMediaTest.php`.
+    **The endpoint resolves Media Vault ids ONLY — verified live 2026-08-24:** a chat-message
+    media id returns OnlyFans' own 404 `"Media Not Found"`, so the lightbox maps 404 to "This
+    video can only be played from the Media Vault" plus an **Open Media Vault** link (no retry —
+    retrying can never succeed; the vault opens on the same creator via the app-wide creator
+    context, so the link needs no query param). There is no way to map a chat media id to its
+    vault twin: hash-matching the CDN filename (`{size}_{hash}.jpg`) fails, 0/3 against 79
+    indexed vault items. **Measured live (local, 4.8 Mbit/s link):**
+    TTFB 7.6s, then ~430 KB/s → 31.7s total for a 9s/9.9MB clip. The payload is a **fragmented
+    MP4 (`ftyp|moov|moof+mdat…`), moov first**, so it is progressively playable in principle —
+    but the transfer ran ~2.6x slower than the video's own 8.8 Mbit/s bitrate, so streaming it
+    would stall; download-then-play is correct. That 430 KB/s was ~71% of the machine's total
+    bandwidth (Cloudflare 50MB control: 605 KB/s), i.e. **the local link, not the vendor, is the
+    bottleneck** — expect far faster on a server, where the fixed 7.6s decrypt dominates. The creator can still turn DRM off entirely
+    (`PATCH {acct}/settings/drm`, FUTURE uploads only). **CDN urls are
+    IP-locked** (`cdn*.onlyfans.com` is bound to the proxy IP → 403/`ERR_BLOCKED_BY_ORB` in the
+    browser), so every media src loads through `GET /onlyfans/{model}/media?url=<cdn>`
+    (`OnlyFansChatController::mediaFile` → `OnlyFansService::downloadMedia`, the API's
+    `media/download/{cdnUrl}` endpoint; SSRF-guarded to onlyfans.com hosts, cached server-side by
+    file path so repeat views don't re-bill). Frontend builds the url via `ofApi.mediaUrl()`.
+    The right rail is **tabbed (Fan / AI Intel)**: `SsAiIntel` renders the legacy AI-Intelligence
+    dashboard (temperature gauge, Connection/Customer Type/Phase/Engagement, Framework Calibration,
+    Message Purpose, Next Move, Warning) straight from the `generate` response's `strategy` object
+    (the legacy "analysis" is folded into the strategy — no separate `/analyze` call); `SsComposer`
+    emits the strategy up via `@result`, which auto-switches the rail to AI Intel. Reset per chat.
+    **Persisted fan memory (carve-out — metadata only, NO message text):** the Fan tab's
+    "Memory & controls" card restores the legacy `customer_profiles` contribution to AI generation
+    (`FanProfileService` over the revived `customer_profiles`, keyed by `(creator_model, of_fan_id)`
+    where **of_fan_id = the chat id**). On `generate`, `OnlyFansChatController` loads-or-creates the
+    fan's profile, refreshes lifetime spend/tips/subscription from OnlyFans (`getUser` →
+    `OnlyFansService::extractFanSpend`, non-blocking), feeds the legacy `_profile` + spend + per-fan
+    toggles into `EngineClient::generateFromLive` (so the brain sees a returning customer, not a $0
+    lurker), then **folds the returned analysis back** into the record (`trust_level`/`archetype`/
+    `temperature`/`key_details`). Merge is **per-field lock**: a human edit pins that field in
+    `locked_fields` so auto-analysis won't clobber it; the card's lock button un-pins ("let AI manage").
+    Human-owned (no lock): `crm_notes`, `is_timewaster`, `sexting_mode`, `tip_mode` (AUTO/FORCE_ON/
+    FORCE_OFF). `is_timewaster` rides on `_profile` **cast to a real bool** — legacy
+    `computeCustomerTier` short-circuits to the `flagged_tw` posture tier on a strict `=== true`,
+    so a truthy `1`/`"1"` would silently do nothing (guard: `node engine/tw_check.js`).
+    OF-owned (always overwritten): spend + `subscription_status`. Endpoints
+    `GET|PATCH onlyfans/{model}/chats/{chat}/profile` (`account()`-scoped, JSON-422 via `validateJson`);
+    client `ofApi.getProfile`/`saveProfile`. Spec: `docs/superpowers/specs/2026-07-03-fan-customer-profile-design.md`.
+    The generate payload's `customer` **must carry `name` + `username`**, not just `id`: the legacy
+    prompt prints `Customer: {name} (@{username})` and then states "You already know his name
+    ({name})... use his name when it fits", so an omitted name makes the engine fall back to the
+    literal string `'Fan'` and the AI addresses the fan as "Fan". `customer` is deliberately
+    rule-less in `generate()`'s `validate()` — adding `customer.*` rules would strip the keys not
+    listed (the same trap as `messages.*.time`).
+    Per-message PPV/`opened`/`price` mapping (`LiveThreadMapper` → `sender:'ppv'` bubbles +
+    gap-windowed session spend) and multi-turn forcing-move continuation (`ChatStateService` →
+    `_promiseStatus`/`_storyFrameworkStep`) are both DONE. Still deferred: `prior_session_count`
+    (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
+    Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
+    (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
+    background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.
+    `SsChatThread` auto-scrolls to the newest message (bottom) on open/refresh. The bigger
+    upgrade path if the data layer grows is `@tanstack/vue-query` (staleness windows, dedup,
+    pagination). **Realtime inbound is wired** (see below): the page subscribes to the active
+    creator's private Reverb channel and `onInbound` appends to the open thread + bumps unread/
+    preview in the list (still nothing persisted).
+  - **Creator Models** (`/models`, manager/admin via `can:manage-team`) — `ModelController`
+    CRUD over `aich_models` (persona/library/rules/OF-id/tier) + chatter assignment sync. The
+    **index** (`Models.vue`) is a card grid (avatar, tier, green "OnlyFans connected" dot when
+    `of_account_id` is set, assigned-chatter count) → each card opens the **show page**
+    (`ModelController@show` → `ModelShow.vue`): edit the model's own fields + assignments, plus —
+    when an OF account is mapped — a tabbed panel of **live** OnlyFans account data (nothing
+    persisted) served by `ModelOnlyFansController` under `models/{model}/of/*` (also manage-team
+    gated, so no per-creator assignment scope, unlike the chatter-facing `OnlyFansChatController`).
+    Seven tabs (`resources/js/components/crm/models/`, client via `lib/onlyfansModel.ts` → `ofModel`):
+    **Fans** (`SsModelFans` — active list / top spenders + per-fan subscription history, read-only),
+    **OnlyFans Settings** (`SsModelSettings` — editable profile name/bio/location/website/wishlist +
+    subscription price, read-only account flags), **Welcome Message** (`SsModelWelcome` — text edit +
+    active toggle, media preview reuses `SsMessageMedia`), **Notifications** (`SsModelNotifications` —
+    type-filtered feed + per-type counts + mark-all-read), **Users** (`SsModelUsers` — a 3-way
+    subswitch: **Lookup** (a fan by id/username → profile + Block/Restrict/Subscribe toggles, each
+    POST to act / DELETE to undo; or comma-separate up to 10 ids for a **mass lookup**
+    (`users/list`) → pick a result to manage) + **Blocked Users** / **Restricted Users**
+    (`SsModelModeratedUsers`, one component driven by `bucket` — both lists return the same user
+    object, so all three reuse `normalizeUserDetail`; per-row block/unblock + restrict/unrestrict
+    reusing the existing toggles). Route order matters: `users/blocked`/`users/restricted` are
+    registered **above** `users/{user}` or that param route captures them. Lists are lazy-mounted
+    then kept alive (`v-show`), so switching tabs doesn't re-bill. Paging is `limit` (**max 50**) +
+    `offset`, driven by **`data.hasMore`** — `data.nextOffset` keeps advancing past the end and
+    `_pagination.next_page` is returned even on the last page. **Verified live 2026-07-15:** the
+    restricted list is `GET {acct}/users/restricted`; the `/users/restrict` shown in the docs
+    example's `next_page` **500s**. **There is NO "blocked at"/"restricted at" timestamp anywhere
+    in the API** — `lastSeen` is the only date on a moderated user, so these lists can't be sorted
+    by when the action happened; don't go looking for it again. A user is commonly blocked AND
+    restricted at once, so both badges render independently),
+    **Links** (`SsModelLinks` — a 4-way subswitch: **Free trial** + **Tracking** (`list`/`create`/
+    `delete`/per-link `stats`), **Smart links** (`SsModelSmartLinks` — list/create/delete + an
+    expandable per-link detail with inner tabs: Stats, Conversions, Fans, Spenders, Clicks, Tags
+    add/remove), **Link tags** (`SsModelLinkTags` — agency-wide tag list, optional type filter)),
+    **Promotions** (`SsModelPromotions` — a 2-way subswitch over account-level `{acct}/promotions`
+    + `{acct}/bundles`: **Promotions** (`list` paginated via `data.items`/`data.hasMore` + `create`
+    [type new|expired|new_and_expired, discount, offerLimit, expirationDays, freeTrialDays required when
+    discount=100, optional message] + per-promo `stop` + `delete`) and **Subscription bundles** (`list`
+    flat `data[]` + `create` [discount 0–50 step 5, duration 3|6|12 months] + `delete`)).
+    Smart links are an **agency-level** OF resource (`/smart-links`, no `{acct}` path segment): list is
+    scoped to the creator via `account_ids=<of_account_id>`, create injects `account_id`; per-link ops
+    (`/smart-links/{id}/…`) address the smart-link id directly (still `manage-team` gated).
+    The show header runs a **live** connection check via `GET {acct}/me` (`isAuth` + real OF
+    avatar/@username/subscriber count). `OnlyFansService` methods: `getMe`, `getUser`/`listUserDetails`, `listFans`/`listTopFans`/
+    `getFanSubscriptionHistory`, `getSettings`/`updateProfile`/`updateSubscriptionPrice`, welcome
+    get/update/toggle, `listNotifications`/`getNotificationCounts`/`markAllNotificationsRead`,
+    `block`/`restrict`/`subscribe` (+ un* via DELETE), tracking/trial `list*`/`create*`/`delete*`/
+    `get*Stats`, smart-link `listSmartLinks`/`createSmartLink`/`deleteSmartLink`/`getSmartLinkStats`/
+    `listSmartLink{Fans,Spenders,Clicks,Conversions,Tags}`/`add|removeSmartLinkTags`, `listLinkTags`,
+    `listPromotions`/`createPromotion`/`stopPromotion`/`deletePromotion`, `listBundles`/`createBundle`/
+    `deleteBundle` (+ matching `normalizeSmartLink*`/`normalizePromotion`/`normalizeBundle`). **Note:** these `models/{model}/of/*` routes are not under
+    `api/*`, so `bootstrap/app.php`'s `shouldRenderJsonWhen` would turn a `ValidationException` into a
+    302 redirect — `ModelOnlyFansController::validateJson()` throws an `HttpResponseException` to force
+    a real JSON 422 for the `fetch` client. Deferred (read-but-not-built): social buttons,
+    DRM/blocked-country editing, fan notes/custom-name, fans-AI-summary, welcome media/price,
+    **smart-link cohort-ARPS** (no 200 response shape is documented, so left unimplemented) +
+    smart-link postbacks, shared/stored link variants, notification tabs-order.
+  - **Media Vault** (`/media-vault`) — a **standalone sidebar view, live OnlyFans proxy, nothing
+    persisted**, modelled on Conversations. The sidebar "Media Vault" item is a **dropdown of creator
+    models** (the same shared `creators` prop + `dynamic:'creators'` nav pattern; `SsSidebar` now
+    builds each dynamic child's href from the node's `basePath`, so Conversations `/conversations`
+    and this `/media-vault` share one code path). `MediaVaultController@index` is a thin shell
+    (`selectedCreator` only); `MediaVault.vue` resolves the model id from `creators` and is a
+    **two-panel layout**: `SsVaultRail` (left — "All media" pinned on top, then the vault lists
+    with per-type counts, plus search/create/rename/delete) drives `SsVaultGrid` (right — that
+    list's media, type pills, vault search, upload, select/bulk actions, lightbox). Built on the **chatter-facing `/onlyfans/{model}/…`** surface
+    (`OnlyFansChatController` + `ofApi`, per-creator access scope), reusing the existing
+    `vault`/`mediaFile`(proxy)/`uploadStatus` plumbing. New endpoints there: **vault media**
+    `POST media/vault` (upload — file **or** `file_url`, async → poll the existing
+    `media/uploads/{upload}/status`; NB posts to `media/vault`, distinct from `media/upload`'s CDN
+    single-use path), `GET media/vault/{media}` (one item), `DELETE media/vault/delete-media`
+    (`{mediaIds}`); **vault lists** `GET|POST media/vault/lists`, `GET|PUT media/vault/lists/{list}`
+    (show/rename), `POST|DELETE media/vault/lists/{list}/media` (add/remove). **Body-key asymmetry
+    (verified per docs, do NOT normalise):** add sends **`media_ids`**, remove sends **`mediaIds`** —
+    `OnlyFansService::addMediaToVaultList`/`removeMediaFromVaultList` translate from the CRM's uniform
+    `mediaIds`. **Route order:** `media/vault/lists*` + `media/vault/delete-media` are registered
+    ABOVE the `GET media/vault/{media}` wildcard. `OnlyFansService::normalizeVaultList` shapes list
+    payloads. **Read a list's contents with `GET media/vault?list={id}` — NEVER from
+    `showVaultList`.** That list-detail endpoint's `medias` is a **3-item thumbnail preview**:
+    compact `{type, url}` objects (300x300, no `id`, no `files`), capped at 3 regardless of the
+    list's real size, and the endpoint takes no pagination params (verified live + against the
+    OpenAPI spec, 2026-08-30). Driving the UI from it gave "only 3 media per list" and a
+    "Locked video" lightbox, because there is no id/source to play. The `list` query param on the
+    vault-media endpoint returns the **full** objects instead (ids, `files`, `videoSources`,
+    `files.drm`, `createdAt`), paginated by `hasMore` — verified live: `?list=29195314` returned
+    exactly the 6 items its counts declared. `listVaultMedia` forwards
+    **`type`/`list`/`query`/`limit`/`offset`** (the API also documents `field`/`sort`, unused).
+    **`listVaultLists` caps `limit` at 30** — an UNDOCUMENTED upstream maximum (the spec shows only
+    a default of 24); above it the API 422s `VALIDATION_ERROR "The limit field must not be greater
+    than 30."`, so the service clamps rather than forwards. NB the media and lists endpoints have
+    different caps: vault media allows 10-100, vault lists only 30.
+    **Hard-deletes**
+    (`delete-media`, delete list) sit in the route group's `can:manage-team` subgroup — manager/admin
+    only (delete buttons hidden client-side for chatters via `can(role,'manageTeam')`); everyone
+    assigned can browse/upload/create/rename/add/remove. Components: `pages/MediaVault.vue` +
+    `components/crm/vault/{SsVaultRail,SsVaultGrid}.vue` (grid clones `SsVaultModal` + the
+    Conversations upload state machine; media renders via `SsMediaLightbox`). **Vault thumbnails are
+    `cdn.fansapi.com` presigned S3 urls — browser-loadable, NOT IP-locked like `cdn*.onlyfans.com`**,
+    so they must NOT go through the media proxy (whose SSRF guard only allows onlyfans.com).
+    **Proxy-vs-direct is decided PER URL by `mediaSrc(modelId, url)` (`lib/onlyfans.ts`) — never per
+    media item.** A single OnlyFans media object mixes hosts across its own files (`thumb` on
+    `cdn2.onlyfans.com`, `preview` on `cdn.fansapi.com`), so the old per-item `OfMedia.direct` flag
+    (true only when NO url was onlyfans) sent fansapi urls through the proxy and 400'd them; it is
+    gone, and every renderer calls `mediaSrc` instead. Defence in depth: `mediaFile` now **302s** a
+    `*.fansapi.com` url back to the browser rather than 400ing, so a missed call site degrades to a
+    slower load instead of a broken image (`OnlyFansService::isVendorCdnUrl`).
+    **Video playback:** the vault LIST payload omits a video's playable source (`videoSources`/
+    `files.full.url` absent), so `SsVaultGrid` fetches the single-media detail
+    (`GET media/vault/{id}` → `vaultMediaItem`) on lightbox-open for a video with no `source` and
+    merge it in — non-DRM videos then play. A **genuinely DRM-protected** video (creator's DRM
+    Protection ON) still resolves to no source, but the detail payload carries `files.drm`, so the
+    shared lightbox auto-loads it here — the vault is in fact the ONLY home of the DRM download
+    endpoint (see the DRM notes on the Conversations entry).
+    Deferred: CDN single-use upload UI, send/attach-to-chat, per-item list-membership editing beyond
+    add/remove. **NB three doc/live points to confirm against a real key:** the `delete-media` path,
+    the `media_ids`/`mediaIds` add/remove keys, and that async `POST media/vault` returns a
+    `prefixed_id` the status poller resolves.
+- **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
+  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text + optional
+  GIF (`giphyId`); PPV/paid still blocked (v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
+  per creator. Confirmed
+  paths: `GET {acct}/chats`, `GET {acct}/chats/{chat}/messages[/{id}|/search]`, `GET {acct}/chats/{chat}/media`,
+  `POST {acct}/chats/{chat}/messages` (send; `{text}` or `{giphyId,text?}`), `DELETE …/messages/{id}`,
+  `POST …/messages/{id}/like|unlike`, `GET {acct}/users/{id}`, `GET {acct}/giphy/trending`,
+  `GET {acct}/giphy/search?q&limit&offset`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
+  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **PPV/tip +
+  media sends**.
+- **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
+  (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)
+  handles `messages.received`: resolves the creator by `of_account_id`, normalises the message
+  (`OnlyFansService::normalizeMessage`), and dispatches `OnlyFansMessageReceived`
+  (`ShouldBroadcastNow`) on private `creator.{id}` (authorized by `App\Broadcasting\CreatorChannel`,
+  same access scope as the chat controller). The browser uses `@laravel/echo-vue` (`configureEcho`
+  in `app.ts`, reads `VITE_REVERB_*`). Channel subscriptions are centralized in
+  `resources/js/lib/realtimeInbound.ts` (one private `creator.{id}` subscription per assigned
+  creator, kept for the session; events fan out to registered handlers + an `activeChat` tracker)
+  so the page UI updater and the app-wide notifier don't fight over `echo().leave`. `Conversations.vue`
+  registers its thread/list updater; **`useInboundNotifications`** (started from `SmartStarsLayout`
+  + `AppLayout`, so alerts fire on any authenticated page) shows a `vue-sonner` toast + plays a short
+  synthesized "bing" (`lib/sound.ts`), gated by client-side prefs in `lib/notificationPrefs.ts`
+  (localStorage: `showToast`/`playSound`/`volume`; the notifier stays quiet for the chat you're
+  actively viewing in a focused tab). Prefs are editable in two places sharing that store: a quick
+  bell menu in the Conversations list header (`SsNotifyMenu`) and `/settings/notifications`
+  (`settings/Notifications.vue`). Nothing is persisted server-side — it only mirrors live to open
+  browsers. Run Reverb with `php artisan reverb:start` (now part of `composer run dev`); real OF
+  delivery needs a public URL (tunnel) + the webhook subscribed to `messages.received` (no secret
+  yet). Deferred: `messages.sent`/outbound echo, signature verification, inbound media/PPV rendering,
+  browser/system (Notification API) alerts.
+- **Production data migration** from the old Supabase project.
 
-**Prompt-cache discipline**: the strategy and generator calls deliberately share byte-identical system blocks (notably `contentLibraryBlock`) so they hit one cache entry instead of two. **Never reorder, rewrap, or paraphrase shared system blocks** — even whitespace differences cost a cache write (~$3.75/M write vs $0.30/M read). Inspect cache behavior live via the `$/msg · Cache` card or read `window._ssaiCostLog`, `window._ssaiCostTotal`, `window._ssaiCacheHitRate` in DevTools.
+## Deployment (production — Docker + Caddy, DONE)
 
-## Posture system
+Single-host **Docker** stack, HTTPS-terminated by **Caddy**. One multi-stage
+`Dockerfile` builds three targets — `app` (PHP-FPM; also runs queue/reverb/
+scheduler), `web` (nginx serving `public/` + proxying PHP→`app:9000` and the
+`/app` websocket→`reverb:8080`), `engine` (Node sidecar). `compose.prod.yaml`
+wires 8 services (web/app/queue/reverb/scheduler/engine/mysql/redis); the `app`
+entrypoint waits for MySQL, runs `migrate --force` + `storage:link` + `optimize`
+on boot. **`compose.caddy.yaml` is the TLS overlay** (apply BOTH files together):
+it adds a `caddy` service (auto Let's Encrypt) publishing 80/443 that
+`reverse_proxy`s everything to `web:80`, and drops `web`'s host port via
+`ports: !reset []` so only Caddy is internet-facing. nginx already splits `/app`
+→ reverb internally, so Caddy needs no websocket config (it upgrades transparently).
+`bootstrap/app.php` sets **`trustProxies(at: '*')`** so Laravel detects HTTPS behind
+the edge (correct URLs, secure cookies, Reverb auth) — safe because app/web are
+reachable only over the internal Docker network.
 
-Sessions carry a posture: `WARM_BUILD` | `PROBE` | `PRESSURE` | `TIMEWASTER`. Recomputed on every generate from **effective spend (PPV + tips)**, free-message count, unpaid CTAs, and investment signals.
-
-**As of v0.4.4.0, all spend-driven gates read EFFECTIVE spend, not PPV alone.** Helpers `parseMoney` / `effectiveSessionSpend` / `effectiveLifetimeSpend` (near `capTrustBySpend`) sum PPV `total_spend` + `tips_spend`. A tipper scales trust ceiling, pricing, tier, and TW-immunity exactly like a PPV buyer — tips are no longer a separate bucket the scaling engine ignores.
-
-**TIMEWASTER GUARDS** (in `computePosture`, see also PART 6 doctrine):
-- GUARD 1 — Pre-CTA protection: TW cannot fire before at least one CTA attempt.
-- GUARD 2 — Active-session spend immunity: any customer with effective session spend > 0 (any paid PPV **or tip** this session) is TW-immune for the rest of the session. (v0.4.4.0 widened this from `session_ppv_count >= 1` to include tips.)
-- GUARD 3 — Post-payment grace window: 6-message grace after any payment (PPV or tip) before TW can fire.
-
-**SESSION-SPENDER ANTI-EXIT GUARD (v0.4.4.0, CRITICAL — separate from posture).** Posture is not the only system that can end a session; the strategy's `next_move` can route to `goodbye_script` / ladder-stop. A proven session-spender must never be exited on a reply-gap misread. At the wall-enforcement site, `sessionSpenderKeepClimbing` reroutes any exit move → `continue_climb` when the session has spend (PPV opened **or** tip) AND the ladder has not *legitimately* closed (no miss-lockout, no persuasion-cap exhaustion). Carve-out: `warmCloseForSpender` still allows a warm close when the *customer himself* winds down (`windDownPat`). This fixed the "paid $20, replied 10 min later, got a cold goodbye" bug — root cause was the old `lastMessageWasPurchase` trigger being too narrow (only fired when the purchase was the literal last message) plus no code guard on the `goodbye_script` branch. A reply gap (10 min, an hour) is an active buyer who stepped away, not disengagement.
-
-**v0.4.1.4 SEXTING POSTURE FREEZE** (PART 23): when `s._sextingActive === true`, posture cannot decay to TIMEWASTER. The free-chat beat counter (`_freeMsgCount`) FREEZES during sexting; a separate counter (`_sextingBeatsSinceLastPpv`) accumulates instead. Sexting beat counter resets on PPV PAID (not on send — fix for the Josh delayed-payment case).
-
-## Sexting mode (PART 23, v0.4.1.4)
-
-Three-state UI toggle in profile bar chip: `SEXTING · AUTO` (default) | `FORCE ON` (red) | `FORCE OFF` (gray). Cycled via `toggleSextingMode()`.
-
-In AUTO mode, `detectSextingActive()` runs a two-gate check on every `recomputePosture` call:
-- **Gate 1**: customer has paid ≥1 PPV in session OR `lifetime_spend > 0`
-- **Gate 2**: last 3 customer messages contain fantasy-building patterns (English + Spanish patterns, see `detectSextingActive` source). Dick-pic / nude-image-sent flag (`[image sent]` in customer text) also satisfies gate 2.
-
-When `sexting_active === true`:
-- Posture freezes (no TW)
-- `_freeMsgCount` increment is gated off; `_sextingBeatsSinceLastPpv` accumulates instead
-- PPV price suggestion auto-multiplies by 1.4× (`SEXTING_MULTIPLIER` in `fetchPpvSuggestion`)
-- Strategy + generator prompts both get a SEXTING STATE block with full rule recap
-
-The sexting chip surgically refreshes via `updatePostureChip()` (which also handles the posture chip).
-
-**Engineering follow-up still needed** (per DEV_SPEC.md): some fields are referenced in doctrine but not fully wired (e.g. `sexting_mode_toggle` persistence in `aich_sessions` column — currently in-memory only).
-
-## Tip-led mode (PART 9, v0.4.4.0)
-
-Mirrors the sexting-mode architecture. Some customers yield more through tips than PPVs (provider/spoiler psychology); tip-asking should LEAD, not be a soft-no fallback.
-
-Three-state UI chip: `TIP-LED · AUTO` (default) | `FORCE ON` | `FORCE OFF`. Cycled via `toggleTipMode()`, logs `tip_mode_toggled`.
-
-In AUTO mode, `detectTipPrimary(s)` fires on any of: customer tipped (session or lifetime — the clearest signal), provider/spoiler language, `tips_spend >= ppv_spend`, or Relationship archetype. Result lands in `s._tipPrimary` during `recomputePosture`.
-
-When `tip_primary === true`:
-- Strategy + generator prompts both get `tipPrimaryStateBlock`; strategy schema carries a `tip_affinity` field
-- Tip-asking becomes the PRIMARY monetization move (led from connection), PPVs secondary — does NOT wait for a PPV soft-no
-- **Never a quoted number.** Open-ended, relationship-register asks only ("tip your girl to see how naughty she gets", "send me an even nicer one", "spoil me"). No suggested tip amount is ever surfaced. Tippers are the highest-value customers *as long as it never feels transactional* — doctrine PART 9 is explicit on this.
-
-`_tipPrimary` / `_tipModeToggle` are in-memory only (no `aich_sessions` column yet — same limitation as `sexting_mode_toggle`; survives recomputes within a session, resets on page reload).
-
-## Agent override system (Cluster B, v0.4.1.4)
-
-When the agent types into the Context box at generate time:
-- Generator user prompt wraps it as `=== AGENT OVERRIDE — AUTHORITATIVE ===` with explicit precedence rules (wins over TW lockout, miss-lockout, persuasion cap, aftercare auto-triggers; does NOT win over HARD RULES, TOS, CRM Hard NOs).
-- Strategy prompt gets matching block + instruction to set `agent_override_active: true` in the strategy JSON.
-- Wall enforcement code (PASS B) reads `strategyJson.agent_override_active` and defers the aftercare + miss-lockout hard blocks for one turn when true.
-- An `agent_override` event is logged to `aich_events` with the directive text + session state — gives manager audit trail.
-
-## Doctrine integrity
-
-`DEFAULT_TRAINING` in `js/doctrine.js` is the brain prompt. Three independent integrity checks run on load:
-
-1. `checkDoctrineIntegrity()` — structural (presence of expected section headers).
-2. `verifyBrainTamper()` — SHA256 of the in-code `DEFAULT_TRAINING` matches the declared `DEFAULT_TRAINING_SHA256` constant in `js/doctrine.js` (grep `DEFAULT_TRAINING_SHA256=`; the line number moves as doctrine grows).
-3. Same SHA256 compared against the Supabase `__global_training__` row's `prompt` column.
-
-If code-hash fails, app refuses to generate (`window.__brainCorrupted=true`). If Supabase-hash fails but code passes, app uses code-canonical (yellow warning shown).
-
-### Procedure for editing the doctrine
-
-1. Edit `js/doctrine.js` (typically the `DEFAULT_TRAINING` template literal body — backticks inside the template need to be escaped as `\``).
-2. Bump doctrine version in header line `SMARTSTARSAI — GLOBAL AGENCY TRAINING (v0.x.y.z)` and matching footer line `END OF GLOBAL TRAINING — v0.x.y.z`.
-3. Recompute the hash. Either: (a) in-app via Settings → Models → "Show current brain SHA256" (`showBrainHash()`), OR (b) in Node — `node -e "const fs=require('fs'),c=require('crypto');const {DEFAULT_TRAINING}=new Function(fs.readFileSync('js/doctrine.js','utf8')+'\\nreturn {DEFAULT_TRAINING};')();console.log(c.createHash('sha256').update(DEFAULT_TRAINING,'utf8').digest('hex'))"`. Both are authoritative — they hash the *runtime* template-literal value. (A raw `sha256sum` of the file does NOT match, because the file bytes still contain the JS escape characters; evaluating the template literal first is the trick.)
-4. Update `DEFAULT_TRAINING_SHA256` with that hash value.
-5. Push to Supabase: the `__global_training__` row is RLS-write-locked, so this MUST go through the Supabase Dashboard SQL Editor (which runs as `postgres` and bypasses RLS). Use base64 encoding to avoid UTF-8 mojibake in the clipboard/paste chain:
-
-```sql
-UPDATE aich_models
-SET prompt = convert_from(decode('<base64-encoded-doctrine>', 'base64'), 'UTF8'),
-    tier = 'system'
-WHERE name = '__global_training__';
-```
-
-A helper Node script for generating the base64 payload + SHA256 verification lives in commit history if needed (was deleted as a one-shot artifact).
-
-**Supabase has a `snapshot_aich_models` trigger** that audits every UPDATE/DELETE on aich_models into the `aich_models_backups` table. The trigger had a `RETURN OLD` bug pre-v0.4.1.4 that silently no-op'd all UPDATEs — it's been patched to be `TG_OP`-aware (RETURN NEW on UPDATE, RETURN OLD on DELETE). See DEV_SPEC.md "Out-of-band database changes" section for the corrected function body.
-
-## Role gating
-
-Manager-vs-chatter UI gating runs through `applyRoleGating()` in `js/app.js` at startup and after auth. Many features (API mode switcher, Settings tab, CSV exports, full leaderboard, cost cards, dashboard chatter filter) are manager-only. When adding a new manager-only widget, gate it inside `applyRoleGating` rather than per-call-site.
+- **Env:** lives in **`.env.docker`** (git-ignored; template `.env.docker.example`
+  with **blank** placeholders — never commit real secrets). `SITE_ADDRESS` +
+  `APP_URL` = the public domain. Build-time `VITE_REVERB_*` point at the domain
+  over 443/https; server-side `REVERB_HOST=reverb`/`8080`/`http` stays internal —
+  **don't collapse them**. **Changing any `VITE_*` (or build-time var) requires
+  rebuilding `app` + `web`.**
+- **Run:** `docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d`
+  (or `export COMPOSE_FILE=compose.prod.yaml:compose.caddy.yaml COMPOSE_ENV_FILES=.env.docker`).
+  Seed the first admin with `ProductionSeeder` (`ADMIN_PASSWORD`). `deploy.sh` is the
+  on-server update helper (git pull → build `app` → `up -d`).
+- **Docs:** fresh-server runbook `docs/DEPLOY-ubuntu.md`; per-service detail
+  `docker/README.md`; design/plan under `docs/superpowers/{specs,plans}/
+  2026-07-07-ubuntu-2404-docker-deploy-*.md`. **First live deploy done 2026-07-07.**
+- **Note:** the repo currently has ~194 **pre-existing** phpstan errors in unrelated
+  files (`ModelOnlyFansController`, `AnalyticsController`, …), so `composer run ci:check`
+  fails on `types:check` even though `php artisan test` is green — separate cleanup.
 
 ## Workflow
 
-- **Run the app**: open `SSAI.html` in Chrome (`file://` works for direct testing). For Claude in Chrome or any extension that can't access `file://`, serve via `python3 -m http.server 8000` from the project root.
-- **Edit the app**: edit the file in place. The `<title>` and brand version label are auto-rewritten from `SSAI_VERSION` on load — bump that constant in `js/config.js` rather than hand-editing.
-- **Bump version on release**: update `SSAI_VERSION` in `js/config.js`. The folder doesn't carry the version in its name anymore (the legacy `SSAI_0_4_3_1.html` filename convention is gone).
-- **Inspect runtime cost**: click the `$/msg · Cache` dashboard card, or read `window._ssaiCostLog`, `window._ssaiCostTotal`, `window._ssaiCacheHitRate` in DevTools.
-- **Tests**: `node tests/harness.js` — deterministic regression suite (79 assertions). Loads the real `js/*.js` into a Node VM sandbox (no browser, no API calls, no DB writes) and stress-tests the guard/detector/validator layer with synthetic customers: posture ladder + all TW guards, continued-interest gate, miss-lock 3-persuasion window, drift signals, effective spend (PPV+tips), sexting/tip-led/fork/investment detectors, ToS filter, promise-commitment detector, strategy validators (incl. buildup-only skip), audit warns. Run it after ANY change to the systems above. The probabilistic layer (register/voice quality, live generations) is NOT covered — that's manual via the running UI. The v0.4.3.2 release was additionally validated by a 27-test regression suite executed via Claude in Chrome (report in DEV_SPEC.md).
+- **Run**: `composer run dev` (serves app + vite + queue) or `php artisan serve` + `npm run dev`.
+- **Run (Docker)**: `docker compose up -d --build` — full stack in containers with live
+  reload (`compose.yaml`, `name: ssai-dev`), isolated from prod. See `README.md` → "Local
+  dev with Docker". Requires `cp .env.docker.dev.example .env.docker.dev` first.
+- **Engine**: `node engine/server.js` (port 8787) — it auto-loads `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY`
+  (+ `*_MODEL`) from `.env` if unset, so no manual export is needed; exercise it at `/dev/generate`.
+  Without keys the pipeline runs but returns an empty draft. On `EADDRINUSE` it means an engine is
+  already running — `lsof -ti tcp:8787 | xargs kill` (or set `ENGINE_PORT`). Conversations' Generate
+  surfaces a 503 if the engine is unreachable.
+- **OnlyFans**: set `ONLYFANS_API_KEY` in `.env` + map `aich_models.of_account_id` (acct_…) per
+  creator; then `/conversations` → pick the creator (sidebar) → chats/messages load **live**,
+  Generate (engine) → Send posts live; like/unlike/delete/search/media all hit OnlyFans directly.
+- **DB**: `php artisan migrate` (MySQL `ssai_crm`). Tests use in-memory SQLite.
+- **Test**: `php artisan test` (Pest) · engine: `node engine/parity.js` + `node legacy/tests/harness.js`.
+- **Build**: `npm run build`.
+- **Deploy** (prod): single-host Docker + Caddy TLS — see the Deployment section above and
+  `docs/DEPLOY-ubuntu.md`. Build/run:
+  `docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d`.
+- **Lint/format**: Pint (PHP), ESLint + Prettier (JS/Vue).
 
-## Doctrine vs. code
+## Conventions
 
-Prompts, training documents, beat structure, fork detection logic, and behavioral playbook are authored work maintained outside this repo. This repo is the technical wrapper. Refactors of code are welcome; **changes to `DEFAULT_TRAINING` text, posture rules, or behavioral validators are doctrine changes and require coordination** — don't reword or "improve" the in-code prompt strings without explicit authorization.
-
-The manager (brain author) maintains doctrine via separate Claude project sessions with full framework context. The dev maintains the technical wrapper. Doctrine changes flow: manager edits → SHA256 regen → Supabase push → dev reviews on the branch.
-
-## Recent release: v0.4.4.7 (2026-06-14) — per-message cost cut to ~4.69¢ (code-only)
-
-Cost-reduction work. App `0.4.4.6`→`0.4.4.7`, doctrine untouched, harness `253`. Driven by a 30-agent adversarial workflow (`path-to-3cents`) that decomposed the per-message cost and refuted every over-projected lever. **Headline finding: 3¢ is NOT reachable** without putting the customer-facing voice on Haiku (~3.96¢ floor, voice bet) — the strategy JSON output (~1.8¢) is the biggest line and is mostly irreducible (most `*_reason` fields are consumed by the generator/validators/Mistral route). The verified-safe levers (shipped) total ~0.41¢:
-
-1. **Generator block-3 cache split** (~0.24¢) — the ~882-tok static TOS/length/emoji/anti-slop text was billed fresh at $3/M every turn (block had no `cache_control` and got per-turn text appended). Split into its own `cache_control` block (`systemBlocks[2]`, app.js ~5940) — it now caches as part of the ~9.3k generator prefix at $0.30/M; the genuinely per-turn posture/depth/feedback/ppv/strategyEnforcement text is `systemBlocks[3]` (uncached, as before). The 1024-token cache minimum applies to the **cumulative prefix**, not the individual block, so a small static block riding on the big persona prefix does cache.
-2. **Deleted 6 strategy schema fields** (~0.17¢ output) from STRATEGY_STATIC_RULES (app.js line 5687 — the giant single-line const): 4 truly-dead (`investment_quality`, `investment_quality_reason`, `frame_hold_reason`, `tip_affinity_reason` — zero consumers anywhere incl. the Mistral route) + 2 debug-only (`next_planned_move_reason`, `temperature_reason`). KEPT every load-bearing sibling (`frame_hold_active`, `tip_affinity`, `next_planned_move`, `temperature`, `message_purpose`). Only **deleting** the field definition cuts output tokens — prompt "omit" instructions do nothing (the model emits whatever the schema defines). NOT a doctrine edit (STRATEGY_STATIC_RULES is an app.js const, no SHA/Supabase ritual; one-time cache rewrite absorbed by the next first-msg-per-hour write).
-3. **Fixed the `$/msg` card ⚠ heuristic** (api.js ~216) to be cumulative-prefix aware — it was flagging any <1024-tok block as "won't cache," which would have shown a false ⚠ on the new static block and made step 1 look broken.
-
-**LIVE-VERIFIED 2026-06-14** (Camila, localhost, 2 real generations, mock data cleaned): warm msg-2 measured **4.33¢** (strategy 3.38¢ + generator 0.95¢) on a short session. Step 1 confirmed — generator block #2 (882 static tok) reads from cache on the warm call (`cacheRead` includes the static prefix, `cacheCreate 0`); steps 2-3 confirmed — strategy output dropped to 872 tok. Longer sessions cost slightly more (growing uncached conversation) → general steady-state ~4.5–4.7¢ (from ~5.1¢, and 6.4¢ at the session's start). NOT done: generator→Haiku (step 4, ~3.96¢) — needs a 6-persona voice A/B + a cost-log Haiku-rate fix (the log only branches on `/opus/i`, so it would mis-bill Haiku at Sonnet rates) before it can be trusted. Side-finding for a future doc pass: the "session-boundary cut" claim in the Context-window section below is **wrong** — the full `s.messages` is sent uncached on both calls (only `computeWallState` + the reentry summary slice), so long/returning sessions cost more than that section implies.
-
-## Recent release: v0.4.4.5 (2026-06-12) — Whale Builder + anti-slop + exhaustive verification (code-only)
-
-Big work session. App `0.4.4.4`→`0.4.4.5`, doctrine untouched (`ca53389d…`), harness `90`→`240` assertions.
-
-**Whale Builder (Cielo new-USA-sub qualification arc)** — `detectWhaleBuilder`/`detectEnglishPick` in `js/app.js`, persona-marker-gated (`WHALE BUILDER: ON`, like `PROMISE MODE: BUILDUP_ONLY`). USA detection is **conversational, not a field**: Cielo's welcome asks "spanish or english"; English pick = new American. Arc: English-practice opener → RLS rapport thru age-reveal → Matias pivot → single-mom reveal → **scripted $37 tip test** (the ONE sanctioned quoted-number ask — PART 9 never-quote rule is absolute everywhere else) → branch read. Outcome session-sticky (tip→`qualified_whale`; 6 replies no-tip→`not_whale`); qualify auto-flips `detectTipPrimary`. WHALE chip (marker-creators only), `whale_builder` events, posture-freeze during arc. Persona section in `docs/Cielo_whale_builder_persona_section.md` (LIVE in Supabase — saved 2026-06-12, len 38,094). Harness section O+. Full arc live-verified (qualify + not-whale branches). See [[whale-builder-cielo]] memory.
-
-**AI-slop layer (Hans: "generator must talk without AI slops")** — 3 layers: (1) generator-prompt ANTI-SLOP RULES block (em-dash/semicolon ban, no repeated framing/openers, contraction consistency, no balanced not-X-but-Y, no therapy register) — in the UNCACHED per-turn block, zero cache cost; (2) `sanitizeSlop(text)` DETERMINISTIC backstop (em/en-dash→"...", semicolon→comma) on EVERY finalized draft incl. PPV captions — the prompt ban alone did NOT catch 100% (Sonnet shipped "i'm jammy — what..."); (3) `tests/slop_scan.js` scanner. Pre-fix baseline 7 em-dashes/9 msgs; post-fix **0 across all 12+ live drafts, all 6 creators**. Harness section U (9 assertions).
-
-**Side-quest hooks (inert unless set, dev tools)** — `localStorage.ss_model_override` (per-callType model A/B: Opus generator-only ≈$0.079/msg est, under ceiling — manager chose to stay Sonnet) and `ss_effort` (per-callType effort A/B). Plus per-call `durationMs`/`tokPerSec` in `_ssaiCostLog`. **Latency diagnosis**: strategy JSON call = 92% of latency (31.6s of 34.5s, output-bound 1286 tok); manager elected no change. See [[v0444-cost-restructure]] memory.
-
-**Bugs found+fixed live this session (4):** (1) English-pick misread "english please, my spanish is terrible" as Spanish (negation-aware fix); (2) ToS auto-retry referenced out-of-scope `useMistral` → ReferenceError on its FIRST-ever live firing → banned draft kept (session-stashed route fix — the retry path had never run before); (3) em-dash slop (sanitizeSlop); (4) sexting gate-2 missed "id love to taste you" (apostrophe-less + interposed "to" — `i('?d| would) … (to )?`). All have regression assertions.
-
-**Open findings for manager ruling (not fixed):** Sandra's persona is a **502-char stub** (vs ~30KB others) → generic voice, needs authoring; sexting gate-2 still misses dominance-fantasy + descriptive-participle scene language (widening risks false positives, FORCE_ON is the fallback); miss-lock live brain-routing drifted to small-talk on one ambiguous synthetic seed (needs multi-sample retest). Full report in `docs/LIVE_RESULTS.md`. Verification matrix in `docs/TEST_MATRIX.md`.
-
-**Still pending (needs manager):** the single batched doctrine push (PART 11 objection upgrades for OBJ 1/2/3/4/6/9/10 + NEW OBJ 11 recovery-to-resale + PART 9 whale $37 cross-ref) — all drafted in `docs/objection_scripts_PART11_draft.md`, two boundary rulings needed (OBJ Price 1.2(B) managed-discount-choice; OBJ Menu 1.1(A) missing beat). Plus the merged Cielo persona paste is already applied live but the standalone authored section is in the repo for review.
-
-## Recent release: v0.4.4.4 (2026-06-11) — cost restructure: <$0.10/msg (code-only)
-
-**Hans directive: every message after the cache-creating first one must cost under 10 cents.** Was ~$0.10–0.13+. Root cause: the strategy user prompt was a ~67KB template whose static majority (~42KB: prime directive, drift/ppv-pending rules, phase gates, wall handling, deflection, power calibration, the full JSON schema) was re-sent UNCACHED at $3/M on every generate (~$0.04/msg), plus `extractCustomerIntel` fired on every generate including regenerations.
-
-Changes (all in `js/app.js`, doctrine untouched):
-1. **`STRATEGY_STATIC_RULES`** — new module-level const (~42.4KB ≈ 10.6k tokens) holding the relocated static text VERBATIM, shipped as a **third cached system block** (1h TTL) on the strategy call. Per-message cost for that text drops $3/M → $0.30/M. **EDITING RULE: this string must stay byte-stable and contain ZERO per-turn interpolation** — any change invalidates the cache (~$0.08 rewrite per creator). Per-turn data belongs in `strategyPrompt`.
-2. **Slim `strategyPrompt`** — now only: per-turn state lines (customer/CRM/PPV stats/posture/walls/ladder/investment IIFEs), conditional state blocks (override/sexting/tip/PPV-mode), and the conversation (kept LAST). Static source shrank 66,930 → 15,698 chars.
-3. **Prefix-share fixed** — the old uncached "Return only valid JSON…" block #0 sat BEFORE Layer 1 on the strategy call, breaking prefix-sharing with the generator (the "one cache entry" claim in the old comment was false). It's folded into LAYER 3; strategy and generator now genuinely share the L1/L2 entries.
-4. **Relocation fixups** (only deviations from verbatim): positional "above" refs → "in the per-turn state"; forcing-move 9 now carries BOTH promise-mode variants (9a ritual / 9b buildup_only) since the block is static — the per-turn state declares the mode; reinforcement→assumed text aligned to the v0.4.4.1 two-PPV flip; `*_reason` fields capped to ~12 words (output is $15/M).
-5. **Intel on Accept** — `extractCustomerIntel` moved from generate() (every generation, incl. regens re-paying for identical history) to `acceptDraft()` (once per shipped message).
-
-Expected per-message (msgs 2+, warm cache): strategy ≈ $0.016 cache-reads + ~$0.006–0.012 dynamic input + ~$0.009 output; generator ≈ $0.012 reads + ~$0.008 uncached + $0.003 output → **≈ $0.055–0.07/msg**. First message per creator per hour writes ~50k tokens of cache (~$0.30) — the accepted cache-creation cost. Verify live via the `$/msg · Cache` card: msgs 2+ should show `strategy_sonnet` with large `cR`, near-zero `cW`, and per-msg ≤ $0.10. `analysis_legacy`/`runAnalysis` confirmed dead code (never called).
-
-### Live stress-test addendum (2026-06-12) — 3 more fixes, cost CONFIRMED
-
-A full live mock-customer matrix (9 scenarios, ~40 real generations via localhost + browser automation; all `mock_%`/`mk_%` test data wiped from Supabase afterward) validated the release and caught three more bugs, all fixed same-session:
-
-1. **Validator false-positive retry-loop (cost killer).** `validateStrategy`'s `isPitching` predicate sniffed free-text fields for the substring "pitch" — matching NEGATIONS ("hold frame, do NOT pitch"), so every frame-hold strategy was rejected and re-ran the full call (+$0.04, +30s, 100% repro on vending-machine customers). Now structured-fields-only (`skeleton_step`/`phase`).
-2. **Calibration vs frame-hold.** The sexual-floor ("never >2 below his heat") and emotional rules (`te>ce`, `ce===0&&te>0`) rejected every correct frame-hold strategy. `frameHoldActive` (strategy.frame_hold_active) now exempts the floor and grants emotional latitude ≤2.
-3. **PPV send crashed (CRITICAL).** v0.4.4.2 scoped `let newPromiseStatus` inside the buildup-only guard in `confirmPpvSend`, but the Supabase persist + `ppv_pitched` event below read it → "newPromiseStatus is not defined" on EVERY PPV send. Function-scoped now (`=currentStatus`). The Node harness structurally can't reach `confirmPpvSend` — only live testing catches this class.
-
-**Matrix results (all PASS):** vending frame-hold (0 violations, $0.06/msg), tipper (tip registers → tip-primary flips → reciprocity cycle, no number quoted), buyer-gap ($20 PPV + 3h-backdated gap → keeps climbing, NO goodbye — the Finding #9 bug confirmed dead), promise ladder (PPV1 full ritual → PPV2 ONE callback → PPV3 assumed/silent), Yendry buildup-only (no promise language anywhere incl. PPV caption, BUILDUP chip, mode detected), miss-lock (3 smooth no-command persuasion turns → lock → exclusive_custom pivot; the one retry seen was validator #18 legitimately correcting a continue_climb-after-miss), sexting (auto-detect on, in-register), Spanish (Yendry replies in accent-free Spanish per persona rules; Jammy deflects English-only), Camila emoji variety (😌😏😭 — stuck-😏 gone), goodbye (auto-fires on 2nd soft-no, warm short close, no loop). **Steady-state cost: $0.055–0.07/msg across all scenario types — Hans's target confirmed live.**
-
-**Gap-matrix round 2 (2026-06-12) — objections + edge archetypes, all PASS.** A second live matrix closed the coverage gaps (objection handling had ZERO prior live coverage):
-- **Objections — every subtype correctly classified + doctrine register:** discount ("do 15?" → run_objection_solve, never quotes a lower number, redirects to value), bad_experiences ("worth it? been burned" → "i'm actually different, you can feel that right?"), other_girls_cheaper ("show more for less" → never-compete "notice the difference between performing and when it's real"), free/preview demand pre-rapport → frame-hold not capitulation, "I'll get it later" → soft_no/never_spent, expected_more/ripped-off post-purchase → no apology, emotional reframe + probe for next angle.
-- **Decisive negotiator (GUARD 4):** paid $69 then haggled "do 40?"/"can't do >60" → posture stayed WARM_BUILD (never TIMEWASTER — spender immunity), met the $60 counter "for a start" keeping the ladder open.
-- **RLS arc (new sub):** rapport → rizz callback → age/qualify → breadcrumb scene drop, posture held WARM_BUILD (RLS freeze prevented premature-pitch truncation), strategy flipped to run_promise_ritual at the right beat.
-- **Whale/love-framing:** "you're the only one I open up to" → pause-pitch held, sat in the emotional beat (Chit Chat, no CTA) both turns.
-- **Story-framework-via-override — FIXED + confirmed live.** The validator hard-gated `run_story_framework` on `sell_vs_hold_read=case_5` with NO agent-override exception, so an explicit "run story framework" in the context box couldn't set the formal move (the auto-classifier vetoed the agent). Fix: validator skips the case_5 requirement when `agent_override_active` (PART 6 GUARD 6 precedence — same as TW/cap), and the AGENT OVERRIDE prompt block now tells the brain that a directive naming a framework/move sets that `next_move_after_wall` even if the auto-gate isn't met. A real wall still wins. Live-confirmed: override in `ctxIn` → `move=run_story_framework`, `agent_override_active=true`, draft is a proper story burst. Harness +3 assertions (90 total). NOTE for testers: the override box is **`ctxIn`** (NOT `agentNote`, which is the persistent CRM note), and `addMsg` re-renders the chat view — set `ctxIn` AFTER the customer message is added, right before generate, or the re-render wipes it.
-- **Emoji fix confirmed landing live:** RLS turn used 😇/😌/🫣/🙈 (4 distinct across 4 msgs); objections varied throughout. The new no-repeat rule reduced repetition sharply (one 😇-at-2-msgs-gap slip seen — LLM guidance, not a hard guarantee).
-- **Test-infra lesson:** the localhost python server died mid-run (silent — generates kept using browser cache until a navigate exposed it); and a double-installed `validateStrategy` instrumentation wrapper caused "Maximum call stack exceeded" that killed all generates. Both were HARNESS bugs, not product. Now guard the wrapper against re-entry and run a server-liveness Monitor during long matrices.
-
-**Still UNTESTED live (the honest remainder as of 2026-06-12):** Mistral routing (every stress-test generation ran Claude — the explicit-content route via `callMistral`/OpenRouter has zero live coverage), ToS auto-retry trigger (regex is harness-covered; no generation ever emitted a banned word to fire the live retry path), OCR screenshot import end-to-end (vision→preview→import needs a real screenshot; only the date pure-functions are harness-covered), aftercare aftersex variant, manager_flag go-silent path, hard-promise-refusal routing (posture side harness-covered, live routing not). Also held by manager decision: Vercel deploy is stale at v0.4.3.2 (`ssai-new.vercel.app`) — no fixes from v0.4.3.3+ are live there.
-
-**Jammy 😭 tic — ROOT-CAUSED + FIXED (same session):** her persona was innocent (😭 appears once, in her approved-emoji list). The funnel was the global EMOJI RULE itself — it prescribed a menu ("a laugh wants 😭/💀") and 💀 isn't in her approved list, so every laugh-beat had exactly one legal option. Classic positive-example parroting vector. The rule is now menu-free: match feeling→glyph from the persona's approved set, HARD never-repeat-within-last-2-messages, never develop a signature emoji, when in doubt none. Also: sexting 1.4× price multiplier verified live (base $25 → $35, reason carries "sexting × 1.4"), and `tests/harness.js` extended to 87 assertions (OCR date-resolution pure functions: Today/Yesterday/day-names/garbage→empty, date+time→ISO combination).
-
-## Recent release: v0.4.4.3 (2026-06-01) — miss-lock persuasion window (code-only)
-
-**PPV miss-lockout was firing too early.** Old trigger (`computeWallState`, ~line 4075) confirmed a miss after **2 customer replies** (or 1 reply + an "asking for more" signal) on an unopened PPV — so the lock fired before the brain got to work it. New trigger counts **our generated persuasion messages** after the unopened PPV and only confirms the miss after `MISS_PERSUASION_WINDOW=3` of them (with a `customerMsgsSince>=1` sanity floor so it's "ignoring the PPV while chatting", not "went silent"). The brain stays in `ppv_pending` mode for those 3 turns, then locks to exclusive_custom/warm only if he still hasn't opened. Manager: "some customers need 1-2 more messages to pay; I wouldn't call it a miss until 3 generated messages from our side."
-
-The PPV-PENDING REGISTER RULES were also **rewritten to principle + hard-NOs, NO positive example lines** (same release). Original had a contradiction (`"open it then 😈"` command example next to the FELT-not-NARRATED rule); rather than swap examples, the manager's call was to **remove positive examples entirely** — they're the parroting vector (the model gravitates to them and flattens, same failure as Camila's 😏), whereas a hard-NO can't be parroted into sameness. The block now teaches the *mechanic* (desire over instruction, felt over narrated, match his heat one notch under, tie the pull to what HE just said, move a different lever each of the 3 turns, never repeat/beg) and lists hard-NOs (never command the transaction — "open it"/"unlock it"/"open it then"/etc.; never narrate the sale; never clinically name his state; never caretaker/permission-to-leave). Brain generates fresh from principle + customer context. If live testing shows register drift, add back ONE clearly-disposable illustration, not a menu.
-
-**Dead-stash cleanup (DONE this release):** `session._ppvMissedAfterChance` was never assigned — the two miss-lock audit warns (`auditAnalysisVsGroundTruth`) silently never fired and the `agent_override` event's `miss_locked` field always logged false. Both now compute miss-lock **live from `computeWallState(session)`** (warns via a `missLockedNow` local that also suppresses during an agent override; event field inline). The real wall-enforcement always used live `wallState.ppvMissedAfterChance` and was unaffected — this just makes the advisory warns + analytics accurate.
-
-## Recent release: v0.4.4.2 (2026-06-01) — per-model promise mode (code-only)
-
-**Buildup-only promise mode** — lets a creator whose persona doesn't fit the promise ritual (e.g. a confident grown woman for whom "promise you'll keep this secret?" reads needy) keep the *buildup* before content but drop the promise ask. A model opts in with the marker `PROMISE MODE: BUILDUP_ONLY` anywhere in its persona prompt (case/space/`-`/`_`/`=` tolerant). `s._promiseMode` is computed in `generate()` right after the model resolves (default `'ritual'`). When `buildup_only`, six sites gate off: (1) `validateStrategy` skips all promise validators; (2) PPV-caption-mode prompt drops the "complete the ritual" instruction; (3) the promise-status guidance block is swapped for a BUILDUP-ONLY block; (4) the strategy schema's "PROMISE RITUAL forcing move" becomes a "BUILDUP forcing move" (never set `run_promise_ritual`); (5) the wall-enforcement site converts any stray `run_promise_ritual`/`run_promise_reinforcement` → `continue_climb`; (6) the Pass-C state machine skips `promise_status` advancement. The profile bar shows a blue **BUILDUP MODE** chip instead of PROMISE. The buildup itself is still enforced (investment-signal + breadcrumb gates are separate from the promise), so she still warms him up — she just never asks for a promise. First buildup-only model: **Yendry** (`Yendry_persona_edits.md` in repo root has the persona edits).
-
-## Recent release: v0.4.4.1 (2026-06-01) — code-only, no doctrine push
-
-Two live-testing findings, both code + app.js-prompt only (doctrine untouched, hash still `ca53389d`):
-
-- **Promise reminder over-mentioned** → flipped the `reinforcement → assumed` transition from 3 landed PPVs to **2** (`landedPpvCount>=2`, ~line 4924), so the "keep this between us" callback fires AT MOST ONCE (on PPV2) then goes silent. `buildPromiseReinforcementTemplate` also teaches that over-invoking the secret reads as distrust — lean to a warm intimate line over the literal reminder. Customer feedback: "you don't have to mention the promise every time, it's a turn off."
-- **Gives up too soon on interested customers** → new `detectContinuedInterest(s)` (reads last 2 customer msgs for wants-more / live heat / content-pull). Wired into `recomputePosture` as `s._continuedInterest`, gated into `s._continuedInterestProtects`. Three effects (all read the GATED flag): (1) CONTINUED-INTEREST POSTURE FREEZE in `computePosture` blocks TIMEWASTER; (2) `interestKeepClimbing` guard at the wall-enforcement site reroutes goodbye/ladder-stop → `continue_climb` — **this one overrides the persuasion cap** (interest beats the 3-attempt close; only a PPV miss-lockout still stops it), with a customer-winding-down carve-out; (3) an "ACTIVE INTEREST" postureGuidance block tells the brain to stay warm, not hammer the same offer, and re-pitch on a fresh opening. Manager had been overriding this by hand.
-  - **THE GATE (`_continuedInterestProtects`):** interest protects him only while we haven't tried-and-failed to extract money. `protects = interest.active && !(effectiveSessionSpend===0 && madeRealAsk)` where `madeRealAsk = (PPV sent this session) || (_unpaidCtaCount>=1)`. So an "interested" guy still at $0 spend AFTER a real ask (PPV or unpaid CTA) is the vending-machine timewaster and **CAN go TW** — his "show me more" stops shielding him. Protected when: he's spent (incl. tips), OR no real ask has been made yet (don't quit before trying).
-
-## Recent release: v0.4.4.0 (2026-06-01)
-
-11 manager findings fixed across code + doctrine (doctrine bumped `v0.4.1.5` → `v0.4.4.0`, hash `ca53389d…`). Key changes:
-
-- **Effective spend = PPV + tips** (`effectiveSessionSpend`/`effectiveLifetimeSpend`/`parseMoney` near `capTrustBySpend`). Tips now scale trust ceiling, pricing, tier, and TW-immunity — previously `tips_spend` was a separate bucket the scaling engine ignored. `updateProfile` writes `tips_spend` back so lifetime tips accumulate.
-- **Session-spender anti-exit guard (CRITICAL)**: any session with spend (PPV opened OR tip) and no legitimate ladder close (miss-lockout / persuasion-cap) cannot be goodbye'd or ladder-stop-exited — the brain's `next_move` is rerouted to keep-climbing at the wall-enforcement site (`sessionSpenderKeepClimbing`). Warm-close carve-out (`warmCloseForSpender`) when the customer winds down himself. Fixes the "paid $20, came back 10 min later, got a cold goodbye" bug. GUARD 2 now grants full immunity for tips too.
-- **Tip-led monetization (tip-primary type)**: `detectTipPrimary` + `toggleTipMode` (3-state `TIP-LED` chip mirroring sexting), `_tipPrimary` in `recomputePosture`, `tip_affinity` strategy field, `tipPrimaryStateBlock` in both prompts. Leads with relationship-register tip asks, **never a quoted number**, PPVs secondary. Doctrine PART 9 expanded from tips-as-last-resort to tips-as-primary-path.
-- **No-salesman-register**: `ppvDirective` + PPV-pending prompts + doctrine PART 4/5 now teach "create desire, never command the transaction (`open it`/`unlock it`), never narrate the sale (`trust me it's worth it`, `it hits different`), never clinically name his state." The old `ppvDirective` literally taught "unlock this baby" as a RIGHT example — removed.
-- **Returning-spender promise**: `recomputePosture` one-shot inits `promise_status` → `reinforcement` when lifetime spend > 0 (soft callback, not full ritual); doctrine PART 4 adds the "if he doesn't remember → re-frame" fallback.
-- **RLS pacing**: `rlsProtection` freezes the free-msg posture clock for an engaged new sub (no PPV + new tier + ≥2 investment signals, bounded to first 12 AI msgs) so the RLS arc isn't truncated into a premature pitch. Doctrine PART 14 reframed as logic-not-script.
-- **Tags + media**: tag chips now render in chat bubbles (were invisible); free-media gets a description field (`tags.mediaDescription`) surfaced as `[FREE-MEDIA: …]`, also via the OCR vision path.
-- **PPV click honored**: clicking PPV always yields a caption (`_draftIsPpv=isPpvMode`); a `_ppvOverrodeBrain` badge warns when the brain wanted a different beat first.
-- **Emoji rule**: generator prompt teaches tone-matched emoji + no repeating the same emoji across recent messages.
-- **OCR date awareness** (from v0.4.3.4): screenshot import resolves a per-conversation date instead of stamping every message "now".
-
-New `aich_events` types: `tip_mode_toggled`. New session/profile fields: `_tipPrimary`/`_tipModeToggle` (in-memory), `tags.mediaDescription`, profile `tips_spend` now persisted. **Doctrine push DONE (2026-06-01)**: `sql/doctrine_v0.4.4.0_push.sql` ran in the Supabase SQL Editor via Claude-in-Chrome; live `__global_training__` hash verified = `ca53389d…`, len 125850. All three integrity layers (code, declared constant, Supabase row) agree — no brain-tamper / drift warning. The push file remains in `sql/` for reference/rollback context.
-
-### Context window & caching (verified v0.4.4.0)
-
-The brain reads the **entire current-session conversation**, not a fixed window. In chat mode `generate()` passes the full `s.messages` array to both the strategy and generator calls via `fmtMsgsForAI(msgs, …)` — no `.slice()` truncation. The only conversation trimming is the **session-boundary** cut (`allMsgs.slice(boundaryIdx)` ~line 3973), which drops history from a *previously closed* session so a fresh arc doesn't drag the old one in — intentional, not a message cap. Sub-slices elsewhere are scoped helpers only: PPV pricing reads `slice(-12)`, signal detectors read the last 2–4 customer messages. The static system blocks (Layer 1 global training + Layer 2 model prompt) carry `cache_control: ephemeral, ttl 1h`, so the large doctrine is a cache *read* each turn (~$0.30/M) not a rewrite; the conversation itself is sent fresh (it changes every turn) but is small relative to the cached doctrine. Net: full-chat reads are already the behavior and are cheap for normal sessions. Only very long sessions (hundreds of msgs) would add meaningful uncached input cost — add a conversation-prefix cache breakpoint if that ever matters.
-
-### v0.4.4.0 open items / verification notes
-
-- **Deterministic vs. probabilistic fixes.** The hard code guards (effective-spend merge, session-spender anti-exit, TW guards, `_draftIsPpv=isPpvMode`) are deterministic and will hold. The voice/register fixes (no-salesman-talk, no-command captions, emoji tone-match, seed-don't-announce, tip-without-a-number) are *generator-prompt instructions to the LLM* — strong guidance, not guarantees. Live testing is how you confirm the brain actually obeys; don't assume "prompt says it" = "brain does it" for these.
-- **Camila's persona 😏.** The global EMOJI RULE (tone-match, no-repeat) is in the generator prompt. But per-creator persona prompts live in Supabase `aich_models` (not the repo). If Camila still leans on 😏 after v0.4.4.0, check her persona prompt in Settings → Creator Models for a hardcoded smirk instruction — that would override the global rule. Quick console read: `models.find(m=>m.name==='Camila').prompt`.
-- **In-memory mode toggles.** Both `_tipModeToggle` and `sexting_mode_toggle` reset on page reload (no `aich_sessions` column). Force-mode does not survive a refresh.
-
-## Recent release: v0.4.3.2 (2026-05-12)
-
-41 feedback items addressed across doctrine + engineering. See DEV_SPEC.md for the full spec. Key additions:
-
-- **Doctrine v0.4.1.4**: new PART 23 (SEXTING MODE), patches to PARTs 2/3/4/5/6/7.5/9/12/19/21 covering TW guards, frame discipline, tip-asking rules, goodbye execution, phase labels, time awareness, hard NO compliance, caption personalization.
-- **Engineering**: sexting state wiring (auto-detector, posture freeze, beat split, price multiplier, 3-state toggle UI), agent override system (context box authoritative wrap + audit event), TW guards (3 protections + manual unflag), dashboard fixes (accept/reject % math, PPV unlock balance, beat counter reset on payment), feedback queue append behavior, message-type tags (VN/Mass/Free Media/Tip), spend-by-archetype + top-spenders dashboard widgets, PPV Stats panel in profile sidebar, OCR Import via Claude vision.
-
-### Known unaddressed minor items
-
-- Phase enum: brain may still label post-PPV-purchase warmup beats as `aftercare` instead of the newly-added `warmup_between_rungs` — added to PHASE NAME REFERENCE doctrine but brain habit may persist for a few sessions before adapting.
-- `customer_profiles` has stray rows from older dev testing (`Jake!mock`, bare `Jake` username) — not actively polluting current analytics but worth a one-off cleanup pass.
-- `sexting_mode_toggle` field is in-memory only (no `aich_sessions` column added in v0.4.1.4) — survives across recomputes within a session but resets on page reload. Dev follow-up item.
+- New conversation models that carry `creator_model` + `user_id` should
+  `use BelongsToChatter`; if they carry `creator_model` only, add
+  `CreatorAccessScope` directly (see `AichVnUsed`).
+- Gate new manager/admin-only features in `configureGates()` rather than per-call-site.
+- Keep provider keys in `config/services.php` + `.env`; never inline or ship to the client.
+- New CRM views go under the design shell: add a `pages/*.vue`, route it to
+  `SmartStarsLayout` in `app.ts`, add a `NAV` entry in `crm/nav.ts`, and style with
+  the `ss-*` tokens / `font-ss` (not the starter's shadcn tokens, which stay for auth/settings).
+- `npm run lint:check` / `types:check` must pass; `legacy/` is excluded from lint.

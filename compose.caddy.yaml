@@ -1,0 +1,34 @@
+# SmartStars CRM — TLS edge overlay. Apply ALONGSIDE compose.prod.yaml:
+#   docker compose -f compose.prod.yaml -f compose.caddy.yaml --env-file .env.docker up -d
+#
+# Adds a Caddy reverse proxy that terminates HTTPS (auto Let's Encrypt) in front
+# of the nginx `web` service, and stops `web` from publishing a host port so the
+# only internet-facing ports are Caddy's 80/443.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    environment:
+      # Fails fast if unset. The public domain Caddy serves + issues a cert for.
+      SITE_ADDRESS: "${SITE_ADDRESS:?set SITE_ADDRESS in .env.docker}"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # issued certs + ACME account — PERSIST / BACK UP
+      - caddy-config:/config
+    depends_on:
+      - web
+    networks: [ssai]
+
+  web:
+    # Compose CONCATENATES multi-value keys across files, so a plain `ports: []`
+    # would keep the base publish. `!reset` erases it (needs Compose v2.24+).
+    # web stays reachable to caddy as `web:80` over the internal ssai network.
+    ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:

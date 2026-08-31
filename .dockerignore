@@ -1,0 +1,51 @@
+# Build artifacts / deps (rebuilt inside the image)
+/vendor
+/node_modules
+/public/build
+/public/hot
+/public/storage
+bootstrap/cache/*.php
+
+# Environment & secrets (provided at runtime via compose env_file)
+.env
+.env.*
+!.env.docker.example
+
+# VCS / CI / editor
+.git
+.gitignore
+.gitattributes
+.github
+.idea
+.vscode
+.fleet
+*.log
+.DS_Store
+
+# Transient runtime state
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+database/database.sqlite
+
+# Not needed in production images
+/tests
+/docs
+/.editorconfig
+
+# Legacy: the engine only needs legacy/js at runtime — drop the heavy reference bits
+legacy/tests
+legacy/docs
+legacy/sql
+legacy/supabase
+legacy/css
+legacy/index.html
+legacy/build_single.js
+legacy/DEV_SPEC.md
+legacy/CLAUDE.md
+legacy/README.md
+
+# Docker meta (not needed inside the image)
+compose*.yaml
+docker-compose*.yml

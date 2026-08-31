@@ -1,0 +1,42 @@
+<?php
+
+use App\Http\Middleware\HandleAppearance;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequirePasswordChange;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Illuminate\Http\Request;
+
+return Application::configure(basePath: dirname(__DIR__))
+    ->withRouting(
+        web: __DIR__.'/../routes/web.php',
+        commands: __DIR__.'/../routes/console.php',
+        channels: __DIR__.'/../routes/channels.php',
+        health: '/up',
+    )
+    ->withMiddleware(function (Middleware $middleware): void {
+        // Behind the Caddy → nginx edge (internal Docker network only), trust the
+        // forwarded headers so HTTPS/scheme + client IP are detected correctly.
+        $middleware->trustProxies(at: '*');
+
+        // `ss_creator` is the app-wide creator-context selection, written from the browser
+        // (localStorage mirror) and re-validated server-side — a non-sensitive id, so plaintext.
+        $middleware->encryptCookies(except: ['appearance', 'sidebar_state', 'ss_creator']);
+
+        // Server-to-server webhooks present no CSRF token.
+        $middleware->validateCsrfTokens(except: ['webhooks/*']);
+
+        $middleware->web(append: [
+            HandleAppearance::class,
+            HandleInertiaRequests::class,
+            AddLinkHeadersForPreloadedAssets::class,
+            RequirePasswordChange::class,
+        ]);
+    })
+    ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request) => $request->is('api/*'),
+        );
+    })->create();

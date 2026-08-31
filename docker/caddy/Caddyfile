@@ -1,0 +1,18 @@
+# SmartStars CRM — Caddy edge (TLS termination + reverse proxy).
+# Automatic HTTPS is ON by default for a hostname site address: Caddy solves the
+# ACME challenge on :80/:443 and auto-renews. It forwards ALL paths to the nginx
+# `web` service, which internally splits the /app websocket to reverb — so no
+# extra websocket config is needed here (Caddy upgrades connections transparently).
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy web:80
+}
+
+# --- Testing tip -------------------------------------------------------------
+# To dry-run cert issuance without burning Let's Encrypt production rate limits,
+# uncomment the global staging CA below (certs will be UNTRUSTED by browsers),
+# `docker compose ... up -d caddy`, confirm a cert is obtained in the logs, then
+# re-comment and recreate caddy for the real cert:
+# {
+# 	acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+# }
