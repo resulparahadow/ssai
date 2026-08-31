@@ -128,6 +128,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
   (php-fpm) and prod deliver it; `composer run dev` (`php artisan serve`) is single-threaded so
   it still serializes at the PHP layer regardless of the engine.
 - Parity guards: `node engine/parity.js`, `node engine/smoke.js`, `node engine/concurrency_check.js`, `node legacy/tests/harness.js` (283/0).
+- Input guards (each proves the engine REACTS to one PHP-supplied input, not just receives it):
+  `node engine/money_check.js` (session ppv/tip → `tipPrimary`), `node engine/state_check.js`
+  (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier).
 - The `AnthropicService`/`MistralService` PHP stubs still THROW — a future PHP port
   (intended foundation: the first-party **Laravel AI SDK**) can replace the sidecar.
 
@@ -271,11 +274,22 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `temperature`/`key_details`). Merge is **per-field lock**: a human edit pins that field in
     `locked_fields` so auto-analysis won't clobber it; the card's lock button un-pins ("let AI manage").
     Human-owned (no lock): `crm_notes`, `is_timewaster`, `sexting_mode`, `tip_mode` (AUTO/FORCE_ON/
-    FORCE_OFF). OF-owned (always overwritten): spend + `subscription_status`. Endpoints
+    FORCE_OFF). `is_timewaster` rides on `_profile` **cast to a real bool** — legacy
+    `computeCustomerTier` short-circuits to the `flagged_tw` posture tier on a strict `=== true`,
+    so a truthy `1`/`"1"` would silently do nothing (guard: `node engine/tw_check.js`).
+    OF-owned (always overwritten): spend + `subscription_status`. Endpoints
     `GET|PATCH onlyfans/{model}/chats/{chat}/profile` (`account()`-scoped, JSON-422 via `validateJson`);
     client `ofApi.getProfile`/`saveProfile`. Spec: `docs/superpowers/specs/2026-07-03-fan-customer-profile-design.md`.
-    STILL deferred: per-message PPV/`opened`/`price` mapping (wall/ladder) + multi-turn forcing-move
-    continuation (`_promiseStatus`/`_storyFrameworkStep`).
+    The generate payload's `customer` **must carry `name` + `username`**, not just `id`: the legacy
+    prompt prints `Customer: {name} (@{username})` and then states "You already know his name
+    ({name})... use his name when it fits", so an omitted name makes the engine fall back to the
+    literal string `'Fan'` and the AI addresses the fan as "Fan". `customer` is deliberately
+    rule-less in `generate()`'s `validate()` — adding `customer.*` rules would strip the keys not
+    listed (the same trap as `messages.*.time`).
+    Per-message PPV/`opened`/`price` mapping (`LiveThreadMapper` → `sender:'ppv'` bubbles +
+    gap-windowed session spend) and multi-turn forcing-move continuation (`ChatStateService` →
+    `_promiseStatus`/`_storyFrameworkStep`) are both DONE. Still deferred: `prior_session_count`
+    (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.

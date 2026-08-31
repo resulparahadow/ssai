@@ -142,7 +142,11 @@ async function generate() {
                 isOpened: mm.isOpened,
                 isTip: mm.isTip,
             })),
-            customer: { id: chatId },
+            // Name + username are load-bearing, not decoration: the legacy prompt prints
+            // "Customer: {name} (@{username})" and then tells the model "You already know
+            // his name ({name})... use his name when it fits". Omitting them makes the
+            // engine fall back to the literal string 'Fan', which the AI then uses as his name.
+            customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
         });
@@ -176,7 +180,10 @@ function commitStrategyMemory(chatId: string) {
     }
 
     ofApi
-        .commitState(m.id, chatId, { strategy: st.strategy, telemetry: st.telemetry })
+        .commitState(m.id, chatId, {
+            strategy: st.strategy,
+            telemetry: st.telemetry,
+        })
         .catch(() => {});
 }
 

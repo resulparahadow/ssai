@@ -125,6 +125,8 @@ class EngineClient
                     'total_spend' => (float) $profile->total_spend,
                     'tips_spend' => (float) $profile->tips_spend,
                     'key_details' => (string) ($profile->crm_notes ?? ''),
+                    // Strict `=== true` in legacy computeCustomerTier — see FanProfileService::toEngineProfile.
+                    'is_timewaster' => (bool) $profile->is_timewaster,
                 ] : null,
                 '_sextingModeToggle' => $opts['sexting'] ?? 'AUTO',
                 '_tipModeToggle' => $opts['tipMode'] ?? 'AUTO',

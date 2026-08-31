@@ -83,6 +83,10 @@ class FanProfileService
             'total_spend' => (float) $profile->total_spend,
             'tips_spend' => (float) $profile->tips_spend,
             'key_details' => (string) ($profile->key_details ?? ''),
+            // Load-bearing cast: legacy `computeCustomerTier` short-circuits to the
+            // 'flagged_tw' posture tier on a strict `is_timewaster===true`, so a truthy
+            // 1/"1" would silently do nothing. Human-owned — never auto-set by analysis.
+            'is_timewaster' => (bool) $profile->is_timewaster,
         ];
     }
 

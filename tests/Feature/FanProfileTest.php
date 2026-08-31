@@ -164,3 +164,41 @@ it('scopes memory access: an unassigned chatter is forbidden, assigned is allowe
     ModelAssignment::create(['user_id' => $chatter->id, 'creator_model' => 'Camila']);
     test()->actingAs($chatter)->getJson("/onlyfans/{$this->model->id}/chats/101/profile")->assertOk();
 });
+
+// ---- Engine inputs --------------------------------------------------------
+
+it('forwards the timewaster flag to the engine so the posture tier can flip', function () {
+    fakeGenerate();
+
+    CustomerProfile::withoutGlobalScopes()->create([
+        'creator_model' => 'Camila', 'of_fan_id' => '101', 'customer_username' => 'jake_w',
+        'is_timewaster' => true,
+    ]);
+
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    // Legacy `computeCustomerTier` short-circuits to 'flagged_tw' on a strict `=== true`,
+    // so the flag has to arrive as a real boolean, not 1/"1".
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
+        || $r['session']['_profile']['is_timewaster'] === true);
+});
+
+it('sends the timewaster flag as false when the fan is not flagged', function () {
+    fakeGenerate();
+
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
+        || $r['session']['_profile']['is_timewaster'] === false);
+});
+
+it('forwards the fan name and username to the engine', function () {
+    fakeGenerate();
+
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    // The legacy prompt prints "Customer: {name} (@{username})" and tells the model
+    // "You already know his name ({name})" — a fallback of 'Fan' is read as his actual name.
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
+        || ($r['session']['customer_name'] === 'Jake' && $r['session']['customer_username'] === 'jake_w'));
+});
