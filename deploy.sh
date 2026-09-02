@@ -13,13 +13,20 @@ fi
 
 echo "==> git pull"
 git pull --ff-only
+echo "    deploying $(git rev-parse --abbrev-ref HEAD) @ $(git rev-parse --short HEAD)"
 
-echo "==> build app image (carries compiled assets)"
-docker compose build app
+# Build all three images every time. They share the `build` stage, so when nothing
+# in them changed Docker's layer cache makes web/engine near-instant — cheap enough
+# that it isn't worth trading for the risk of shipping a stale one. Each bakes
+# something the app image does NOT carry:
+#   app    -> PHP code + compiled assets (published into the `assets` volume on boot)
+#   web    -> docker/nginx/default.conf  (e.g. fastcgi_read_timeout for DRM downloads)
+#   engine -> engine/ + legacy/js        (the generation pipeline)
+echo "==> build images (app, web, engine)"
+docker compose build app web engine
 
-echo "==> restart app + workers"
-docker compose up -d app queue reverb scheduler
+echo "==> restart services"
+docker compose up -d app queue reverb scheduler web engine
 
 echo "==> status"
 docker compose ps
-echo "Done. If you changed docker/nginx/default.conf, also: docker compose up -d --build web"
