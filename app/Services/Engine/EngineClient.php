@@ -174,7 +174,8 @@ class EngineClient
     {
         $base = rtrim((string) config('services.engine.url'), '/');
 
-        $res = Http::timeout((int) config('services.engine.timeout', 60))
+        $res = Http::connectTimeout((int) config('services.engine.connect_timeout', 5))
+            ->timeout((int) config('services.engine.timeout', 180))
             ->acceptJson()
             ->get($base.'/doctrine');
 
@@ -193,7 +194,11 @@ class EngineClient
     {
         $base = rtrim((string) config('services.engine.url'), '/');
 
-        $res = Http::timeout((int) config('services.engine.timeout', 60))
+        // connectTimeout is deliberately separate from timeout: a dead engine should fail in
+        // seconds, while a live one gets the full two-call budget. Both raise the SAME
+        // ConnectionException, so callers must tell them apart (see OnlyFansChatController).
+        $res = Http::connectTimeout((int) config('services.engine.connect_timeout', 5))
+            ->timeout((int) config('services.engine.timeout', 180))
             ->acceptJson()
             ->post($base.'/generate', $payload);
 

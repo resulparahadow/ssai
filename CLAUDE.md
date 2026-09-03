@@ -491,7 +491,18 @@ reachable only over the internal Docker network.
   (+ `*_MODEL`) from `.env` if unset, so no manual export is needed; exercise it at `/dev/generate`.
   Without keys the pipeline runs but returns an empty draft. On `EADDRINUSE` it means an engine is
   already running — `lsof -ti tcp:8787 | xargs kill` (or set `ENGINE_PORT`). Conversations' Generate
-  surfaces a 503 if the engine is unreachable.
+  surfaces a **503** when the engine is unreachable and a **504** when it times out — these are
+  distinct on purpose. Laravel raises the same `ConnectionException` for both, so a blown
+  `ENGINE_TIMEOUT` used to be reported as "engine is not reachable — start it with
+  `node engine/server.js`", which is wrong twice over in Docker (the engine is healthy, and
+  there is no such command to run). **`ENGINE_TIMEOUT` is 180s, not 60s**: /generate is TWO
+  sequential LLM calls and the strategy pass alone measures 34-36s on a production-shaped
+  thread (40 msgs + real persona/library ≈ 42-45s total, vs 25s on a toy 3-msg thread), while
+  `callModel.js` retries transient 429/529 up to 3x — one retry of that pass adds ~35s, so 60s
+  could not survive a single one. It must stay under php.ini's `max_execution_time` (300s).
+  `ENGINE_CONNECT_TIMEOUT` (5s) is separate so a genuinely dead engine still fails fast instead
+  of hanging for the whole budget. NB a timed-out generation is **billed but never recorded** —
+  the early return skips `AiUsageRecorder`, so AI Usage under-reports those.
 - **OnlyFans**: set `ONLYFANS_API_KEY` in `.env` + map `aich_models.of_account_id` (acct_…) per
   creator; then `/conversations` → pick the creator (sidebar) → chats/messages load **live**,
   Generate (engine) → Send posts live; like/unlike/delete/search/media all hit OnlyFans directly.
