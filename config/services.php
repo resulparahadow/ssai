@@ -66,7 +66,16 @@ return [
     // Node sidecar that runs the real legacy generation engine (engine/server.js).
     'engine' => [
         'url' => env('ENGINE_URL', 'http://127.0.0.1:8787'),
-        'timeout' => (int) env('ENGINE_TIMEOUT', 60),
+        // Total budget for one /generate. The pipeline is TWO sequential LLM calls and the
+        // strategy pass alone measures 34-36s on a production-shaped thread; callModel.js
+        // also retries transient 429/529 up to 3x, and one retry of that pass costs another
+        // ~35s. The old 60s could not survive a single retry, and Laravel reports the blown
+        // timeout as a ConnectionException — i.e. indistinguishable from a dead engine.
+        // Must stay under php.ini's max_execution_time (300s in docker/php/php.ini).
+        'timeout' => (int) env('ENGINE_TIMEOUT', 180),
+        // Kept short and separate so a genuinely down engine still fails in seconds
+        // instead of hanging for the full generation budget above.
+        'connect_timeout' => (int) env('ENGINE_CONNECT_TIMEOUT', 5),
         'session_gap_hours' => (int) env('ENGINE_SESSION_GAP_HOURS', 12),
     ],
 

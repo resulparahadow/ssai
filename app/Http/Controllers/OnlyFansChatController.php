@@ -811,6 +811,8 @@ class OnlyFansChatController extends Controller
         $profile = $this->profiles->loadForGenerate($model, $account, $chat, $customer);
         $state = $this->states->find($model, $chat);
 
+        $startedAt = microtime(true);
+
         try {
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $data['context'] ?? '',
@@ -828,7 +830,27 @@ class OnlyFansChatController extends Controller
                 'tipMode' => $profile->tip_mode ?? 'AUTO',
             ]);
         } catch (ConnectionException $e) {
-            return response()->json(['error' => 'AI engine is not reachable — start it with `node engine/server.js` (port 8787).'], 503);
+            // ConnectionException covers BOTH "nothing is listening" and "it answered too
+            // slowly", which need opposite advice: on a timeout the engine is healthy and
+            // still working (the LLM calls were billed), so telling anyone to restart it is
+            // wrong. cURL words a blown total timeout "Operation timed out"; the elapsed
+            // check is the backstop in case that wording ever changes.
+            $ceiling = (int) config('services.engine.timeout', 180);
+            $timedOut = str_contains($e->getMessage(), 'Operation timed out')
+                || (microtime(true) - $startedAt) >= $ceiling * 0.9;
+
+            if ($timedOut) {
+                return response()->json(['error' => "The AI engine took longer than {$ceiling}s and the request was dropped. It may still be finishing upstream — try again in a moment."], 504);
+            }
+
+            $url = (string) config('services.engine.url');
+            // The `node engine/server.js` hint is only actionable on a loopback URL; in
+            // Docker the engine is a container and there is no such command to run.
+            $hint = str_contains($url, '127.0.0.1') || str_contains($url, 'localhost')
+                ? ' Start it with `node engine/server.js`.'
+                : '';
+
+            return response()->json(['error' => "AI engine is not reachable at {$url}.".$hint], 503);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'AI engine error: '.$e->getMessage()], 502);
         }
