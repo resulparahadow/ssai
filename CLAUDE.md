@@ -258,6 +258,25 @@ engine uses its in-process copy. Provider keys live in the engine's env
     (`OnlyFansChatController::mediaFile` → `OnlyFansService::downloadMedia`, the API's
     `media/download/{cdnUrl}` endpoint; SSRF-guarded to onlyfans.com hosts, cached server-side by
     file path so repeat views don't re-bill). Frontend builds the url via `ofApi.mediaUrl()`.
+    **Signed-url facts (verified live 2026-09-03), so nobody re-investigates:** `media/download`
+    **re-signs** — a CDN url whose `Signature` is corrupted or expired still downloads fine (it
+    only validates that the param NAMES `Tag`/`Policy`/`Signature`/`Key-Pair-Id` are *present*,
+    else 422 "must include OnlyFans signed query parameters"), so signature expiry is NOT a
+    failure mode on the proxy path — and the proxy caches by url **path** (query string
+    excluded) for 6h, so a re-signed url reuses the same entry. `cdn.fansapi.com` presigned
+    urls, which load **direct to the browser**, carry `X-Amz-Expires=900` (**15 min**) — those
+    DO rot, so a stale client-side `msgCache` entry can render broken tiles.
+    **Upstream errors: `forward()`/`proxyAction()` live in `Concerns\ForwardsOnlyFansErrors`**
+    (shared with `ModelOnlyFansController`). OnlyFansAPI answers every *application* error in
+    JSON (422 validation, 404 `ONLYFANS_COM_ERROR`, even 500 `{"message":"Server Error"}`), so a
+    failure body that is **not** JSON never reached it — that is its **Cloudflare edge**
+    (502/520/524 HTML) or a reset/truncated response. Those used to collapse into a bare
+    "OnlyFans request failed" with the status, url and body discarded, which made intermittent
+    media failures undiagnosable; they now log **`onlyfans.proxy.non_json_error`** (status, url,
+    content-type, 500-char body) and return the real status. `mediaFile` also catches
+    `ConnectionException` (the `services.onlyfans.timeout` download has no retry) and returns a
+    **504** instead of an opaque 500 — it is used as an `<img>`/`<video>` src, where a 500 just
+    reads as a tile that never loads.
     The right rail is **tabbed (Fan / AI Intel)**: `SsAiIntel` renders the legacy AI-Intelligence
     dashboard (temperature gauge, Connection/Customer Type/Phase/Engagement, Framework Calibration,
     Message Purpose, Next Move, Warning) straight from the `generate` response's `strategy` object
@@ -340,7 +359,40 @@ engine uses its in-process copy. Provider keys live in the engine's env
     scoped to the creator via `account_ids=<of_account_id>`, create injects `account_id`; per-link ops
     (`/smart-links/{id}/…`) address the smart-link id directly (still `manage-team` gated).
     The show header runs a **live** connection check via `GET {acct}/me` (`isAuth` + real OF
-    avatar/@username/subscriber count). `OnlyFansService` methods: `getMe`, `getUser`/`listUserDetails`, `listFans`/`listTopFans`/
+    avatar/@username/subscriber count).
+    **Creator models are ADDED FROM connected accounts** (`SsConnectedAccounts`, at the top of the
+    `Models.vue` index): `GET /of/accounts` (`ModelOnlyFansController::accounts` →
+    `OnlyFansService::listAccounts`/`normalizeAccount`) lists every OnlyFans account connected to
+    the agency's OnlyFansAPI key — avatar, name, @username, subscriber count, plus a "Needs
+    re-auth" badge when `is_authenticated` is false. Accounts with no creator model sort first and
+    carry an **Add as creator model** button; `POST models/from-account`
+    (`ModelController::storeFromAccount`) creates the `aich_models` row with `of_account_id`
+    already wired and **redirects to that model's show page**, where persona/library/tier/
+    assignments get filled in. Accounts already in the system stay listed, linking to their model,
+    so the panel answers "what is connected, and what is still missing?" in one place.
+    The show page's `of_account_id` field stays a plain text input — a manual override, not the
+    normal way in. Server-side rules that matter: the posted id is re-checked against the LIVE
+    account list rather than trusted (a stale page can't wire a model to a dead account) and the
+    model NAME is derived server-side from that same response, not from the client; adding an
+    account that already has a model is refused; and since `aich_models.name` is the creator key
+    assignments/sessions join on, a clashing label falls back to `name (@username)` then a counter
+    instead of failing the insert.
+    **The endpoint is AGENCY-LEVEL** — `/api/accounts`, no `{account}` segment, like smart-links and
+    analytics — so it is routed at **`of/accounts`**, deliberately NOT under `models/…` where the
+    `models/{model}` wildcard would capture it, and `accounts()` is the one method on that controller
+    taking no `AichModel`. **Verified live 2026-09-04:** it answers with a **bare JSON array** (no
+    `data` wrapper, no `_meta` — so it appears not to bill credits, unlike every per-account
+    endpoint); rows are `id`/`display_name`/`onlyfans_id`/`onlyfans_username`/`onlyfans_email`/
+    `is_authenticated`/`authentication_progress`/`onlyfans_user_data`. Two traps: `display_name` is
+    often blank (fall back to `onlyfans_user_data.name`, then the username, or the row is
+    unpickable), and **`authentication_progress` came back `null` on all 5 live accounts** despite
+    being documented — don't build UI that depends on it. Avatars are `thumbs.onlyfans.com` profile
+    urls, NOT the IP-locked `cdn*.onlyfans.com` media hosts, so they render with a plain `<img>` and
+    must not go through the media proxy. Guards: `tests/Feature/OnlyFansAccountsTest.php` (13 tests;
+    its fixture is the vendor's own OpenAPI example payload, not a hand-written fake).
+    Still deferred from the Account tag: `me/model-start-date`, `me/top-percentage`, and
+    `DELETE /api/accounts/{id}` (disconnect — agency-wide, would break every creator mapped to it).
+    `OnlyFansService` methods: `listAccounts`/`normalizeAccount`, `getMe`, `getUser`/`listUserDetails`, `listFans`/`listTopFans`/
     `getFanSubscriptionHistory`, `getSettings`/`updateProfile`/`updateSubscriptionPrice`, welcome
     get/update/toggle, `listNotifications`/`getNotificationCounts`/`markAllNotificationsRead`,
     `block`/`restrict`/`subscribe` (+ un* via DELETE), tracking/trial `list*`/`create*`/`delete*`/

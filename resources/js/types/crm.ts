@@ -273,6 +273,23 @@ export interface TeamUser {
 
 // ---- Creator Model · live OnlyFans account data (show page) ----
 
+/**
+ * One OnlyFans account connected to the agency's OnlyFansAPI key (`GET /of/accounts`).
+ * Agency-level, so it exists independently of any creator model — this is what the
+ * Creator Models picker offers instead of a hand-typed `acct_…` string.
+ */
+export interface OfConnectedAccount {
+    id: string;
+    username: string;
+    name: string;
+    email: string | null;
+    isAuthenticated: boolean;
+    /** Vendor auth state, e.g. `signed_in`. Null when the vendor omits it. */
+    authProgress: string | null;
+    avatar: string | null;
+    subscribersCount: number | null;
+}
+
 export interface OfAccountStatus {
     isAuth: boolean;
     id: string | null;

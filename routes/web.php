@@ -115,9 +115,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('profitability/{model}/history', [AnalyticsController::class, 'profitabilityHistory'])->name('profitability.history');
         });
 
+        // Agency-level OnlyFansAPI account list (which `acct_…` ids exist). Deliberately NOT
+        // under `models/…`: the `models/{model}` wildcard below would capture it.
+        Route::get('of/accounts', [ModelOnlyFansController::class, 'accounts'])->name('of.accounts');
+
         Route::get('models', [ModelController::class, 'index'])->name('models.index');
         Route::get('models/{model}', [ModelController::class, 'show'])->name('models.show');
         Route::post('models', [ModelController::class, 'store'])->name('models.store');
+        // One-click "add this connected OnlyFans account as a creator model" (Creator Models page).
+        Route::post('models/from-account', [ModelController::class, 'storeFromAccount'])->name('models.from-account');
         Route::put('models/{model}', [ModelController::class, 'update'])->name('models.update');
         Route::delete('models/{model}', [ModelController::class, 'destroy'])->name('models.destroy');
         Route::put('models/{model}/assignments', [ModelController::class, 'assignments'])->name('models.assignments');

@@ -2,6 +2,7 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import { ChevronRight, Plus, Trash2, Users } from '@lucide/vue';
 import { ref } from 'vue';
+import SsConnectedAccounts from '@/components/crm/models/SsConnectedAccounts.vue';
 import type { ChatterOption, CreatorModel } from '@/types/crm';
 
 const props = defineProps<{
@@ -92,6 +93,8 @@ function destroy(m: CreatorModel) {
                 </button>
             </div>
         </div>
+
+        <SsConnectedAccounts :models="models" />
 
         <div
             v-if="models.length"
