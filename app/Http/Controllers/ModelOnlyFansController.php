@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichModel;
 use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\Client\Response;
@@ -20,7 +21,42 @@ use Illuminate\Support\Facades\Validator;
  */
 class ModelOnlyFansController extends Controller
 {
+    use ForwardsOnlyFansErrors;
+
     public function __construct(protected OnlyFansService $of) {}
+
+    /**
+     * Every OnlyFans account connected to the agency's OnlyFansAPI key.
+     *
+     * The ONE method here that takes no `AichModel`: the vendor's `accounts` endpoint is
+     * agency-level, and the Creator Models picker needs the list precisely when a model
+     * has no `of_account_id` yet. Routed at `of/accounts` rather than under `models/…`,
+     * where the `models/{model}` wildcard registered above would swallow it.
+     */
+    public function accounts(Request $request): JsonResponse
+    {
+        if (! $this->of->enabled()) {
+            abort(503, 'OnlyFans API key is not configured.');
+        }
+
+        $res = $this->of->listAccounts($request->only(['onlyfans_id', 'onlyfans_username', 'onlyfans_email']));
+
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        // This endpoint answers with a BARE ARRAY (no `data`, no `_meta`) — unwrap
+        // defensively anyway, so a vendor change to the house wrapper isn't an outage.
+        $body = $res->json();
+        $rows = array_is_list($body ?? []) ? $body : ($body['data'] ?? []);
+
+        return response()->json([
+            'accounts' => array_values(array_map(
+                fn (array $a) => $this->of->normalizeAccount($a),
+                array_filter(is_array($rows) ? $rows : [], 'is_array'),
+            )),
+        ]);
+    }
 
     /** Live connection status + the real OnlyFans profile (avatar, @username, subscribers). */
     public function status(AichModel $model): JsonResponse
@@ -729,20 +765,6 @@ class ModelOnlyFansController extends Controller
         }
 
         return $model->of_account_id;
-    }
-
-    private function forward(Response $res): JsonResponse
-    {
-        return response()->json($res->json() ?: ['error' => 'OnlyFans request failed'], $res->status());
-    }
-
-    /** Bare ok/error proxy (delete, mark-read). */
-    private function proxyAction(Response $res): JsonResponse
-    {
-        return response()->json(
-            $res->successful() ? ['ok' => true] : ($res->json() ?: ['error' => 'OnlyFans request failed']),
-            $res->successful() ? 200 : $res->status(),
-        );
     }
 
     /** ok + the upstream `data` payload (actions that return the updated entity: block/restrict/subscribe, create link). */

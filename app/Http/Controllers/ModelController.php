@@ -6,9 +6,11 @@ use App\Enums\UserRole;
 use App\Models\AichModel;
 use App\Models\ModelAssignment;
 use App\Models\User;
+use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -48,6 +50,109 @@ class ModelController extends Controller
         AichModel::create($data);
 
         return back()->with('success', "{$data['name']} created");
+    }
+
+    /**
+     * Add a creator model straight from an OnlyFans account connected to the agency's
+     * OnlyFansAPI key — the Creator Models page lists those accounts, and one click
+     * brings an account into the system with its `of_account_id` already wired up.
+     * The remaining fields (persona, library, tier, assignments) are set afterwards on
+     * the show page, which is where this redirects.
+     *
+     * The id arrives from the browser, so it is checked against the LIVE account list
+     * rather than trusted: that also gives us the authoritative label to name the model,
+     * instead of letting the client choose one.
+     */
+    public function storeFromAccount(Request $request, OnlyFansService $of): RedirectResponse
+    {
+        $wanted = $request->validate(['of_account_id' => 'required|string|max:120'])['of_account_id'];
+
+        if (! $of->enabled()) {
+            abort(503, 'OnlyFans API key is not configured.');
+        }
+
+        $account = $this->connectedAccount($of, $wanted);
+
+        if (! $account) {
+            throw ValidationException::withMessages([
+                'of_account_id' => 'That OnlyFans account is not connected to this OnlyFansAPI key.',
+            ]);
+        }
+
+        if ($existing = AichModel::query()->where('of_account_id', $wanted)->first()) {
+            throw ValidationException::withMessages([
+                'of_account_id' => "That account is already set up as \"{$existing->name}\".",
+            ]);
+        }
+
+        $model = AichModel::create([
+            'name' => $this->availableName($account),
+            'of_account_id' => $wanted,
+        ]);
+
+        return redirect()->route('models.show', $model)
+            ->with('success', "{$model->name} added — set the persona and assignments below");
+    }
+
+    /**
+     * The connected account with this id, normalised; null when it isn't connected.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function connectedAccount(OnlyFansService $of, string $id): ?array
+    {
+        $res = $of->listAccounts();
+
+        if (! $res->successful()) {
+            throw ValidationException::withMessages([
+                'of_account_id' => 'Could not reach OnlyFansAPI to confirm that account. Try again in a moment.',
+            ]);
+        }
+
+        // Bare array upstream; unwrap a `data` wrapper defensively (see ModelOnlyFansController).
+        $body = $res->json();
+        $rows = array_is_list($body ?? []) ? $body : ($body['data'] ?? []);
+
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            if (is_array($row) && ($account = $of->normalizeAccount($row))['id'] === $id) {
+                return $account;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A free `aich_models.name` for this account. The name is the creator KEY that
+     * assignments and sessions join on, so it has to be unique — fall back to the
+     * account's @username, then a counter, rather than failing the create.
+     *
+     * @param  array<string, mixed>  $account
+     */
+    private function availableName(array $account): string
+    {
+        $label = trim((string) ($account['name'] ?? '')) ?: (string) ($account['id'] ?? 'Creator');
+        $username = trim((string) ($account['username'] ?? ''));
+
+        $candidates = [$label];
+
+        if ($username !== '') {
+            $candidates[] = "{$label} (@{$username})";
+        }
+
+        foreach ($candidates as $candidate) {
+            if (! AichModel::query()->where('name', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+
+        $n = 2;
+
+        while (AichModel::query()->where('name', "{$label} {$n}")->exists()) {
+            $n++;
+        }
+
+        return "{$label} {$n}";
     }
 
     public function update(Request $request, AichModel $model): RedirectResponse

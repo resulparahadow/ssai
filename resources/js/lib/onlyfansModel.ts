@@ -2,6 +2,7 @@ import { reqJson } from '@/lib/api';
 import type {
     OfAccountStatus,
     OfBundle,
+    OfConnectedAccount,
     OfFanRow,
     OfFanSummary,
     OfLinkStats,
@@ -49,6 +50,10 @@ export interface FansParams {
 }
 
 export const ofModel = {
+    /** Every OnlyFans account connected to the agency's OnlyFansAPI key. Agency-level,
+     *  so it takes no model id — the picker needs it precisely when a model has none. */
+    accounts: () =>
+        reqJson<{ accounts: OfConnectedAccount[] }>('GET', '/of/accounts'),
     status: (m: number) =>
         reqJson<{ status: OfAccountStatus }>('GET', `${base(m)}/status`),
     fans: (m: number, params: FansParams = {}) => {
@@ -72,7 +77,10 @@ export const ofModel = {
             floor: number;
             count: number;
             truncated: boolean;
-        }>('GET', `${base(m)}/spenders?${qs({ floor, fresh: fresh ? 1 : undefined })}`),
+        }>(
+            'GET',
+            `${base(m)}/spenders?${qs({ floor, fresh: fresh ? 1 : undefined })}`,
+        ),
     fanHistory: (m: number, fanId: string) =>
         reqJson<{ history: OfSubscriptionRecord[] }>(
             'GET',

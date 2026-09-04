@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichModel;
 use App\Services\AI\AiUsageRecorder;
@@ -17,6 +18,7 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -30,6 +32,8 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class OnlyFansChatController extends Controller
 {
+    use ForwardsOnlyFansErrors;
+
     public function __construct(
         protected OnlyFansService $of,
         protected EngineClient $engine,
@@ -141,7 +145,23 @@ class OnlyFansChatController extends Controller
         $cached = $store->get($key);
 
         if (! $cached) {
-            $res = $this->of->downloadMedia($acct, $url);
+            try {
+                $res = $this->of->downloadMedia($acct, $url);
+            } catch (ConnectionException $e) {
+                // downloadMedia gets services.onlyfans.timeout and no retry. Uncaught this
+                // became an opaque 500, and because this endpoint is used as an <img>/<video>
+                // src that reads to the user as a tile that silently never loads.
+                Log::warning('onlyfans.media.download_timeout', [
+                    'account' => $acct,
+                    'path' => parse_url($url, PHP_URL_PATH),
+                    'reason' => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'error' => 'Timed out fetching this media from OnlyFans — retry in a moment.',
+                ], 504);
+            }
+
             if (! $res->successful()) {
                 return $this->forward($res);
             }
@@ -984,19 +1004,6 @@ class OnlyFansChatController extends Controller
             storage_path('logs/restrict-debug.log'),
             '['.now()->toDateTimeString()."] {$tag} ".json_encode($ctx, JSON_UNESCAPED_SLASHES).PHP_EOL,
             FILE_APPEND
-        );
-    }
-
-    private function forward(Response $res): JsonResponse
-    {
-        return response()->json($res->json() ?: ['error' => 'OnlyFans request failed'], $res->status());
-    }
-
-    private function proxyAction(Response $res): JsonResponse
-    {
-        return response()->json(
-            $res->successful() ? ['ok' => true] : ($res->json() ?: ['error' => 'OnlyFans request failed']),
-            $res->successful() ? 200 : $res->status(),
         );
     }
 

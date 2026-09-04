@@ -350,6 +350,70 @@ class OnlyFansService
         return $this->client()->get("{$account}/me");
     }
 
+    /**
+     * Every OnlyFans account connected to the agency's OnlyFansAPI key.
+     *
+     * AGENCY-LEVEL: `accounts` has no `{account}` path segment (like smart-links and
+     * analytics), so it needs no creator mapping — that is the point, it is what tells
+     * us which `acct_…` ids exist before one is stored on an `aich_models` row.
+     * Documented filters: onlyfans_id | onlyfans_username | onlyfans_email.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function listAccounts(array $filters = []): Response
+    {
+        return $this->client()->get('accounts', array_filter(
+            array_intersect_key($filters, array_flip(['onlyfans_id', 'onlyfans_username', 'onlyfans_email'])),
+            fn ($v) => $v !== null && $v !== '',
+        ));
+    }
+
+    /**
+     * Compact row for the Creator Models account picker.
+     *
+     * `display_name` is the label the agency set in OnlyFansAPI and is often empty, so
+     * fall back to the OnlyFans profile name, then the username — a picker row with a
+     * blank label is unpickable. The avatar prefers the 50px thumb over the full-size
+     * `avatar`; both are PROFILE urls (`thumbs.onlyfans.com`, verified live), not the
+     * IP-locked `cdn*.onlyfans.com` media hosts, so they render with a plain <img> like
+     * the existing `normalizeAccountStatus`/fan avatars and need no media proxy.
+     *
+     * @param  array<string, mixed>  $a
+     * @return array<string, mixed>
+     */
+    public function normalizeAccount(array $a): array
+    {
+        $user = is_array($a['onlyfans_user_data'] ?? null) ? $a['onlyfans_user_data'] : [];
+        $username = (string) ($a['onlyfans_username'] ?? $user['username'] ?? '');
+
+        return [
+            'id' => (string) ($a['id'] ?? ''),
+            'username' => $username,
+            'name' => $this->firstNonEmpty([$a['display_name'] ?? null, $user['name'] ?? null, $username]),
+            'email' => $a['onlyfans_email'] ?? null,
+            'isAuthenticated' => (bool) ($a['is_authenticated'] ?? $user['isAuth'] ?? false),
+            'authProgress' => isset($a['authentication_progress']) ? (string) $a['authentication_progress'] : null,
+            'avatar' => $this->firstNonEmpty([$user['avatarThumbs']['c50'] ?? null, $user['avatar'] ?? null]) ?: null,
+            'subscribersCount' => isset($user['subscribersCount']) ? (int) $user['subscribersCount'] : null,
+        ];
+    }
+
+    /**
+     * First value that is a non-blank string; '' when there is none.
+     *
+     * @param  list<mixed>  $candidates
+     */
+    private function firstNonEmpty(array $candidates): string
+    {
+        foreach ($candidates as $c) {
+            if (is_string($c) && trim($c) !== '') {
+                return $c;
+            }
+        }
+
+        return '';
+    }
+
     // ---- Fans -------------------------------------------------------------
 
     /** List fans in a bucket: active | all | expired. */
