@@ -6,10 +6,13 @@ import {
     Ellipsis,
     Heart,
     Image,
+    ImageOff,
     LoaderCircle,
+    Lock,
     NotebookPen,
     Pin,
     PinOff,
+    Play,
     RefreshCw,
     Search,
     ShieldMinus,
@@ -19,6 +22,7 @@ import {
 } from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import SsFanSettingsMenu from '@/components/crm/conversations/SsFanSettingsMenu.vue';
+import SsMediaLightbox from '@/components/crm/conversations/SsMediaLightbox.vue';
 import SsMessageMedia from '@/components/crm/conversations/SsMessageMedia.vue';
 import SsNoteModal from '@/components/crm/conversations/SsNoteModal.vue';
 import SsPayPill from '@/components/crm/conversations/SsPayPill.vue';
@@ -27,7 +31,7 @@ import SsRenameModal from '@/components/crm/conversations/SsRenameModal.vue';
 import { usd } from '@/lib/money';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { Role } from '@/types/auth';
-import type { OfChat, OfFan, OfMessage } from '@/types/crm';
+import type { OfChat, OfFan, OfMedia, OfMessage } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
@@ -158,7 +162,10 @@ watch(
             nextTick(() => {
                 // Land slightly ABOVE the exact-preserve point so a slice of the just-loaded
                 // older messages shows; clamp so we never scroll past the very top.
-                el.scrollTop = Math.max(0, el.scrollHeight - anchor - REVEAL_ON_LOAD);
+                el.scrollTop = Math.max(
+                    0,
+                    el.scrollHeight - anchor - REVEAL_ON_LOAD,
+                );
                 maybeAutoLoad(); // a short page can still leave us near the top — keep going
             });
 
@@ -242,7 +249,10 @@ function jumpTo(m: OfMessage) {
         if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             el.classList.add('ring-2', 'ring-ss-accent');
-            setTimeout(() => el.classList.remove('ring-2', 'ring-ss-accent'), 1600);
+            setTimeout(
+                () => el.classList.remove('ring-2', 'ring-ss-accent'),
+                1600,
+            );
         }
     });
 }
@@ -272,8 +282,11 @@ async function togglePin(m: OfMessage) {
 
 // ---- media gallery ----
 const showMedia = ref(false);
-const mediaItems = ref<Record<string, unknown>[]>([]);
+const mediaItems = ref<OfMedia[]>([]);
 const mediaLoading = ref(false);
+const mediaFailed = ref<Record<string, boolean>>({});
+const galleryIndex = ref(0);
+const galleryOpen = ref(false);
 
 // The component instance is reused across chat/creator switches, so close the gallery and
 // drop its items when the chat changes — otherwise a new chat shows the previous one's media.
@@ -283,6 +296,8 @@ watch(
     () => {
         showMedia.value = false;
         mediaItems.value = [];
+        mediaFailed.value = {};
+        galleryOpen.value = false;
         showPinned.value = false;
         showNote.value = false;
         showRename.value = false;
@@ -297,7 +312,8 @@ async function openMedia() {
 
     try {
         const r = await ofApi.media(props.modelId, props.chat.id);
-        mediaItems.value = (r.items as Record<string, unknown>[]) ?? [];
+        mediaItems.value = r.items ?? [];
+        mediaFailed.value = {};
     } catch {
         mediaItems.value = [];
     } finally {
@@ -305,27 +321,41 @@ async function openMedia() {
     }
 }
 
-// The gallery returns raw OnlyFans items in a few possible shapes — pull a CDN url from the
-// flat fields or the nested `files.*.url`, then load it through our proxy (the raw cdn urls are
-// IP-locked and 403 in the browser, same as message media).
-function thumb(item: Record<string, unknown>): string | null {
-    const files = (item.files ?? {}) as Record<
-        string,
-        { url?: string } | undefined
-    >;
-    const cdn = (item.thumb ||
-        item.preview ||
-        item.squarePreview ||
-        item.src ||
-        item.full ||
-        item.url ||
-        files.thumb?.url ||
-        files.preview?.url ||
-        files.squarePreview?.url ||
-        files.full?.url ||
-        null) as string | null;
+// The gallery items are normalised server-side (same shape as message media), so the poster
+// comes off flat fields. mediaSrc decides per url whether it needs the proxy: IP-locked
+// OnlyFans CDN urls do, browser-loadable ones don't.
+function poster(m: OfMedia): string | null {
+    const cdn = m.preview || m.thumb || null;
 
     return cdn ? mediaSrc(props.modelId, cdn) : null;
+}
+
+function tileKey(m: OfMedia, i: number): string {
+    return String(m.id ?? i);
+}
+
+/** A tile we can actually show a picture for — locked PPV media has no viewable rendition. */
+function viewable(m: OfMedia, i: number): boolean {
+    return m.canView && !!poster(m) && !mediaFailed.value[tileKey(m, i)];
+}
+
+function openGallery(m: OfMedia, i: number) {
+    if (!viewable(m, i)) {
+        return;
+    }
+
+    galleryIndex.value = i;
+    galleryOpen.value = true;
+}
+
+function fmtDuration(sec: number | null): string {
+    if (!sec || sec < 0) {
+        return '';
+    }
+
+    return `${Math.floor(sec / 60)}:${Math.floor(sec % 60)
+        .toString()
+        .padStart(2, '0')}`;
 }
 </script>
 
@@ -408,10 +438,7 @@ function thumb(item: Record<string, unknown>): string | null {
                     "
                     @click="toggleMute"
                 >
-                    <component
-                        :is="chat.muted ? BellOff : Bell"
-                        :size="16"
-                    />
+                    <component :is="chat.muted ? BellOff : Bell" :size="16" />
                 </button>
 
                 <button
@@ -520,7 +547,11 @@ function thumb(item: Record<string, unknown>): string | null {
                  of the thread WITHOUT shifting the messages. Scroll-driven (auto-loads as the
                  user nears the top); shown only once a first page exists. -->
             <div
-                v-if="!searchResults && shown.length && (loadingMore || loadMoreError)"
+                v-if="
+                    !searchResults &&
+                    shown.length &&
+                    (loadingMore || loadMoreError)
+                "
                 class="pointer-events-none sticky top-2 z-10 flex h-0 justify-center overflow-visible"
             >
                 <span
@@ -590,15 +621,13 @@ function thumb(item: Record<string, unknown>): string | null {
                         -->
                         <div
                             v-if="m.html && m.text"
-                            class="[&>p]:mb-2 [&>p:last-child]:mb-0 [&_a]:underline"
+                            class="[&_a]:underline [&>p]:mb-2 [&>p:last-child]:mb-0"
                             v-html="m.html"
                         />
                         <!-- Optimistic bubbles have no html yet: plain text, breaks via pre-wrap. -->
-                        <span
-                            v-else-if="m.text"
-                            class="whitespace-pre-wrap"
-                            >{{ m.text }}</span
-                        >
+                        <span v-else-if="m.text" class="whitespace-pre-wrap">{{
+                            m.text
+                        }}</span>
                         <!-- fallback: count-only when the API gave us no media objects (e.g. cached/locked with no preview) -->
                         <span
                             v-else-if="!m.media?.length && m.mediaCount"
@@ -759,24 +788,69 @@ function thumb(item: Record<string, unknown>): string | null {
                     No media in this chat.
                 </p>
                 <div v-else class="grid grid-cols-3 gap-2">
-                    <div
+                    <button
                         v-for="(item, i) in mediaItems"
-                        :key="i"
-                        class="aspect-square overflow-hidden rounded-lg bg-ss-surface-2"
+                        :key="tileKey(item, i)"
+                        type="button"
+                        class="group relative aspect-square overflow-hidden rounded-lg bg-ss-surface-2"
+                        :class="
+                            viewable(item, i)
+                                ? 'cursor-zoom-in'
+                                : 'cursor-default'
+                        "
+                        @click="openGallery(item, i)"
                     >
                         <img
-                            v-if="thumb(item)"
-                            :src="thumb(item) as string"
-                            class="h-full w-full object-cover"
+                            v-if="viewable(item, i)"
+                            :src="poster(item)!"
+                            :alt="item.type"
+                            class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                            @error="mediaFailed[tileKey(item, i)] = true"
                         />
-                        <div
-                            v-else
-                            class="grid h-full place-items-center text-[11px] text-ss-text-3"
+                        <!-- Locked PPV: there is no viewable rendition to show, so say so
+                             rather than leaving an unexplained empty tile. -->
+                        <span
+                            v-else-if="!item.canView"
+                            class="grid h-full place-items-center gap-1 text-ss-text-3"
                         >
-                            media
-                        </div>
-                    </div>
+                            <Lock :size="16" class="mx-auto" />
+                            <span class="text-[10px]">Locked</span>
+                        </span>
+                        <span
+                            v-else
+                            class="grid h-full place-items-center gap-1 text-ss-text-3"
+                        >
+                            <ImageOff :size="16" class="mx-auto" />
+                            <span class="text-[10px]">Unavailable</span>
+                        </span>
+
+                        <!-- video affordance over the poster -->
+                        <span
+                            v-if="item.type === 'video' && viewable(item, i)"
+                            class="pointer-events-none absolute inset-0 flex items-center justify-center"
+                        >
+                            <Play
+                                :size="20"
+                                class="text-white drop-shadow"
+                                fill="currentColor"
+                            />
+                        </span>
+                        <span
+                            v-if="item.duration && viewable(item, i)"
+                            class="pointer-events-none absolute right-1 bottom-1 rounded bg-black/60 px-1 text-[10px] text-white"
+                            >{{ fmtDuration(item.duration) }}</span
+                        >
+                    </button>
                 </div>
+
+                <SsMediaLightbox
+                    v-if="galleryOpen"
+                    :items="mediaItems"
+                    :index="galleryIndex"
+                    :model-id="modelId"
+                    @update:index="galleryIndex = $event"
+                    @close="galleryOpen = false"
+                />
             </div>
         </div>
     </div>

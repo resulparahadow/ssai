@@ -15,6 +15,10 @@ import type {
 // just revalidates against OnlyFans in the background. Chats are keyed by model
 // id; messages/fan by chat id (the fan's user id, globally unique).
 export const chatsCache = new Map<number, OfChat[]>();
+// The conversations list pages on scroll, so its cursor is cached alongside the rows:
+// returning to a creator restores where the paging got to instead of starting over.
+// `null` once the last page has been reached; absent until the first page has loaded.
+export const chatsNextCache = new Map<number, Record<string, string> | null>();
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
 

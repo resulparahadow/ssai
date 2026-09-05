@@ -28,7 +28,13 @@ export async function reqJson<T = unknown>(
         const b = await res.json().catch(() => ({}));
 
         throw new Error(
-            b.error || b.message || `Request failed (${res.status})`,
+            // Prefer the human `message` over the machine `error` code. OnlyFansAPI answers
+            // with BOTH (e.g. error: "SERVICE_UNAVAILABLE" / "SESSION_EXPIRED:NEEDS_REAUTHENTICATION"
+            // alongside "This Account can't be used. It needs re-authentication…"), and showing
+            // the code alone turned an actionable account-state problem into an opaque string in
+            // the conversations list. Our own endpoints put their human text under `error` and
+            // carry no `message`, so they still read correctly through the fallback.
+            b.message || b.error || `Request failed (${res.status})`,
         );
     }
 

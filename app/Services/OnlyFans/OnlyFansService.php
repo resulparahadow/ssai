@@ -1524,7 +1524,9 @@ class OnlyFansService
             parse_str(parse_url($next, PHP_URL_QUERY) ?: '', $q);
             // Chat messages paginate on first_id (order=desc) / last_id (order=asc); other
             // list endpoints use id/offset — carry through whichever the next_page URL sets.
-            foreach (['limit', 'offset', 'id', 'order', 'first_id', 'last_id'] as $k) {
+            // `query`/`filter` must ride along too: the conversations list pages on scroll, so
+            // dropping them made page 2 of a search silently widen back to every chat.
+            foreach (['limit', 'offset', 'id', 'order', 'first_id', 'last_id', 'query', 'filter'] as $k) {
                 if (isset($q[$k]) && $q[$k] !== '') {
                     $out[$k] = $q[$k];
                 }

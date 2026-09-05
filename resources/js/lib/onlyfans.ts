@@ -79,22 +79,43 @@ function cookie(name: string): string {
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
-    const res = await fetch(url, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let res: Response;
+
+    try {
+        res = await fetch(url, {
+            method,
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
+            },
+            body: body === undefined ? undefined : JSON.stringify(body),
+        });
+    } catch {
+        // fetch only rejects on a TRANSPORT failure (offline, DNS, reset, CORS). Its native
+        // message is "Failed to fetch", which tells a chatter nothing — these surface directly
+        // in the conversations sidebar.
+        throw new Error(
+            'Could not reach the server — check your connection and retry.',
+        );
+    }
 
     if (!res.ok) {
         const b = await res.json().catch(() => ({}));
 
         throw new Error(
-            b.error || b.message || `Request failed (${res.status})`,
+            // Prefer the human `message` over the machine `error` code. OnlyFansAPI answers
+            // with BOTH (e.g. error: "SERVICE_UNAVAILABLE" / "SESSION_EXPIRED:NEEDS_REAUTHENTICATION"
+            // alongside "This Account can't be used. It needs re-authentication…"), and showing
+            // the code alone turned an actionable account-state problem into an opaque string in
+            // the conversations list. Our own endpoints put their human text under `error` and
+            // carry no `message`, so they still read correctly through the fallback.
+            b.message ||
+                b.error ||
+                // No body to explain it: an edge/proxy failure between us and OnlyFansAPI
+                // rather than an answer from it. Name that, instead of "Request failed".
+                `OnlyFans API didn't respond (HTTP ${res.status}). Retry in a moment.`,
         );
     }
 
@@ -119,8 +140,10 @@ export const ofApi = {
             'GET',
             `${base(m)}/chats/${chat}/messages/search?query=${encodeURIComponent(query)}`,
         ),
+    /** The chat's media gallery. The server flattens the endpoint's message wrappers into
+     *  their nested media, so these arrive in the same shape as message media. */
     media: (m: number, chat: string) =>
-        req<{ items: unknown[]; hasMore: boolean; next: number | null }>(
+        req<{ items: OfMedia[]; hasMore: boolean; next: number | null }>(
             'GET',
             `${base(m)}/chats/${chat}/media`,
         ),
@@ -369,7 +392,8 @@ export const ofApi = {
             strategy: AiStrategy | null;
             telemetry: Record<string, unknown> | null;
         },
-    ) => req<{ ok: boolean }>('POST', `${base(m)}/chats/${chat}/state`, payload),
+    ) =>
+        req<{ ok: boolean }>('POST', `${base(m)}/chats/${chat}/state`, payload),
     /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). */
     getProfile: (m: number, chat: string) =>
         req<{ profile: OfFanProfile }>(
