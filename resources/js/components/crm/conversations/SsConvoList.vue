@@ -12,7 +12,7 @@ import {
     ShieldMinus,
     Video,
 } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
 import { chatDraft } from '@/lib/conversationCache';
@@ -22,14 +22,25 @@ import type { OfChat, OfPreviewKind } from '@/types/crm';
 const props = defineProps<{
     chats: OfChat[];
     loading: boolean;
+    /** Fatal: nothing loaded, so this REPLACES the list. */
     error: string | null;
+    /** Another page of conversations exists behind the scroll sentinel. */
+    hasMore: boolean;
+    loadingMore: boolean;
+    /** A scroll page failed — shown as a retry in the footer, rows kept. */
+    moreError: string | null;
+    /** Current search term. Owned by the parent: it drives a SERVER query, not a local filter. */
+    search: string;
     creator: string | null;
     selectedId: string | null;
 }>();
 
-const emit = defineEmits<{ select: [chat: OfChat]; refresh: [] }>();
-
-const search = ref('');
+const emit = defineEmits<{
+    select: [chat: OfChat];
+    refresh: [];
+    loadMore: [];
+    search: [q: string];
+}>();
 
 // Icon + label shown in the list when a chat's last message has no text (GIF/photo/video/…).
 const PREVIEW_META: Record<OfPreviewKind, { icon: Component; label: string }> =
@@ -59,15 +70,48 @@ const SKELETON_ROWS = [
     { name: 'w-28', line: 'w-32' },
 ] as const;
 
-const filtered = computed(() => {
-    const q = search.value.toLowerCase().trim();
+// The rows are whatever has been paged in, and searching goes upstream (see `search`),
+// so there is nothing left to filter locally — a client-side filter here would hide
+// conversations the server had already matched.
+const rows = computed(() => props.chats);
 
-    return props.chats.filter(
-        (c) =>
-            !q ||
-            c.name.toLowerCase().includes(q) ||
-            c.preview.toLowerCase().includes(q),
+// Infinite scroll: a sentinel below the last row asks the parent for the next page as it
+// nears the viewport. rootMargin starts the fetch before the user actually hits the end,
+// so paging feels continuous. The parent no-ops spurious calls (in-flight / exhausted).
+const sentinel = ref<HTMLElement | null>(null);
+let observer: IntersectionObserver | null = null;
+
+onMounted(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+        return;
+    }
+
+    observer = new IntersectionObserver(
+        (entries) => {
+            if (entries[0]?.isIntersecting) {
+                emit('loadMore');
+            }
+        },
+        { rootMargin: '300px' },
     );
+
+    watch(
+        sentinel,
+        (el, _old, onCleanup) => {
+            if (!el) {
+                return;
+            }
+
+            observer?.observe(el);
+            onCleanup(() => observer?.unobserve(el));
+        },
+        { immediate: true },
+    );
+});
+
+onBeforeUnmount(() => {
+    observer?.disconnect();
+    observer = null;
 });
 </script>
 
@@ -100,17 +144,23 @@ const filtered = computed(() => {
             <div class="relative flex items-center">
                 <Search :size="14" class="absolute left-2.5 text-ss-text-3" />
                 <input
-                    v-model="search"
+                    :value="search"
                     type="text"
-                    placeholder="Filter customers"
+                    placeholder="Search customers"
                     class="h-8 w-full rounded-lg border border-ss-border bg-ss-bg pr-2 pl-8 text-[13px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
+                    @input="
+                        emit(
+                            'search',
+                            ($event.target as HTMLInputElement).value,
+                        )
+                    "
                 />
             </div>
         </div>
 
         <div class="flex-1 overflow-y-auto p-2">
             <button
-                v-for="c in filtered"
+                v-for="c in rows"
                 :key="c.id"
                 type="button"
                 class="flex w-full items-start gap-2.5 rounded-lg p-2 text-left transition-colors"
@@ -229,21 +279,58 @@ const filtered = computed(() => {
                 {{ error }}
             </p>
             <p
-                v-else-if="!filtered.length"
+                v-else-if="!rows.length"
                 class="px-2 py-6 text-center text-[13px] text-ss-text-3"
             >
                 No conversations.
             </p>
 
-            <!-- Revalidating / paginating with rows already shown: a subtle footer
-                 so it's clear more conversations are still streaming in. -->
+            <!-- Scroll sentinel + paging footer. A failed page keeps every loaded row and
+                 offers a retry, rather than throwing the list away over one bad request. -->
+            <div
+                v-if="moreError"
+                class="mx-2 mb-2 space-y-1 rounded-lg border border-ss-warn/30 bg-ss-warn/10 px-2 py-1.5 text-[11px] text-ss-warn"
+            >
+                <p class="font-semibold">Couldn't load more conversations</p>
+                <!-- The upstream reason, verbatim. A generic line here would throw away the
+                     one thing that says whether to retry now, re-authenticate, or wait —
+                     OnlyFansAPI's messages are already written for a human to act on. -->
+                <p class="opacity-90">{{ moreError }}</p>
+                <button
+                    type="button"
+                    class="font-semibold underline underline-offset-2 hover:no-underline"
+                    @click="emit('loadMore')"
+                >
+                    Retry
+                </button>
+            </div>
+
+            <div
+                v-else-if="loadingMore"
+                class="flex items-center justify-center gap-2 px-2 py-3 text-[12px] text-ss-text-3"
+                role="status"
+            >
+                <LoaderCircle :size="13" class="animate-spin" />
+                Loading more…
+            </div>
+
+            <div
+                v-if="hasMore && !moreError"
+                ref="sentinel"
+                class="h-px w-full"
+                aria-hidden="true"
+            />
+
+            <!-- Revalidating page one with rows already shown. Distinct from the paging
+                 spinner above: that one is fetching the NEXT page, this is refreshing the
+                 first — labelling both "Loading more" made the list look stuck in a loop. -->
             <div
                 v-if="loading && chats.length"
                 class="flex items-center justify-center gap-2 px-2 py-3 text-[12px] text-ss-text-3"
                 role="status"
             >
                 <LoaderCircle :size="13" class="animate-spin" />
-                Loading more…
+                Refreshing…
             </div>
         </div>
     </aside>

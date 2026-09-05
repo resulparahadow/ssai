@@ -24,6 +24,19 @@ trait ForwardsOnlyFansErrors
         $body = $res->json();
 
         if (is_array($body) && $body !== []) {
+            // A JSON 5xx is still an upstream FAILURE, just a well-formed one. It used to pass
+            // through unrecorded, which left no trace when a chat-list page walk (up to 200
+            // sequential calls) died partway and took the whole list with it. 4xx stays unlogged
+            // — those are routine and caller-driven (validation, not-found, auth state).
+            if ($res->status() >= 500) {
+                Log::warning('onlyfans.proxy.upstream_error', [
+                    'status' => $res->status(),
+                    'url' => (string) ($res->effectiveUri() ?? ''),
+                    'error' => $body['error'] ?? null,
+                    'message' => Str::limit((string) ($body['message'] ?? ''), 200),
+                ]);
+            }
+
             return response()->json($body, $this->upstreamStatus($res));
         }
 

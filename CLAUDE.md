@@ -201,6 +201,17 @@ engine uses its in-process copy. Provider keys live in the engine's env
     a Giphy url isn't one (it isn't IP-locked, unlike OF CDN);
     the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
     PPV/tip + file-media sends remain deferred.
+    **The chat media gallery's payload is MESSAGES, not media (fixed 2026-09-05).**
+    `GET {acct}/chats/{chat}/media` returns `data.list[]` where each entry is a *message*
+    wrapper (`responseType: "message"`, `text`, `price`, `fromUser`) whose media sit one level
+    down in `media[]` — the same shape `normalizeMedia()` already consumes. `media()` used to
+    forward `data.list` raw, and `SsChatThread` looked for `thumb`/`preview`/`files.*.url`
+    directly on each entry, so every lookup missed and the gallery rendered a grid of blank
+    dark tiles. The controller now flattens each message through `normalizeMedia`, so gallery
+    items arrive in the SAME shape as message media and render via `mediaSrc` + `SsMediaLightbox`
+    (locked PPV shows a lock, a failed load shows "Unavailable" rather than an unexplained
+    square). `ofApi.media` is typed `OfMedia[]`. Guards: `tests/Feature/OnlyFansChatMediaTest.php`.
+    Note `hasMore`/`nextLastId` still page over MESSAGES, not media items.
     **Message media renders inline:** `normalizeMessage` now keeps a compact `media[]`
     (`normalizeMedia`: type/canView/thumb/preview/full/`source`/duration/dims) instead of only
     `mediaCount`; `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ +
@@ -266,6 +277,41 @@ engine uses its in-process copy. Provider keys live in the engine's env
     excluded) for 6h, so a re-signed url reuses the same entry. `cdn.fansapi.com` presigned
     urls, which load **direct to the browser**, carry `X-Amz-Expires=900` (**15 min**) — those
     DO rot, so a stale client-side `msgCache` entry can render broken tiles.
+    **Vendor errors carry a CODE and a MESSAGE — show the message (fixed 2026-09-05).**
+    OnlyFansAPI failure bodies are `{error: "<CODE>", message: "<human explanation>",
+    description: …}`. `req()`/`reqJson()` used to throw `b.error || b.message`, so the UI showed
+    the bare code and dropped the only actionable half: a lapsed creator session rendered in the
+    conversations list as `SERVICE_UNAVAILABLE` (or `SESSION_EXPIRED:NEEDS_REAUTHENTICATION`)
+    instead of "This Account can't be used. It needs re-authentication…". Both helpers now prefer
+    **`b.message || b.error`**; our own endpoints put their human text under `error` and carry no
+    `message`, so they still read correctly through the fallback. **`SERVICE_UNAVAILABLE` (503) is
+    an ACCOUNT-STATE error, not a vendor outage** — per the spec's Re-authenticate Account entry,
+    "API requests return 503 until re-authentication completes", so an account mid-re-auth 503s on
+    every endpoint, and an expired one 401s with `SESSION_EXPIRED:NEEDS_REAUTHENTICATION`. Neither
+    is worth retrying (`client()`'s `->retry(3)` covers only 429 + connection errors, correctly).
+    The cure is re-authenticating the creator in the OnlyFansAPI dashboard; the Creator Models
+    page flags it with the "Needs re-auth" badge off `is_authenticated`. Guards:
+    `tests/Feature/OnlyFansProxyErrorTest.php`.
+    **The conversations list pages ON SCROLL (2026-09-05).** It used to walk EVERY page on
+    open (limit=100, up to 200 sequential requests, 1 credit each) — so a large account kept
+    firing requests minutes after the page opened, and one failed page hit the single outer
+    `catch`, discarding every page already fetched and replacing the list with a raw vendor
+    code (the `SERVICE_UNAVAILABLE`-while-idle report). Now `loadChats` fetches ONE page and
+    `loadMoreChats` appends the next when `SsConvoList`'s IntersectionObserver sentinel nears
+    the viewport (`rootMargin: 300px`); the cursor lives in **`chatsNextCache`** beside
+    `chatsCache`, so returning to a creator restores its scroll depth. Opening a creator now
+    costs 1 credit instead of up to 200. Key invariants: a failed scroll page keeps every
+    loaded row and shows a footer **Retry** plus the upstream reason VERBATIM (`moreError`) —
+    a generic "couldn't load more" throws away the one line saying whether to retry now,
+    re-authenticate, or wait — while `error` still REPLACES the
+    list and is reserved for "page one failed, nothing to show"; revalidating page one MERGES
+    over the cached rows rather than truncating a deeply-scrolled list back to 100; and
+    `loadMoreChats` no-ops on in-flight/exhausted/creator-changed so the sentinel can fire
+    freely. **Search is server-side** (`chatsQuery`, 350ms debounce → the `query` param), because
+    the list only holds what has been paged in — a client-side filter would hide anyone not yet
+    scrolled to; `SsConvoList` owns no `search` state any more. This required fixing
+    `OnlyFansService::nextCursor`, whose allowlist dropped **`query`**/`filter`, so page 2 of a
+    search silently widened back to every chat. Guards: `tests/Feature/OnlyFansChatPagingTest.php`.
     **Upstream errors: `forward()`/`proxyAction()` live in `Concerns\ForwardsOnlyFansErrors`**
     (shared with `ModelOnlyFansController`). OnlyFansAPI answers every *application* error in
     JSON (422 validation, 404 `ONLYFANS_COM_ERROR`, even 500 `{"message":"Server Error"}`), so a

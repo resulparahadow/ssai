@@ -69,3 +69,69 @@ it('reports a media-proxy timeout as a timeout rather than an unhandled 500', fu
         ->get("/onlyfans/{$this->model->id}/media?url=".urlencode($url))
         ->assertStatus(504);
 });
+
+/**
+ * OnlyFansAPI's error bodies carry BOTH a machine `error` code and a human `message`
+ * (captured live 2026-09-05 from an account whose session had lapsed). The chat list is
+ * where a broken account shows up first, so the proxy must hand the browser that message —
+ * it is the only part of the payload that tells a manager what to actually do. The UI used
+ * to render the bare code ("SERVICE_UNAVAILABLE"), which says nothing.
+ */
+it('forwards the human message on a vendor account-state error, not just the code', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'error' => 'SESSION_EXPIRED:NEEDS_REAUTHENTICATION',
+        'message' => "This Account can't be used. It needs re-authentication. Please visit Dashboard or use /authenticate endpoint to re-authenticate.",
+        'description' => 'This error happened most probably because of a bug in the OnlyFans.com API or you sent wrong parameters (like a non-existing user id).',
+    ], 401)]);
+
+    test()->actingAs($this->admin)
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertStatus(401)
+        ->assertJsonPath('error', 'SESSION_EXPIRED:NEEDS_REAUTHENTICATION')
+        ->assertJsonPath('message', "This Account can't be used. It needs re-authentication. Please visit Dashboard or use /authenticate endpoint to re-authenticate.");
+});
+
+/** 503 is what the vendor returns while an account is re-authenticating (spec: Re-authenticate Account). */
+it('forwards a 503 raised while an account is re-authenticating', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response([
+        'error' => 'SERVICE_UNAVAILABLE',
+        'message' => 'This account is currently re-authenticating. Please try again shortly.',
+    ], 503)]);
+
+    test()->actingAs($this->admin)
+        ->getJson("/onlyfans/{$this->model->id}/chats")
+        ->assertStatus(503)
+        ->assertJsonPath('message', 'This account is currently re-authenticating. Please try again shortly.');
+});
+
+/**
+ * A JSON 5xx from the vendor used to pass straight through unlogged — only NON-JSON bodies
+ * were recorded. The chat list walks up to 200 pages in one burst, so when one page 5xxs the
+ * whole load dies with nothing on the server saying which call broke or why. Log it.
+ */
+it('logs a vendor 5xx even though the body is valid JSON', function () {
+    Log::spy();
+
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(
+        ['error' => 'SERVICE_UNAVAILABLE', 'message' => 'Temporarily unavailable.'], 503
+    )]);
+
+    test()->actingAs($this->admin)->getJson("/onlyfans/{$this->model->id}/chats");
+
+    Log::shouldHaveReceived('warning')->once()->withArgs(function (string $msg, array $ctx) {
+        return $msg === 'onlyfans.proxy.upstream_error'
+            && $ctx['status'] === 503
+            && $ctx['error'] === 'SERVICE_UNAVAILABLE'
+            && str_contains((string) $ctx['url'], '/chats');
+    });
+});
+
+it('does not log a routine 4xx as an upstream failure', function () {
+    Log::spy();
+
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['error' => 'VALIDATION_ERROR'], 422)]);
+
+    test()->actingAs($this->admin)->getJson("/onlyfans/{$this->model->id}/chats");
+
+    Log::shouldNotHaveReceived('warning');
+});

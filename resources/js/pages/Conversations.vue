@@ -12,6 +12,7 @@ import { useCreatorContext } from '@/composables/useCreatorContext';
 import {
     chatComposer,
     chatsCache,
+    chatsNextCache,
     fanCache,
     msgCache,
     nextCache,
@@ -49,6 +50,18 @@ const model = computed<SidebarCreator | null>(
 const chats = ref<OfChat[]>([]);
 const chatsLoading = ref(false);
 const chatsError = ref<string | null>(null);
+// Scroll paging: the cursor for the NEXT page of conversations (null once the list is
+// exhausted, absent until the first page lands), plus its own loading/error state so a
+// failed page appends a retry in the footer instead of destroying the rows already shown.
+const chatsNext = ref<Record<string, string> | null>(null);
+const chatsLoadingMore = ref(false);
+const chatsMoreError = ref<string | null>(null);
+// Server-side search: the list only holds what has been paged in, so filtering client-side
+// would hide anyone not yet scrolled to. `query` goes upstream instead (see loadChats).
+const chatsQuery = ref('');
+// How many conversations to pull per scroll page (OnlyFans caps this at 100).
+const CHAT_PAGE = '100';
+let queryDebounce: ReturnType<typeof setTimeout> | undefined;
 const selected = ref<OfChat | null>(null);
 const activeModelId = ref<number | null>(null);
 
@@ -705,56 +718,53 @@ async function loadChats() {
     chats.value = cached ?? [];
     chatsLoading.value = true;
     chatsError.value = null;
+    chatsMoreError.value = null;
+
+    // ONE page. The rest arrives as the user scrolls (loadMoreChats) — walking every page
+    // up front cost a credit per 100 chats and kept firing requests minutes after open.
+    const params: Record<string, string> = { limit: CHAT_PAGE };
+
+    if (chatsQuery.value.trim()) {
+        params.query = chatsQuery.value.trim();
+    }
 
     try {
-        // OnlyFans returns chats one page at a time (default 10, max 100). Follow the
-        // offset cursor (`next`) until it runs out so the list shows EVERY chat, not
-        // just the first page. Pages accumulate (deduped by id) and render
-        // progressively; the page cap is a runaway-loop guard (200 × 100 = 20k chats).
-        const list: OfChat[] = [];
-        const seen = new Set<string>();
+        const r = await ofApi.chats(m.id, params);
+
+        // Bail out if the user switched creators mid-load (finally still resets state).
+        if (model.value?.id !== m.id) {
+            return;
+        }
+
+        const fresh = r.chats as OfChat[];
         // The currently-open chat has been seen — keep its badge cleared even if the
         // server still reports it unread, so a background revalidation can't flash it back.
         const openId = selected.value?.id;
-        let cursor: Record<string, string> | null = { limit: '100' };
 
-        for (let page = 0; cursor && page < 200; page++) {
-            const r = await ofApi.chats(m.id, cursor);
-
-            // Bail out if the user switched creators mid-load (finally still resets state).
-            if (model.value?.id !== m.id) {
-                return;
-            }
-
-            for (const chat of r.chats as OfChat[]) {
-                if (seen.has(chat.id)) {
-                    continue;
-                }
-
-                seen.add(chat.id);
-
-                if (openId && chat.id === openId) {
-                    chat.unread = 0;
-                }
-
-                list.push(chat);
-            }
-
-            cursor = r.next;
-
-            // Render what we have so far, but never shrink a larger cached list mid-load.
-            if (list.length >= chats.value.length) {
-                chats.value = [...list];
+        for (const chat of fresh) {
+            if (openId && chat.id === openId) {
+                chat.unread = 0;
             }
         }
+
+        // Revalidating page one must not TRUNCATE a list the user had already scrolled
+        // deep into: keep whatever the cache held beyond this page, deduped. Page one is
+        // authoritative for its own window, so it wins on order and unread counts.
+        const freshIds = new Set(fresh.map((c) => c.id));
+        const deeper = (cached ?? []).filter((c) => !freshIds.has(c.id));
+        const list = [...fresh, ...deeper];
 
         // Cache and display share ONE array reference so the realtime inbound handler's
         // in-place list mutations keep the cache in sync (see onInbound).
         chatsCache.set(m.id, list);
-
-        if (model.value?.id === m.id) {
-            chats.value = list;
-        }
+        // With deeper pages still held, the cursor that matters is the one pointing past
+        // them — page one's `next` would re-fetch rows we already have.
+        const cursor = deeper.length
+            ? (chatsNextCache.get(m.id) ?? r.next)
+            : r.next;
+        chatsNextCache.set(m.id, cursor);
+        chats.value = list;
+        chatsNext.value = cursor;
     } catch (e) {
         if (model.value?.id === m.id) {
             chatsError.value = e instanceof Error ? e.message : String(e);
@@ -768,6 +778,70 @@ async function loadChats() {
             chatsLoading.value = false;
         }
     }
+}
+
+/**
+ * Append the next page of conversations. Driven by the list's scroll sentinel, so it must be
+ * cheap to call spuriously: it no-ops while a page is already in flight, once the cursor is
+ * exhausted, or if the creator changed under it. A failure keeps every loaded row and leaves
+ * the cursor intact so the footer's Retry can simply call this again.
+ */
+async function loadMoreChats() {
+    const m = model.value;
+    const cursor = chatsNext.value;
+
+    if (!m || !cursor || chatsLoadingMore.value || chatsLoading.value) {
+        return;
+    }
+
+    chatsLoadingMore.value = true;
+    chatsMoreError.value = null;
+
+    try {
+        const r = await ofApi.chats(m.id, cursor);
+
+        if (model.value?.id !== m.id) {
+            return;
+        }
+
+        const seen = new Set(chats.value.map((c) => c.id));
+
+        for (const chat of r.chats as OfChat[]) {
+            if (!seen.has(chat.id)) {
+                // push (not reassign) so chatsCache's shared array identity survives.
+                chats.value.push(chat);
+            }
+        }
+
+        chatsNext.value = r.next;
+        chatsNextCache.set(m.id, r.next);
+    } catch (e) {
+        if (model.value?.id === m.id) {
+            chatsMoreError.value = e instanceof Error ? e.message : String(e);
+        }
+    } finally {
+        if (model.value?.id === m.id) {
+            chatsLoadingMore.value = false;
+        }
+    }
+}
+
+/** Debounced server-side search: reset to page one with the new `query`. */
+function onSearch(q: string) {
+    chatsQuery.value = q;
+    clearTimeout(queryDebounce);
+    queryDebounce = setTimeout(() => {
+        // A search is a different result set, so drop the cached page-one rows for this
+        // creator — otherwise the stale full list would flash in behind the results.
+        const id = model.value?.id;
+
+        if (id != null) {
+            chatsCache.delete(id);
+            chatsNextCache.delete(id);
+        }
+
+        loadChats();
+    }, 350);
 }
 
 // How many messages to pull per page (OnlyFans caps this at 100).
@@ -1189,10 +1263,16 @@ onBeforeUnmount(() => {
             :chats="chats"
             :loading="chatsLoading"
             :error="chatsError"
+            :has-more="chatsNext !== null"
+            :loading-more="chatsLoadingMore"
+            :more-error="chatsMoreError"
+            :search="chatsQuery"
             :creator="model?.name ?? null"
             :selected-id="selected?.id ?? null"
             @select="openChat"
             @refresh="loadChats"
+            @load-more="loadMoreChats"
+            @search="onSearch"
         />
 
         <template v-if="selected && model">

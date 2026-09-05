@@ -105,8 +105,22 @@ class OnlyFansChatController extends Controller
         }
         $j = $res->json();
 
+        // `data.list` holds MESSAGES, not media: each entry is a message wrapper whose media
+        // sit one level down in `media[]` (spec: paths./api/{account}/chats/{chat_id}/media).
+        // Returning those raw made the gallery render a grid of empty tiles — every media
+        // field it looked for was on the nested object. normalizeMedia() already maps a
+        // message to its renditions, so the gallery gets the same shape as message bubbles.
+        $list = data_get($j, 'data.list', []);
+        $items = [];
+
+        foreach (is_array($list) ? $list : [] as $message) {
+            if (is_array($message)) {
+                array_push($items, ...$this->of->normalizeMedia($message));
+            }
+        }
+
         return response()->json([
-            'items' => data_get($j, 'data.list', []),
+            'items' => $items,
             'hasMore' => (bool) data_get($j, 'data.hasMore', false),
             'next' => data_get($j, 'data.nextLastId'),
         ]);
