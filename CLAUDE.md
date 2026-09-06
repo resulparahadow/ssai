@@ -216,7 +216,13 @@ engine uses its in-process copy. Provider keys live in the engine's env
     (`normalizeMedia`: type/canView/thumb/preview/full/`source`/duration/dims) instead of only
     `mediaCount`; `SsMessageMedia` shows a thumbnail grid in the bubble (photo, video = poster + ▶ +
     duration, locked/PPV = 🔒 + price) and `SsMediaLightbox` is the full-screen viewer (prev/next +
-    arrow/Esc) that plays a video from its `source`. **Video playback is DRM-gated (vendor-confirmed
+    arrow/Esc) that plays a video from its `source`. The bubble grid caps at 4 tiles with a "+N"
+    overlay, so the lightbox carries a **thumbnail strip** of the WHOLE set along the bottom (click
+    to jump; active item ringed and scrolled into view) — otherwise the 5th item on is reachable
+    only by guessing the arrow keys. The strip is a real flex row **below** the stage, not an
+    overlay: `--ss-stage` on the backdrop is the media's max height and shrinks by the strip's
+    height, and the scroller uses `mx-auto w-max` rather than `justify-center`, which would put
+    the first thumbnails out of reach of the scrollbar once the row overflows. **Video playback is DRM-gated (vendor-confirmed
     2026-07-13):** `bestVideoSource` resolves a playable MP4 from `videoSources` (highest res) or
     `files.full.url`, so **non-DRM videos play inline**. But creators with OnlyFans "DRM Protection"
     ON (`GET {acct}/settings/drm` → `enabled`) serve videos as encrypted FairPlay(HLS)/Widevine(DASH)

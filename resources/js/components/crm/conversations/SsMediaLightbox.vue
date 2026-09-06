@@ -6,9 +6,17 @@ import {
     FolderOpen,
     LoaderCircle,
     Lock,
+    Play,
     X,
 } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from 'vue';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { OfMedia } from '@/types/crm';
 
@@ -56,7 +64,7 @@ const stageStyle = computed(() =>
     !fullLoaded.value && ratio.value
         ? {
               aspectRatio: String(ratio.value),
-              height: `min(85vh, calc(92vw / ${ratio.value}))`,
+              height: `min(var(--ss-stage), calc(92vw / ${ratio.value}))`,
               width: 'auto',
           }
         : {},
@@ -200,6 +208,37 @@ function go(delta: number) {
     }
 }
 
+// --- thumbnail strip --------------------------------------------------------
+// The bubble shows at most 4 tiles ("+N" on the last one), so everything past the fourth
+// item was reachable only by guessing that the arrow keys would keep going. The strip lists
+// the WHOLE set along the bottom, so the rest is both visible and directly clickable.
+const strip = ref<HTMLElement | null>(null);
+
+function thumbOf(m: OfMedia): string | null {
+    const cdn = m.thumb || m.preview || null;
+
+    return cdn ? proxy(cdn) : null;
+}
+
+// Keep the active thumbnail in view when the selection moves by arrow key or arrow button —
+// `block: 'nearest'` so a strip that is already on screen never scrolls the stage away.
+watch(
+    () => props.index,
+    async () => {
+        await nextTick();
+
+        const el = strip.value?.children[props.index] as
+            | HTMLElement
+            | undefined;
+
+        el?.scrollIntoView?.({
+            block: 'nearest',
+            inline: 'center',
+            behavior: 'smooth',
+        });
+    },
+);
+
 function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
         emit('close');
@@ -224,8 +263,14 @@ onBeforeUnmount(() => {
 
 <template>
     <Teleport to="body">
+        <!--
+          `--ss-stage` is the height the media may occupy. The thumbnail strip is a real row in
+          the column rather than an overlay, so the stage has to shrink to make room for it —
+          otherwise a portrait photo simply renders behind the strip.
+        -->
         <div
-            class="fixed inset-0 z-50 grid place-items-center bg-black/90 p-4"
+            class="fixed inset-0 z-50 flex flex-col bg-black/90"
+            :style="{ '--ss-stage': hasMany ? 'calc(100vh - 11rem)' : '88vh' }"
             @click.self="emit('close')"
         >
             <!-- close -->
@@ -245,122 +290,175 @@ onBeforeUnmount(() => {
                 >{{ index + 1 }} / {{ items.length }}</span
             >
 
-            <!-- prev / next -->
-            <button
-                v-if="hasMany"
-                type="button"
-                :disabled="index === 0"
-                class="absolute left-3 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30"
-                @click="go(-1)"
-            >
-                <ChevronLeft :size="22" />
-            </button>
-            <button
-                v-if="hasMany"
-                type="button"
-                :disabled="index === items.length - 1"
-                class="absolute right-3 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30"
-                @click="go(1)"
-            >
-                <ChevronRight :size="22" />
-            </button>
-
-            <!-- media -->
+            <!-- stage: everything except the strip, so clicking the space around the
+                 media still closes the lightbox -->
             <div
-                class="flex max-h-[90vh] max-w-[92vw] flex-col items-center gap-2"
+                class="relative flex min-h-0 flex-1 items-center justify-center p-4"
+                @click.self="emit('close')"
             >
-                <video
-                    v-if="isPlayable && videoSrc"
-                    :src="videoSrc"
-                    controls
-                    autoplay
-                    class="max-h-[90vh] max-w-[92vw] rounded-lg"
-                />
-                <!-- decrypted DRM copy, once the download finishes -->
-                <video
-                    v-else-if="drmSrc"
-                    :src="drmSrc"
-                    controls
-                    autoplay
-                    class="max-h-[90vh] max-w-[92vw] rounded-lg"
-                />
-                <template v-else-if="displaySrc">
-                    <!-- A DRM video's poster sweeps while the decrypt downloads; a photo stays
-                         blurred until its full-size file lands. Both keep the image visible. -->
-                    <div
-                        class="relative max-h-[85vh] max-w-[92vw] rounded-lg"
-                        :class="drmLoading && 'ss-shimmer'"
-                        :style="stageStyle"
-                    >
-                        <img
-                            :src="displaySrc"
-                            class="max-h-[85vh] max-w-[92vw] rounded-lg object-contain transition-[filter] duration-300"
-                            :class="
-                                fullLoaded
-                                    ? ''
-                                    : 'h-full w-full scale-[1.02] blur-xl'
-                            "
-                        />
-                        <span
-                            v-if="!fullLoaded"
-                            class="absolute inset-0 grid place-items-center"
-                        >
-                            <LoaderCircle
-                                :size="26"
-                                class="animate-spin text-white/80"
-                            />
-                        </span>
-                    </div>
-                    <div
-                        v-if="canLoadDrm"
-                        class="flex flex-col items-center gap-1.5"
-                    >
-                        <p
-                            v-if="drmLoading"
-                            class="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-[12px] text-white/80"
-                        >
-                            <LoaderCircle :size="13" class="animate-spin" />
-                            Loading video…
-                        </p>
-                        <template v-else-if="drmError">
-                            <p
-                                class="max-w-xs text-center text-[12px] text-white/70"
-                            >
-                                {{ drmError }}
-                            </p>
-                            <Link
-                                v-if="drmVaultOnly"
-                                href="/media-vault"
-                                class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-[12px] font-medium text-white hover:bg-white/25"
-                            >
-                                <FolderOpen :size="13" />
-                                Open Media Vault
-                            </Link>
-                            <button
-                                v-else
-                                type="button"
-                                class="rounded-full bg-white/15 px-3.5 py-1.5 text-[12px] font-medium text-white hover:bg-white/25"
-                                @click="loadDrm"
-                            >
-                                Try again
-                            </button>
-                        </template>
-                    </div>
-                    <p
-                        v-else-if="isVideo"
-                        class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[12px] text-white/70"
-                    >
-                        <Lock :size="12" />
-                        Locked video — can't be played here
-                    </p>
-                </template>
-                <div
-                    v-else
-                    class="grid h-40 w-64 place-items-center rounded-lg bg-white/10 text-white/70"
+                <!-- prev / next -->
+                <button
+                    v-if="hasMany"
+                    type="button"
+                    :disabled="index === 0"
+                    title="Previous (←)"
+                    class="absolute top-1/2 left-3 z-10 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30"
+                    @click="go(-1)"
                 >
-                    <div class="text-center">
-                        <Lock :size="22" class="mx-auto mb-1" />
-                        <span class="text-[12px]">Locked media</span>
+                    <ChevronLeft :size="22" />
+                </button>
+                <button
+                    v-if="hasMany"
+                    type="button"
+                    :disabled="index === items.length - 1"
+                    title="Next (→)"
+                    class="absolute top-1/2 right-3 z-10 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30"
+                    @click="go(1)"
+                >
+                    <ChevronRight :size="22" />
+                </button>
+
+                <!-- media -->
+                <div class="flex max-w-[92vw] flex-col items-center gap-2">
+                    <video
+                        v-if="isPlayable && videoSrc"
+                        :src="videoSrc"
+                        controls
+                        autoplay
+                        class="max-h-[var(--ss-stage)] max-w-[92vw] rounded-lg"
+                    />
+                    <!-- decrypted DRM copy, once the download finishes -->
+                    <video
+                        v-else-if="drmSrc"
+                        :src="drmSrc"
+                        controls
+                        autoplay
+                        class="max-h-[var(--ss-stage)] max-w-[92vw] rounded-lg"
+                    />
+                    <template v-else-if="displaySrc">
+                        <!-- A DRM video's poster sweeps while the decrypt downloads; a photo stays
+                         blurred until its full-size file lands. Both keep the image visible. -->
+                        <div
+                            class="relative max-h-[var(--ss-stage)] max-w-[92vw] rounded-lg"
+                            :class="drmLoading && 'ss-shimmer'"
+                            :style="stageStyle"
+                        >
+                            <img
+                                :src="displaySrc"
+                                class="max-h-[var(--ss-stage)] max-w-[92vw] rounded-lg object-contain transition-[filter] duration-300"
+                                :class="
+                                    fullLoaded
+                                        ? ''
+                                        : 'h-full w-full scale-[1.02] blur-xl'
+                                "
+                            />
+                            <span
+                                v-if="!fullLoaded"
+                                class="absolute inset-0 grid place-items-center"
+                            >
+                                <LoaderCircle
+                                    :size="26"
+                                    class="animate-spin text-white/80"
+                                />
+                            </span>
+                        </div>
+                        <div
+                            v-if="canLoadDrm"
+                            class="flex flex-col items-center gap-1.5"
+                        >
+                            <p
+                                v-if="drmLoading"
+                                class="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-[12px] text-white/80"
+                            >
+                                <LoaderCircle :size="13" class="animate-spin" />
+                                Loading video…
+                            </p>
+                            <template v-else-if="drmError">
+                                <p
+                                    class="max-w-xs text-center text-[12px] text-white/70"
+                                >
+                                    {{ drmError }}
+                                </p>
+                                <Link
+                                    v-if="drmVaultOnly"
+                                    href="/media-vault"
+                                    class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-[12px] font-medium text-white hover:bg-white/25"
+                                >
+                                    <FolderOpen :size="13" />
+                                    Open Media Vault
+                                </Link>
+                                <button
+                                    v-else
+                                    type="button"
+                                    class="rounded-full bg-white/15 px-3.5 py-1.5 text-[12px] font-medium text-white hover:bg-white/25"
+                                    @click="loadDrm"
+                                >
+                                    Try again
+                                </button>
+                            </template>
+                        </div>
+                        <p
+                            v-else-if="isVideo"
+                            class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[12px] text-white/70"
+                        >
+                            <Lock :size="12" />
+                            Locked video — can't be played here
+                        </p>
+                    </template>
+                    <div
+                        v-else
+                        class="grid h-40 w-64 place-items-center rounded-lg bg-white/10 text-white/70"
+                    >
+                        <div class="text-center">
+                            <Lock :size="22" class="mx-auto mb-1" />
+                            <span class="text-[12px]">Locked media</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- thumbnail strip: the whole set, so nothing is hidden behind "+N" -->
+            <div
+                v-if="hasMany"
+                class="shrink-0 border-t border-white/10 bg-black/40"
+            >
+                <!-- `w-max mx-auto` rather than `justify-center` on the scroller: a centred
+                     flex row that overflows puts its first items out of reach of the scrollbar. -->
+                <div class="overflow-x-auto">
+                    <div ref="strip" class="mx-auto flex w-max gap-2 px-4 py-3">
+                        <button
+                            v-for="(m, i) in items"
+                            :key="m.id ?? i"
+                            type="button"
+                            class="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-white/10 ring-2 transition-opacity"
+                            :class="
+                                i === index
+                                    ? 'opacity-100 ring-white'
+                                    : 'opacity-55 ring-transparent hover:opacity-90'
+                            "
+                            :title="`${i + 1} / ${items.length}`"
+                            @click="emit('update:index', i)"
+                        >
+                            <img
+                                v-if="m.canView && thumbOf(m)"
+                                :src="thumbOf(m)!"
+                                alt=""
+                                loading="lazy"
+                                class="h-full w-full object-cover"
+                            />
+                            <span
+                                v-else
+                                class="grid h-full w-full place-items-center text-white/60"
+                            >
+                                <Lock :size="14" />
+                            </span>
+                            <span
+                                v-if="m.type === 'video' && m.canView"
+                                class="absolute inset-0 grid place-items-center text-white"
+                            >
+                                <Play :size="14" fill="currentColor" />
+                            </span>
+                        </button>
                     </div>
                 </div>
             </div>
