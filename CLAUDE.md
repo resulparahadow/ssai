@@ -313,7 +313,23 @@ engine uses its in-process copy. Provider keys live in the engine's env
     list and is reserved for "page one failed, nothing to show"; revalidating page one MERGES
     over the cached rows rather than truncating a deeply-scrolled list back to 100; and
     `loadMoreChats` no-ops on in-flight/exhausted/creator-changed so the sentinel can fire
-    freely. **Search is server-side** (`chatsQuery`, 350ms debounce → the `query` param), because
+    freely. **A short first page must auto-fill, and the observer cannot do that alone
+    (fixed 2026-09-07).** IntersectionObserver reports only CHANGES in intersection, so a
+    sentinel that never leaves the viewport never fires again. On a fresh load that is
+    invisible — `chatsNext` starts null, so the sentinel doesn't exist until page one lands
+    and `observe()` delivers its guaranteed initial callback. Switching creators in-page hit
+    neither: the sentinel stayed mounted throughout, so nothing re-observed it, and the page
+    stopped at ~10 rows with no scrollbar to scroll. Two rules now hold. (1) `loadChats`
+    resets **per-creator paging state** on a creator change — `chatsNext` to that creator's
+    cached cursor and `chatsLoadingMore` to false; the old cursor would page the NEW creator
+    from the OLD one's offset, and a page in flight for the creator just left never clears
+    its own flag (its `finally` is scoped to that creator), wedging paging for good.
+    (2) `SsConvoList` **re-arms** the observer (`unobserve` then `observe` — `observe()` alone
+    is a no-op on an already-observed target) after each page settles, which re-reports the
+    sentinel's CURRENT state. `askedAt` records the row count at each request and blocks a
+    second request at the same count, so a page that returns nothing with its cursor still
+    open can't spin. NB the vendor returns ~10 chats regardless of our `limit=100`, so
+    filling a tall list costs several calls. **Search is server-side** (`chatsQuery`, 350ms debounce → the `query` param), because
     the list only holds what has been paged in — a client-side filter would hide anyone not yet
     scrolled to; `SsConvoList` owns no `search` state any more. This required fixing
     `OnlyFansService::nextCursor`, whose allowlist dropped **`query`**/`filter`, so page 2 of a
@@ -364,6 +380,25 @@ engine uses its in-process copy. Provider keys live in the engine's env
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.
+    **The open chat is URL state (`/conversations?chat=<id>`).** The caches are in-memory, so a
+    reload used to land back on the empty state. `syncChatUrl` writes the id with
+    **`history.replaceState`**, not an Inertia visit — the page is a shell whose data is fetched
+    client-side, so a round-trip per chat click buys nothing, and adding no history entry keeps
+    Back meaning "leave Conversations" rather than walking back through every chat opened;
+    Inertia's own `history.state` is passed through untouched (it restores its page object from
+    it). NB the CREATOR is not in the URL — it comes from the app-wide creator context
+    (localStorage + mirror cookie), so a shared link reopens that chat only for someone whose
+    context resolves to the same creator. `restoreOpenChat` runs after each page-one load and
+    no-ops once a chat is open, so a revalidation can't hijack the current selection; the `?chat`
+    the page loaded with wins, and `rememberOpenChat`/`recallOpenChat`
+    (`lib/conversationCache.ts`, **sessionStorage**, per creator, **id only** — no name, preview
+    or message text to disk) is the fallback that covers a bare `/conversations` arrived at from
+    another page in the same tab. A creator switch drops the param (it belonged to the creator
+    just left). A remembered chat deeper than page one is NOT paged to (a credit per page); the
+    chat id **is** the fan's user id, so one `ofApi.fan` builds a stub row — its list-only fields
+    (mute, pinned count, canSend) hold defaults until the real row arrives, when
+    `rebindSelected()` swaps it in (`selected` must BE a row in `chats.value` or `patchChat`
+    mutates an orphan). A failing lookup forgets the id rather than re-billing on every load.
     `SsChatThread` auto-scrolls to the newest message (bottom) on open/refresh. The bigger
     upgrade path if the data layer grows is `@tanstack/vue-query` (staleness windows, dedup,
     pagination). **Realtime inbound is wired** (see below): the page subscribes to the active

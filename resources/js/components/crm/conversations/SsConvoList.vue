@@ -12,7 +12,14 @@ import {
     ShieldMinus,
     Video,
 } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from 'vue';
 import type { Component } from 'vue';
 import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
 import { chatDraft } from '@/lib/conversationCache';
@@ -80,6 +87,62 @@ const rows = computed(() => props.chats);
 // so paging feels continuous. The parent no-ops spurious calls (in-flight / exhausted).
 const sentinel = ref<HTMLElement | null>(null);
 let observer: IntersectionObserver | null = null;
+// Row count when we last asked for a page. The auto-fill below refuses to ask twice at the
+// same count, so a page that comes back empty with its cursor still open can't spin.
+let askedAt = -1;
+
+function askForMore() {
+    askedAt = props.chats.length;
+    emit('loadMore');
+}
+
+/**
+ * Re-arm the observer on the sentinel. IntersectionObserver reports only CHANGES in
+ * intersection, and a sentinel that never leaves the viewport never changes — so a page too
+ * short to fill the container sits there waiting for a scroll the user cannot perform.
+ * Re-observing queues a fresh initial observation, which reports the sentinel's CURRENT
+ * state and pages on. `observe()` alone is a no-op on an already-observed target, hence the
+ * unobserve first.
+ */
+function rearm() {
+    const el = sentinel.value;
+
+    if (!observer || !el) {
+        return;
+    }
+
+    observer.unobserve(el);
+    observer.observe(el);
+}
+
+// Whenever a page settles, re-check whether the list still comes up short. This is what
+// covers a CREATOR SWITCH: the sentinel stays mounted across it, so nothing else re-triggers
+// the observer and the first short page would never ask for a second.
+watch(
+    () => [props.chats.length, props.loading, props.loadingMore] as const,
+    async () => {
+        if (
+            props.loading ||
+            props.loadingMore ||
+            !props.hasMore ||
+            props.moreError ||
+            props.chats.length === askedAt // that page added nothing — stop asking
+        ) {
+            return;
+        }
+
+        await nextTick();
+        rearm();
+    },
+);
+
+// A different creator is a different list — let it fill from scratch.
+watch(
+    () => props.creator,
+    () => {
+        askedAt = -1;
+    },
+);
 
 onMounted(() => {
     if (typeof IntersectionObserver === 'undefined') {
@@ -89,7 +152,7 @@ onMounted(() => {
     observer = new IntersectionObserver(
         (entries) => {
             if (entries[0]?.isIntersecting) {
-                emit('loadMore');
+                askForMore();
             }
         },
         { rootMargin: '300px' },

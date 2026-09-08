@@ -16,6 +16,8 @@ import {
     fanCache,
     msgCache,
     nextCache,
+    recallOpenChat,
+    rememberOpenChat,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
@@ -64,6 +66,36 @@ const CHAT_PAGE = '100';
 let queryDebounce: ReturnType<typeof setTimeout> | undefined;
 const selected = ref<OfChat | null>(null);
 const activeModelId = ref<number | null>(null);
+
+// The open chat lives in the URL (`?chat=<id>`) — a reload, a bookmark, and a link pasted to a
+// teammate all reopen the same conversation. Written with replaceState rather than an Inertia
+// visit: the page is a shell whose data is fetched client-side, so a server round-trip per chat
+// click would buy nothing, and adding no history entry keeps Back meaning "leave Conversations"
+// instead of walking back through every chat visited. Inertia's own history state is passed
+// through untouched (it restores the page object from it on back/forward).
+function syncChatUrl(chatId: string | null) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const url = new URL(window.location.href);
+
+    if (chatId) {
+        url.searchParams.set('chat', chatId);
+    } else {
+        url.searchParams.delete('chat');
+    }
+
+    window.history.replaceState(window.history.state, '', url);
+}
+
+// The chat asked for by the URL we loaded on. Consumed by the first restore, then cleared —
+// after that the URL only ever reflects what the user opened.
+const urlChat = ref<string | null>(
+    typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('chat'),
+);
 
 const messages = ref<OfMessage[]>([]);
 const msgsLoading = ref(false);
@@ -122,6 +154,13 @@ function dropChat() {
     msgCache.delete(id);
     fanCache.delete(id);
     nextCache.delete(id);
+
+    if (model.value) {
+        rememberOpenChat(model.value.id, null);
+    }
+
+    syncChatUrl(null);
+
     selected.value = null;
     messages.value = [];
     fan.value = null;
@@ -689,6 +728,99 @@ async function resend(failed: OfMessage) {
     }
 }
 
+/**
+ * Re-point `selected` at the live list row once paging brings it in. A chat restored after a
+ * reload can sit deeper than page one, so it opens as a detached stub (see restoreOpenChat);
+ * from then on patchChat() would mutate that stub and the list row would drift out of sync on
+ * mute/pin/restrict. The real row wins the moment it arrives.
+ */
+function rebindSelected() {
+    const cur = selected.value;
+
+    if (!cur) {
+        return;
+    }
+
+    const row = chats.value.find((c) => c.id === cur.id);
+
+    if (row && row !== cur) {
+        row.unread = 0; // the open chat has been read
+        selected.value = row;
+    }
+}
+
+/**
+ * Reopen the chat the user was in before the reload. Called after each page-one load, and a
+ * no-op once a chat is open — so a same-creator revalidation can never hijack the current
+ * selection.
+ *
+ * `allowFetch` stays false while we are showing only the cached list: the row may still land
+ * in the page-one response a moment later, and the fallback below costs a request.
+ */
+async function restoreOpenChat(m: SidebarCreator, allowFetch: boolean) {
+    if (selected.value) {
+        return;
+    }
+
+    // The URL is authoritative (reload / shared link). Falling back to the remembered chat
+    // covers a bare `/conversations` — coming back from another page in the same tab.
+    const id = urlChat.value ?? recallOpenChat(m.id);
+
+    if (!id) {
+        return;
+    }
+
+    const row = chats.value.find((c) => c.id === id);
+
+    if (row) {
+        openChat(row);
+
+        return;
+    }
+
+    if (!allowFetch) {
+        return;
+    }
+
+    // The chat is deeper in the list than page one (the user had scrolled or searched to
+    // it). Paging until it turns up would cost a credit per page, so ask OnlyFans for the
+    // fan directly — the chat id IS the fan's user id. The fields that only the chat list
+    // carries (mute, pinned count, canSend) stay at their defaults until paging or a Refresh
+    // brings the real row in, at which point rebindSelected() swaps it in.
+    try {
+        const f = (await ofApi.fan(m.id, id)).fan as OfFan;
+
+        if (model.value?.id !== m.id || selected.value) {
+            return;
+        }
+
+        const name = f.name || f.username || id;
+
+        fanCache.set(id, f); // openChat renders it instantly, then revalidates
+        openChat({
+            id,
+            name,
+            username: f.username,
+            avatar: f.avatar,
+            initials: deriveInitials(name),
+            preview: '',
+            previewKind: null,
+            time: null,
+            unread: 0,
+            canSend: true,
+            canSendReason: null,
+            totalSpent: f.totalSpent,
+            muted: false,
+            pinnedCount: 0,
+            restricted: f.isRestricted,
+        });
+    } catch {
+        // The fan is unreachable (chat deleted, access revoked). Forget it rather than
+        // paying for the same failing lookup on every load.
+        rememberOpenChat(m.id, null);
+    }
+}
+
 async function loadChats() {
     const m = model.value;
 
@@ -699,7 +831,21 @@ async function loadChats() {
         messages.value = [];
         fan.value = null;
         rail.value = 'fan';
+
+        // A real switch, not the first resolve on load: the `?chat=` we arrived with belongs
+        // to the creator we just left, so drop it (the new creator's own restore rewrites it).
+        if (activeModelId.value !== null) {
+            urlChat.value = null;
+            syncChatUrl(null);
+        }
+
         activeModelId.value = m?.id ?? null;
+        // Paging state is per creator and must not carry over. The cursor would page the
+        // NEW creator from the OLD one's offset; and a page still in flight for the creator
+        // we just left never clears `chatsLoadingMore` itself (its `finally` is scoped to
+        // that creator), which would block paging here permanently.
+        chatsNext.value = m ? (chatsNextCache.get(m.id) ?? null) : null;
+        chatsLoadingMore.value = false;
     }
 
     if (!m || !m.hasOf) {
@@ -716,6 +862,7 @@ async function loadChats() {
     // top indicator while we revalidate against OnlyFans in the background.
     const cached = chatsCache.get(m.id);
     chats.value = cached ?? [];
+    restoreOpenChat(m, false);
     chatsLoading.value = true;
     chatsError.value = null;
     chatsMoreError.value = null;
@@ -765,6 +912,8 @@ async function loadChats() {
         chatsNextCache.set(m.id, cursor);
         chats.value = list;
         chatsNext.value = cursor;
+        rebindSelected();
+        restoreOpenChat(m, true);
     } catch (e) {
         if (model.value?.id === m.id) {
             chatsError.value = e instanceof Error ? e.message : String(e);
@@ -813,6 +962,7 @@ async function loadMoreChats() {
             }
         }
 
+        rebindSelected();
         chatsNext.value = r.next;
         chatsNextCache.set(m.id, r.next);
     } catch (e) {
@@ -1012,6 +1162,11 @@ function openChat(chat: OfChat) {
     }
 
     selected.value = chat;
+    // Survive a reload: the caches are in-memory, so without this the page comes back on
+    // the empty state (restoreOpenChat reads it on the next list load).
+    rememberOpenChat(model.value.id, chat.id);
+    urlChat.value = null; // consumed — from here the URL follows the user's clicks
+    syncChatUrl(chat.id);
 
     // Show AI Intel if this chat already has a generated strategy, else the Fan tab.
     rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';

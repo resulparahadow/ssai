@@ -74,3 +74,47 @@ export function chatComposer(chatId: string): ComposerState {
 export function chatDraft(chatId: string): string {
     return composerStore[chatId]?.draft ?? '';
 }
+
+// ---------------------------------------------------------------------------------------
+// Which chat is open, per creator. Everything above is in-memory, so a page RELOAD loses the
+// open conversation and drops the user back on the empty state. sessionStorage survives a
+// reload but is scoped to the TAB, so two tabs can sit in different chats without overwriting
+// each other (localStorage — what the creator context uses — would make them fight).
+// Only the chat id is stored: never a name, a preview, or any message text.
+const OPEN_KEY = 'ss_open_chat';
+
+type OpenMap = Record<string, string>;
+
+function readOpen(): OpenMap {
+    try {
+        const parsed = JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? 'null');
+
+        return parsed && typeof parsed === 'object' ? (parsed as OpenMap) : {};
+    } catch {
+        // Storage disabled (private mode), unavailable (SSR), or holding a corrupt value.
+        // Remembering the open chat is a convenience — never a reason to break the page.
+        return {};
+    }
+}
+
+/** Remember the chat open for a creator, or forget it when `chatId` is null. */
+export function rememberOpenChat(modelId: number, chatId: string | null): void {
+    const map = readOpen();
+
+    if (chatId) {
+        map[modelId] = chatId;
+    } else {
+        delete map[modelId];
+    }
+
+    try {
+        sessionStorage.setItem(OPEN_KEY, JSON.stringify(map));
+    } catch {
+        // See readOpen.
+    }
+}
+
+/** The chat that was open for a creator before the reload, if any. */
+export function recallOpenChat(modelId: number): string | null {
+    return readOpen()[modelId] ?? null;
+}
