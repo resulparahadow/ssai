@@ -104,6 +104,10 @@ export interface OfMedia {
     duration: number | null; // seconds, video
     width: number | null;
     height: number | null;
+    // Vault-only engagement counters (what `field=most-liked`/`highest-tips` sort by). null —
+    // not 0 — on chat-message media, which carries no counters at all.
+    likes: number | null;
+    tips: number | null;
     drm?: boolean; // Widevine-protected: no `source`, but playable via the DRM download endpoint
 }
 
@@ -267,6 +271,8 @@ export interface TeamUser {
     email: string;
     role: Role;
     must_change_password: boolean;
+    /** The team member who added this account — null for accounts with no recorded creator. */
+    created_by: { id: number; name: string } | null;
     assigned: string[]; // creator model names
     is_self: boolean;
 }

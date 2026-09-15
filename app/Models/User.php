@@ -8,6 +8,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -22,6 +23,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $email
  * @property UserRole $role
  * @property bool $must_change_password
+ * @property int|null $created_by
  * @property Carbon|null $email_verified_at
  * @property string $password
  * @property string|null $two_factor_secret
@@ -31,7 +33,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'email', 'password', 'role', 'must_change_password'])]
+#[Fillable(['name', 'email', 'password', 'role', 'must_change_password', 'created_by'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
 {
@@ -77,6 +79,18 @@ class User extends Authenticatable implements PasskeyUser
     }
 
     // ---- Relationships -----------------------------------------------------
+
+    /**
+     * The team member who created this account (null for accounts predating the
+     * column, e.g. the seeded first admin). Deliberately NOT named `creator()` —
+     * in this codebase "creator" always means an OnlyFans creator model.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'created_by');
+    }
 
     /** @return HasMany<ModelAssignment, $this> */
     public function modelAssignments(): HasMany

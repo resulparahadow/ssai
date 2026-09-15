@@ -186,3 +186,89 @@ it('forces flagged users to change their password then lets them through', funct
 
     $this->get('/dashboard')->assertOk();
 });
+
+// ---- created-by provenance -------------------------------------------------
+
+it('stamps the acting admin as the creator of a new manager', function () {
+    $admin = User::factory()->admin()->create();
+
+    $this->actingAs($admin)->post('/team', [
+        'name' => 'Iris',
+        'email' => 'iris@test.com',
+        'password' => 'secret-password',
+        'password_confirmation' => 'secret-password',
+        'role' => 'manager',
+    ])->assertRedirect();
+
+    expect(User::where('email', 'iris@test.com')->firstOrFail()->created_by)->toBe($admin->id);
+});
+
+it('stamps the acting manager as the creator of a new chatter', function () {
+    $manager = User::factory()->manager()->create();
+
+    $this->actingAs($manager)->post('/team', [
+        'name' => 'Leo',
+        'email' => 'leo@test.com',
+        'password' => 'secret-password',
+        'password_confirmation' => 'secret-password',
+        'role' => 'chatter',
+    ])->assertRedirect();
+
+    expect(User::where('email', 'leo@test.com')->firstOrFail()->created_by)->toBe($manager->id);
+});
+
+it('ignores a created_by posted in the request body', function () {
+    $admin = User::factory()->admin()->create();
+    $decoy = User::factory()->manager()->create();
+
+    $this->actingAs($admin)->post('/team', [
+        'name' => 'Zoe',
+        'email' => 'zoe@test.com',
+        'password' => 'secret-password',
+        'password_confirmation' => 'secret-password',
+        'role' => 'chatter',
+        'created_by' => $decoy->id,
+    ])->assertRedirect();
+
+    expect(User::where('email', 'zoe@test.com')->firstOrFail()->created_by)->toBe($admin->id);
+});
+
+it('leaves created_by untouched when a user is edited', function () {
+    $manager = User::factory()->manager()->create();
+    $chatter = User::factory()->chatter()->create(['created_by' => $manager->id]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->put("/team/{$chatter->id}", [
+            'name' => 'Renamed',
+            'email' => $chatter->email,
+            'role' => 'chatter',
+        ])->assertRedirect();
+
+    expect($chatter->fresh()->created_by)->toBe($manager->id);
+});
+
+it('keeps chatters but nulls their created_by when their manager is deleted', function () {
+    $manager = User::factory()->manager()->create();
+    $chatter = User::factory()->chatter()->create(['created_by' => $manager->id]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->delete("/team/{$manager->id}")
+        ->assertRedirect();
+
+    expect(User::find($chatter->id))->not->toBeNull()
+        ->and($chatter->fresh()->created_by)->toBeNull();
+});
+
+it('exposes the creator name on the team page', function () {
+    $admin = User::factory()->admin()->create(['name' => 'Root Admin']);
+    // Names fix the `orderBy('name')` order: 'Root Admin' then 'Zed Chatter'.
+    User::factory()->chatter()->create(['name' => 'Zed Chatter', 'created_by' => $admin->id]);
+
+    $this->actingAs($admin)
+        ->get('/team')
+        ->assertInertia(fn ($p) => $p
+            ->component('Team')
+            ->where('users.0.created_by', null)          // the admin itself has no creator
+            ->where('users.1.created_by.name', 'Root Admin'),
+        );
+});

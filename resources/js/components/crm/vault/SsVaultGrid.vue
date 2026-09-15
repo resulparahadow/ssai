@@ -4,6 +4,7 @@ import {
     Check,
     CheckCircle2,
     FolderPlus,
+    Heart,
     Link2,
     ListPlus,
     LoaderCircle,
@@ -35,6 +36,21 @@ const FILTERS = [
     { label: 'Audio', value: 'audio' },
 ] as const;
 
+/**
+ * The vault-media endpoint's documented sort combos, as `field:sort` (OpenAPI `paths:`):
+ * `field` is recent|most-liked|highest-tips, `sort` is desc|asc. Only the useful halves are
+ * exposed — "least liked"/"lowest tips" are noise. The plumbing carries both params, so the
+ * ascending variants are a one-line addition if anyone ever wants them.
+ */
+const SORTS = [
+    { label: 'Newest', value: 'recent:desc' },
+    { label: 'Oldest', value: 'recent:asc' },
+    { label: 'Most liked', value: 'most-liked:desc' },
+    { label: 'Highest tips', value: 'highest-tips:desc' },
+] as const;
+
+const DEFAULT_SORT = 'recent:desc'; // matches the API's own defaults
+
 const PAGE = 48; // API caps `limit` at 100
 const POLL_MS = 1500;
 const POLL_MAX = 60; // ~90s, then give up rather than poll forever
@@ -43,6 +59,7 @@ const MAX_BYTES = 100 * 1024 * 1024; // 100MB — OnlyFans' direct-upload cap
 const items = ref<OfMedia[]>([]);
 const filter = ref('');
 const query = ref('');
+const sort = ref<string>(DEFAULT_SORT);
 const loading = ref(false);
 const hasMore = ref(false);
 const error = ref<string | null>(null);
@@ -115,6 +132,10 @@ async function load(reset: boolean) {
             params.query = query.value.trim();
         }
 
+        const [field, direction] = sort.value.split(':');
+        params.field = field;
+        params.sort = direction;
+
         const r = await ofApi.vault(props.modelId, params);
 
         if (mine !== token) {
@@ -141,7 +162,17 @@ function pickFilter(f: string) {
     load(true);
 }
 
-/** Switching lists starts a clean view — stale filters would look like an empty list. */
+function pickSort(v: string) {
+    sort.value = v;
+    clearSelection();
+    load(true);
+}
+
+/**
+ * Switching lists starts a clean view — stale filters would look like an empty list. `sort` is
+ * deliberately NOT reset: it is a view preference, not a filter, so an ordering you picked
+ * survives clicking through lists (it resets on a creator change).
+ */
 watch(
     () => props.listId,
     () => {
@@ -164,6 +195,11 @@ function formatDate(iso: string | null): string {
         : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** Tips are a dollar sum — trim a trailing `.00` so the tile stays compact. */
+function formatTips(n: number): string {
+    return `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+}
+
 /** Vault thumbs are fansapi.com presigned urls (direct); only onlyfans.com needs the proxy. */
 function tileSrc(m: OfMedia): string {
     const cdn = (m.thumb ?? m.preview) as string;
@@ -176,6 +212,7 @@ watch(
     () => props.modelId,
     () => {
         filter.value = '';
+        sort.value = DEFAULT_SORT;
         clearSelection();
         uploads.value = [];
         load(true);
@@ -507,6 +544,25 @@ async function deleteSelected() {
 
                 <span class="flex-1" />
 
+                <label class="flex items-center gap-1.5">
+                    <span class="text-[11px] text-ss-text-3">Sort</span>
+                    <select
+                        :value="sort"
+                        class="h-[30px] rounded-lg border border-ss-border bg-ss-bg px-2 text-[12px] text-ss-text focus:border-ss-accent focus:outline-none"
+                        @change="
+                            pickSort(($event.target as HTMLSelectElement).value)
+                        "
+                    >
+                        <option
+                            v-for="o in SORTS"
+                            :key="o.value"
+                            :value="o.value"
+                        >
+                            {{ o.label }}
+                        </option>
+                    </select>
+                </label>
+
                 <button
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border border-ss-border px-3 py-1.5 text-[12px] font-semibold transition-colors"
@@ -762,6 +818,18 @@ async function deleteSelected() {
                     >
                         <span class="uppercase">{{ m.type }}</span>
                         <span class="flex-1" />
+                        <!-- Vault-only counters: absent (null) on media that has none, so the
+                             row stays exactly as it was for anything without engagement data. -->
+                        <span
+                            v-if="m.likes"
+                            class="flex items-center gap-0.5"
+                            :title="`${m.likes} likes`"
+                        >
+                            <Heart :size="10" />{{ m.likes }}
+                        </span>
+                        <span v-if="m.tips" :title="`${m.tips} in tips`">
+                            {{ formatTips(m.tips) }}
+                        </span>
                         <span>{{ formatDate(m.createdAt) }}</span>
                     </span>
                 </button>

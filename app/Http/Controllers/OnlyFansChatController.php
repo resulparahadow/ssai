@@ -333,6 +333,10 @@ class OnlyFansChatController extends Controller
             'type' => $request->query('type'),
             'list' => $request->query('list'),
             'query' => $request->query('query'),
+            // Sort: `field` (recent|most-liked|highest-tips) + `sort` (desc|asc). The service
+            // drops an off-enum value, so an unknown one falls back to the API defaults.
+            'field' => $request->query('field'),
+            'sort' => $request->query('sort'),
             'limit' => $request->query('limit', 48),
             'offset' => $request->query('offset', 0),
         ]);

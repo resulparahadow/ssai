@@ -165,6 +165,7 @@ function destroy(u: TeamUser) {
                             <th class="px-4 py-2.5 font-medium">User</th>
                             <th class="px-4 py-2.5 font-medium">Role</th>
                             <th class="px-4 py-2.5 font-medium">Creators</th>
+                            <th class="px-4 py-2.5 font-medium">Added by</th>
                             <th class="px-4 py-2.5 font-medium">Status</th>
                             <th class="px-4 py-2.5 text-right font-medium">
                                 Actions
@@ -220,6 +221,12 @@ function destroy(u: TeamUser) {
                                     {{ u.assigned.length }}
                                 </span>
                                 <span v-else class="text-ss-text-3">All</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-ss-text-2">
+                                <span v-if="u.created_by">{{
+                                    u.created_by.name
+                                }}</span>
+                                <span v-else class="text-ss-text-3">—</span>
                             </td>
                             <td class="px-4 py-2.5">
                                 <span

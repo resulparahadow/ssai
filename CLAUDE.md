@@ -103,6 +103,16 @@ telemetry fields are intentionally NOT persisted): `aich_models`,
 - **Feature gates**: `view-all-creators`, `manage-team` (manager+), `view-agency-profit`
   (admin only) — defined in `AppServiceProvider::configureGates()`. The Vue shell
   hides UI per role, but these gates are the actual enforcement.
+- **Team management** (`/team`, `TeamController` + `UserPolicy`, `manage-team` gated):
+  admins create/edit/delete any role, managers only chatters (`assignableRoles()`
+  allowlist + per-target `UserPolicy`); chatter creator assignments write the same
+  `model_assignments` table as the Creator Models page. **`users.created_by`** records
+  who added an account — stamped from the session in `store()` (never from the payload,
+  so it can't be forged), immutable on `update()`, and `nullOnDelete` so removing a
+  manager keeps their chatters and only clears the label. It is **provenance only**:
+  managers still see and manage every chatter, not just the ones they created. Shown as
+  the "Added by" column on `Team.vue` (`—` for accounts predating the column, e.g. the
+  seeded first admin).
 
 ## AI generation engine (Phase 3 — runs the exact legacy logic)
 
@@ -522,7 +532,21 @@ engine uses its in-process copy. Provider keys live in the engine's env
     vault-media endpoint returns the **full** objects instead (ids, `files`, `videoSources`,
     `files.drm`, `createdAt`), paginated by `hasMore` — verified live: `?list=29195314` returned
     exactly the 6 items its counts declared. `listVaultMedia` forwards
-    **`type`/`list`/`query`/`limit`/`offset`** (the API also documents `field`/`sort`, unused).
+    **`type`/`list`/`query`/`limit`/`offset`/`field`/`sort`**.
+    **Sorting is a vault-MEDIA feature only.** The media endpoint documents `field`
+    (`recent`|`most-liked`|`highest-tips`, default `recent`) + `sort` (`desc`|`asc`, default
+    `desc`); the vault-LISTS endpoint documents NO sort params (only `query`/`limit`/`offset`/
+    `lightweight`), so the rail is deliberately unsorted — don't go looking for it again. An
+    off-enum `field`/`sort` is a billed `VALIDATION_ERROR`, so `listVaultMedia` **drops** an
+    unknown value rather than forwarding it (same clamp-don't-forward stance as the lists
+    `limit`). `SsVaultGrid` exposes four combos as one `field:sort` dropdown — Newest, Oldest,
+    Most liked, Highest tips; the ascending halves of liked/tips are omitted as noise, not
+    unsupported. `sort` is a **view preference, not a filter**: unlike `filter`/`query` it
+    deliberately survives a list switch and resets only on a creator change. Ranking by
+    likes/tips is invisible without the numbers, so `normalizeMedia` now also carries
+    **`likes`** (`counters.likesCount`) and **`tips`** (`counters.tipsSumm`) — **null, not 0,
+    when `counters` is absent**, since chat-message media has none and a hard 0 would paint
+    "0 likes" on every chat bubble. Guards: `tests/Feature/OnlyFansVaultTest.php`.
     **`listVaultLists` caps `limit` at 30** — an UNDOCUMENTED upstream maximum (the spec shows only
     a default of 24); above it the API 422s `VALIDATION_ERROR "The limit field must not be greater
     than 30."`, so the service clamps rather than forwards. NB the media and lists endpoints have

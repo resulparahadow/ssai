@@ -316,6 +316,8 @@ async function send(override?: string) {
                   duration: null,
                   width: gif.width || null,
                   height: gif.height || null,
+                  likes: null, // engagement counters are vault-only
+                  tips: null,
               },
           ]
         : [];
@@ -350,6 +352,8 @@ async function send(override?: string) {
                       duration: null,
                       width: null,
                       height: null,
+                      likes: null, // engagement counters are vault-only
+                      tips: null,
                   },
               ]
             : gifMedia,
