@@ -201,6 +201,12 @@ class OnlyFansService
         return $this->client()->get("{$account}/media/uploads/{$uploadId}/status");
     }
 
+    /** Documented `field` enum for the vault-media endpoint (OpenAPI `paths:`). Default `recent`. */
+    private const VAULT_SORT_FIELDS = ['recent', 'most-liked', 'highest-tips'];
+
+    /** Documented `sort` enum for the vault-media endpoint. Default `desc`. */
+    private const VAULT_SORT_DIRECTIONS = ['desc', 'asc'];
+
     /**
      * List the creator's vault media. Vault items carry the SAME shape as message
      * media, so callers normalize them with the existing normalizeMedia() — there is
@@ -212,8 +218,13 @@ class OnlyFansService
         return $this->client()->get("{$account}/media/vault", collect($params)
             // `list` scopes to one vault list — the ONLY way to read a list's real contents;
             // the list-detail endpoint returns a 3-item thumbnail preview with no ids.
-            ->only(['type', 'list', 'query', 'limit', 'offset'])
+            ->only(['type', 'list', 'query', 'limit', 'offset', 'field', 'sort'])
             ->filter(fn ($v) => $v !== null && $v !== '')
+            // `field`/`sort` are upstream enums: an unknown value comes back a VALIDATION_ERROR
+            // that still costs a credit, so drop it and let the API apply its own defaults
+            // (recent/desc) — the same clamp-don't-forward stance as VAULT_LISTS_MAX_LIMIT.
+            ->reject(fn ($v, $k) => ($k === 'field' && ! in_array($v, self::VAULT_SORT_FIELDS, true))
+                || ($k === 'sort' && ! in_array($v, self::VAULT_SORT_DIRECTIONS, true)))
             ->all());
     }
 
@@ -1087,6 +1098,15 @@ class OnlyFansService
                 'full' => data_get($files, 'full.url') ?? $compact,
                 'source' => $source,
                 'createdAt' => $m['createdAt'] ?? null,
+                // Vault media carries engagement counters; chat-message media does not. Absent
+                // stays null rather than 0 so a chat bubble renders nothing at all instead of
+                // claiming "0 likes". `+ 0` keeps an int an int and a decimal tip a float.
+                'likes' => isset($m['counters']['likesCount']) && is_numeric($m['counters']['likesCount'])
+                    ? (int) $m['counters']['likesCount']
+                    : null,
+                'tips' => isset($m['counters']['tipsSumm']) && is_numeric($m['counters']['tipsSumm'])
+                    ? $m['counters']['tipsSumm'] + 0
+                    : null,
                 'duration' => isset($m['duration']) ? (int) $m['duration'] : null,
                 'width' => data_get($files, 'full.width') ?? data_get($files, 'preview.width'),
                 'height' => data_get($files, 'full.height') ?? data_get($files, 'preview.height'),

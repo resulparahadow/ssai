@@ -346,6 +346,68 @@ it('exposes createdAt on vault media', function () {
         ->assertJsonPath('items.0.createdAt', '2026-06-14T01:22:14+00:00');
 });
 
+// ---- Sorting ---------------------------------------------------------------
+// The vault-media endpoint documents two sort params (OpenAPI `paths:`): `field`
+// (recent|most-liked|highest-tips, default recent) and `sort` (desc|asc, default desc).
+// The vault-LISTS endpoint documents neither, so the rail is deliberately unsorted.
+
+it('forwards the field and sort params when listing vault media', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault?field=most-liked&sort=asc")
+        ->assertOk();
+
+    Http::assertSent(function ($r) {
+        $url = rawurldecode($r->url());
+
+        return str_contains($url, 'field=most-liked') && str_contains($url, 'sort=asc');
+    });
+});
+
+// An off-enum value is a billed 422 from OnlyFans, so drop it rather than forward it —
+// the same clamp-don't-forward stance as the vault-lists limit.
+it('drops a field or sort value that is not in the documented enum', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault?field=cheapest&sort=sideways")
+        ->assertOk();
+
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), 'field=') && ! str_contains($r->url(), 'sort='));
+});
+
+// Sorting by most-liked/highest-tips reorders the grid; without the counts on the tile the
+// reshuffle has no visible cause, so the normalizer has to carry them.
+it('exposes likes and tips counters on vault media', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [[
+        'id' => 7, 'type' => 'photo', 'canView' => true,
+        'counters' => ['likesCount' => 42, 'tipsSumm' => 128],
+        'files' => ['thumb' => ['url' => 'https://cdn.fansapi.com/of/t.jpg']],
+    ]], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault")
+        ->assertOk()
+        ->assertJsonPath('items.0.likes', 42)
+        ->assertJsonPath('items.0.tips', 128);
+});
+
+// Chat-message media carries no `counters` at all. Defaulting to 0 would paint "0 likes"
+// on every chat bubble, so absent stays null and the tile renders nothing.
+it('leaves likes and tips null on media that carries no counters', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['list' => [[
+        'id' => 7, 'type' => 'photo', 'canView' => true,
+        'files' => ['thumb' => ['url' => 'https://cdn.fansapi.com/of/t.jpg']],
+    ]], 'hasMore' => false]])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->getJson("/onlyfans/{$this->model->id}/media/vault")
+        ->assertOk()
+        ->assertJsonPath('items.0.likes', null)
+        ->assertJsonPath('items.0.tips', null);
+});
+
 // The vault-LISTS endpoint caps `limit` at 30 and 422s above it — undocumented (the spec shows
 // only a default of 24). Clamp rather than forward, so a caller asking for more gets results
 // instead of a VALIDATION_ERROR.

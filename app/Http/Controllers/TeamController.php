@@ -33,12 +33,16 @@ class TeamController extends Controller
         $meId = $request->user()->id;
 
         return Inertia::render('Team', [
-            'users' => User::query()->orderBy('name')->get()->map(fn (User $u) => [
+            'users' => User::query()->with('createdBy:id,name')->orderBy('name')->get()->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
                 'role' => $u->role->value,
                 'must_change_password' => $u->must_change_password,
+                'created_by' => $u->createdBy === null ? null : [
+                    'id' => $u->createdBy->id,
+                    'name' => $u->createdBy->name,
+                ],
                 'assigned' => $assignments->get($u->id, collect())->pluck('creator_model')->values()->all(),
                 'is_self' => $u->id === $meId,
             ]),
@@ -64,6 +68,9 @@ class TeamController extends Controller
             'password' => $data['password'],
             'role' => $data['role'],
             'must_change_password' => $request->boolean('must_change_password'),
+            // Provenance. Taken from the session, never the payload — a posted
+            // `created_by` is not validated and so can never reach this array.
+            'created_by' => $request->user()->id,
         ]);
         // email_verified_at is guarded — set it directly so admin-created accounts can
         // reach the `verified`-gated settings pages without an email round-trip.
