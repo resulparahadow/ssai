@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, usePage } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { MessageSquare, Users } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import SsAiIntel from '@/components/crm/conversations/SsAiIntel.vue';
@@ -20,6 +20,7 @@ import {
     rememberOpenChat,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
+import { alertDraftDone } from '@/lib/draftAlerts';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     ensureSubscribed,
@@ -38,7 +39,7 @@ import type {
 } from '@/types/crm';
 
 const page = usePage();
-const { selectedId } = useCreatorContext();
+const { selectedId, select: selectCreator } = useCreatorContext();
 
 const creators = computed<SidebarCreator[]>(
     () => (page.props.creators as SidebarCreator[]) ?? [],
@@ -178,6 +179,7 @@ async function generate() {
     const st = chatComposer(chatId);
     st.generating = true;
     st.error = null;
+    let draft: string | null = null;
 
     try {
         // Use the cached thread for THIS chat, not whatever is on screen now.
@@ -203,7 +205,8 @@ async function generate() {
             context: st.context.trim(),
         });
 
-        st.suggestion = data.draft || null;
+        draft = data.draft || null;
+        st.suggestion = draft;
         st.strategy = data.strategy;
         st.strategyGeneratedAt = data.generatedAt ?? new Date().toISOString();
         st.telemetry = data.telemetry ?? null;
@@ -219,6 +222,39 @@ async function generate() {
     } finally {
         st.generating = false;
     }
+
+    // However it ended, tell a chatter who has moved on (another chat, page or tab) —
+    // a draft takes 25-45s. Silent while they're looking right at this chat's card.
+    alertDraftDone({
+        creatorId: m.id,
+        chatId,
+        fanName: chat.name || chat.username || 'a fan',
+        draft,
+        error: st.error,
+        open: () => goToChat(m.id, chatId),
+    });
+}
+
+// False once this page unmounts: a toast can outlive it (the chatter navigated away while
+// a draft was generating), and then the chat can only be reached through the URL.
+let mounted = true;
+
+/** Open a chat from outside the list (the draft-ready toast): in place when this page is
+ *  still showing that creator and has the row, otherwise via `?chat=` like a reload. */
+function goToChat(creatorId: number, chatId: string) {
+    const row =
+        mounted && model.value?.id === creatorId
+            ? chats.value.find((c) => c.id === chatId)
+            : undefined;
+
+    if (row) {
+        openChat(row);
+
+        return;
+    }
+
+    selectCreator(creatorId);
+    router.visit(`/conversations?chat=${encodeURIComponent(chatId)}`);
 }
 
 /** Persist the adopted generation's strategy so the next Generate builds on it.
@@ -1393,6 +1429,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+    mounted = false;
     stopInbound();
     setActiveChat(null, null);
 });

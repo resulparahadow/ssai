@@ -27,7 +27,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
 
 // Whether any alert is on — drives the bell icon state.
 const muted = () =>
-    !notificationPrefs.showToast && !notificationPrefs.playSound;
+    !notificationPrefs.showToast &&
+    !notificationPrefs.playSound &&
+    !notificationPrefs.draftReady;
 </script>
 
 <template>
@@ -106,6 +108,43 @@ const muted = () =>
                         class="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all"
                         :class="
                             notificationPrefs.playSound
+                                ? 'left-3.5'
+                                : 'left-0.5'
+                        "
+                    />
+                </button>
+            </label>
+
+            <p
+                class="mt-1 border-t border-ss-border px-2 pt-2 pb-1.5 text-[10px] font-semibold tracking-wide text-ss-text-3 uppercase"
+            >
+                AI drafts
+            </p>
+
+            <label
+                class="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-ss-surface-2"
+                title="Toast + sound when a draft finishes in a chat you're not viewing"
+            >
+                <span class="text-[13px] text-ss-text">Draft ready</span>
+                <button
+                    type="button"
+                    role="switch"
+                    :aria-checked="notificationPrefs.draftReady"
+                    class="relative h-4 w-7 shrink-0 rounded-full transition-colors"
+                    :class="
+                        notificationPrefs.draftReady
+                            ? 'bg-ss-accent'
+                            : 'bg-ss-border'
+                    "
+                    @click="
+                        notificationPrefs.draftReady =
+                            !notificationPrefs.draftReady
+                    "
+                >
+                    <span
+                        class="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all"
+                        :class="
+                            notificationPrefs.draftReady
                                 ? 'left-3.5'
                                 : 'left-0.5'
                         "

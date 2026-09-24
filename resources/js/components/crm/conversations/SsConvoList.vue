@@ -22,7 +22,7 @@ import {
 } from 'vue';
 import type { Component } from 'vue';
 import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
-import { chatDraft } from '@/lib/conversationCache';
+import { chatAiStatus, chatDraft } from '@/lib/conversationCache';
 import { usd } from '@/lib/money';
 import type { OfChat, OfPreviewKind } from '@/types/crm';
 
@@ -262,11 +262,30 @@ onBeforeUnmount(() => {
                                 >{{ c.name }}</span
                             >
                         </span>
-                        <span
-                            v-if="c.unread > 0"
-                            class="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-ss-accent px-1 text-[10px] font-semibold text-white"
-                            >{{ c.unread }}</span
-                        >
+                        <span class="flex shrink-0 items-center gap-1.5">
+                            <!-- AI draft "green light": a Generate takes 25-45s, so the
+                                 chatter works other chats meanwhile and finds the finished
+                                 one here. Clears on Accept / Send / Dismiss. -->
+                            <LoaderCircle
+                                v-if="chatAiStatus(c.id) === 'generating'"
+                                :size="12"
+                                class="animate-spin text-ss-accent-text"
+                                aria-label="Generating an AI draft"
+                            />
+                            <span
+                                v-else-if="chatAiStatus(c.id) === 'ready'"
+                                class="flex items-center gap-1 rounded-full bg-ss-pos/15 px-1.5 text-[10px] leading-4 font-semibold text-ss-pos"
+                                title="An AI draft is ready in this chat"
+                                ><span
+                                    class="h-1.5 w-1.5 rounded-full bg-ss-pos"
+                                />Ready</span
+                            >
+                            <span
+                                v-if="c.unread > 0"
+                                class="grid h-4 min-w-4 place-items-center rounded-full bg-ss-accent px-1 text-[10px] font-semibold text-white"
+                                >{{ c.unread }}</span
+                            >
+                        </span>
                     </span>
                     <span
                         class="mt-0.5 flex items-center justify-between gap-2 text-[12px]"

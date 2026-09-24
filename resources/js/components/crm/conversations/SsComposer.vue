@@ -215,6 +215,14 @@ function onKeydown(e: KeyboardEvent) {
                 <span class="text-[12px] font-semibold text-ss-accent-text"
                     >AI suggestion · in {{ props.creator }}'s voice</span
                 >
+                <!-- Same green light as the chat-list row, so "done" reads the same everywhere. -->
+                <span
+                    v-if="props.suggestion && !props.generating"
+                    class="flex items-center gap-1 rounded-full bg-ss-pos/15 px-1.5 text-[10px] leading-4 font-semibold text-ss-pos"
+                    ><span
+                        class="h-1.5 w-1.5 rounded-full bg-ss-pos"
+                    />Ready</span
+                >
                 <span class="flex-1" />
                 <button
                     type="button"
@@ -299,7 +307,10 @@ function onKeydown(e: KeyboardEvent) {
             class="flex items-center gap-2.5 rounded-xl border border-ss-border bg-ss-surface-2 p-2"
         >
             <img
-                v-if="props.attachment.previewUrl && props.attachment.kind !== 'audio'"
+                v-if="
+                    props.attachment.previewUrl &&
+                    props.attachment.kind !== 'audio'
+                "
                 :src="props.attachment.previewUrl"
                 alt=""
                 class="h-12 w-12 shrink-0 rounded-lg object-cover"
