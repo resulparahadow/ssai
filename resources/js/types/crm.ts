@@ -254,6 +254,8 @@ export interface CreatorModel {
     content_library: string | null;
     feedback_rules: string | null;
     of_account_id: string | null;
+    /** IANA zone the AI's clock reads in; null → the agency default. */
+    timezone: string | null;
     assigned: number[];
 }
 

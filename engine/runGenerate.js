@@ -18,10 +18,11 @@ const { makeRealCallApi, makeRealCallMistral } = require('./callModel');
  *   context: agent override box text
  *   pasteInput: raw text (only used when session.inputMode === 'paste')
  *   doctrine: optional doctrine override (defaults to the legacy DEFAULT_TRAINING constant)
+ *   timezone: the creator's IANA zone — legacy's "current time" prompt lines read this clock (default: host)
  * @param {object} [opts] { callApi, callMistral } injected for tests
  */
 async function generateDraft(input, opts = {}) {
-    const { eng, document } = createEngine();
+    const { eng, document } = createEngine({ timezone: input && input.timezone });
     if (!input || !input.session || !input.model) throw new Error('generateDraft: input.session and input.model are required');
 
     const sid = String(input.session.id || 'engine-session');

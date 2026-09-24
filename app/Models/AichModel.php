@@ -21,7 +21,14 @@ class AichModel extends Model
         'feedback_rules',
         'tier',
         'of_account_id',
+        'timezone',
     ];
+
+    /** The IANA zone the engine's clock runs in for this creator — theirs, else the agency default. */
+    public function timezoneOrDefault(): string
+    {
+        return $this->timezone ?: (string) config('services.engine.default_timezone', 'UTC');
+    }
 
     /** Assignments are matched on the creator name, not a FK (legacy convention). */
     public function assignments(): HasMany

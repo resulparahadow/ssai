@@ -7,6 +7,7 @@ use App\Models\AichModel;
 use App\Models\ModelAssignment;
 use App\Models\User;
 use App\Services\OnlyFans\OnlyFansService;
+use DateTimeZone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -41,6 +42,10 @@ class ModelController extends Controller
             'model' => $this->serializeModel($model, $assigned),
             'connected' => ! empty($model->of_account_id),
             'chatters' => $this->chatters(),
+            // The same list the `timezone` rule validates against, so the picker can't offer
+            // a zone the save would reject.
+            'timezones' => DateTimeZone::listIdentifiers(),
+            'defaultTimezone' => (string) config('services.engine.default_timezone', 'UTC'),
         ]);
     }
 
@@ -200,6 +205,7 @@ class ModelController extends Controller
             'content_library' => $model->content_library,
             'feedback_rules' => $model->feedback_rules,
             'of_account_id' => $model->of_account_id,
+            'timezone' => $model->timezone,
             'assigned' => $assigned,
         ];
     }
@@ -223,6 +229,7 @@ class ModelController extends Controller
             'content_library' => 'nullable|string',
             'feedback_rules' => 'nullable|string',
             'of_account_id' => 'nullable|string|max:120',
+            'timezone' => 'nullable|timezone:all',
         ]);
     }
 }

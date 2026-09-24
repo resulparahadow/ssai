@@ -2,6 +2,8 @@
 
 namespace App\Services\OnlyFans;
 
+use Illuminate\Support\Carbon;
+
 /**
  * Turns the live OnlyFans thread the client forwards (from/text/time + payment
  * fields) into the legacy engine's money-aware inputs: `sender:'ppv'` bubbles for
@@ -12,9 +14,12 @@ class LiveThreadMapper
 {
     /**
      * @param  list<array<string, mixed>>  $messages  client thread items
+     * @param  string  $timezone  the creator's IANA zone — the per-message `ts` stamps must read
+     *                            the same clock as the engine's "current time" line (EngineClient
+     *                            sends the same zone), or the AI sees two contradicting times
      * @return array{messages: list<array<string, mixed>>, total_spend: float, tips_spend: float}
      */
-    public function map(array $messages, int $gapHours = 12): array
+    public function map(array $messages, int $gapHours = 12, string $timezone = 'UTC'): array
     {
         $items = array_map(function (array $m): array {
             $ts = isset($m['time']) && $m['time'] !== null ? strtotime((string) $m['time']) : false;
@@ -47,6 +52,13 @@ class LiveThreadMapper
                 'text' => $m['text'],
                 'ts_iso' => $m['ts'] !== null ? date('c', $m['ts']) : now()->toIso8601String(),
             ];
+
+            // Legacy prints this as "[9:02 AM] CUSTOMER: …" — the clock time of each message, which
+            // is what lets the AI line a reply up with the time of day. `ts_iso` alone only yields
+            // relative gaps ("9 hrs later"). No time → no stamp (legacy skips an empty one).
+            if ($m['ts'] !== null) {
+                $bubble['ts'] = Carbon::createFromTimestamp($m['ts'], $timezone)->format('g:i A');
+            }
 
             if ($inWindow && $m['from'] === 'creator' && ! $m['isFree'] && $m['price'] > 0 && ! $m['isTip']) {
                 $bubble['sender'] = 'ppv';
