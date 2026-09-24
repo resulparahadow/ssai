@@ -1,6 +1,6 @@
 import { reactive, watch } from 'vue';
 
-// Client-side notification preferences for live OnlyFans inbound messages. Like the
+// Client-side notification preferences for live OnlyFans inbound messages and AI drafts. Like the
 // theme (useAppearance), these are pure UI prefs so they live in localStorage — the
 // app persists nothing about conversations. The store is module-scoped + reactive, so
 // the Settings page, the Conversations quick-menu, and the notifier all share one state.
@@ -12,6 +12,10 @@ export interface NotificationPrefs {
     playSound: boolean;
     /** Bing volume, 0–1. */
     volume: number;
+    /** Toast + bing when an AI draft finishes (or fails) in a chat you're not looking at.
+     *  Separate from the inbound toggles: a draft is something the chatter asked for and is
+     *  waiting on, so muting noisy inbound traffic shouldn't also hide it. */
+    draftReady: boolean;
 }
 
 const STORAGE_KEY = 'ss:notification-prefs';
@@ -20,6 +24,7 @@ const DEFAULTS: NotificationPrefs = {
     showToast: true,
     playSound: true,
     volume: 0.5,
+    draftReady: true,
 };
 
 function load(): NotificationPrefs {

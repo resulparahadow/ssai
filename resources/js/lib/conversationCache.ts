@@ -75,6 +75,22 @@ export function chatDraft(chatId: string): string {
     return composerStore[chatId]?.draft ?? '';
 }
 
+/**
+ * A chat's AI draft state for the chat-list "green light", without creating a record:
+ * `generating` while a Generate is in flight, `ready` while a suggestion is waiting for
+ * Accept / Accept & Send / Dismiss. A draft takes 25-45s, so chatters work other chats
+ * meanwhile — this is how they find the one that's done.
+ */
+export function chatAiStatus(chatId: string): 'generating' | 'ready' | null {
+    const st = composerStore[chatId];
+
+    if (st?.generating) {
+        return 'generating';
+    }
+
+    return st?.suggestion ? 'ready' : null;
+}
+
 // ---------------------------------------------------------------------------------------
 // Which chat is open, per creator. Everything above is in-memory, so a page RELOAD loses the
 // open conversation and drops the user back on the empty state. sessionStorage survives a

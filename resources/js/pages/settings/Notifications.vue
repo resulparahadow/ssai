@@ -21,8 +21,8 @@ function testSound() {
                 Notification settings
             </h3>
             <p class="text-sm text-ss-text-2">
-                Choose how you're alerted when a new message arrives. These
-                preferences are saved on this device.
+                Choose how you're alerted when a new message arrives or an AI
+                draft is ready. These preferences are saved on this device.
             </p>
         </div>
 
@@ -61,10 +61,28 @@ function testSound() {
                 </div>
             </div>
 
+            <div class="flex items-start gap-3">
+                <Checkbox
+                    id="draft-ready"
+                    v-model="notificationPrefs.draftReady"
+                    class="mt-0.5"
+                />
+                <div class="grid gap-1">
+                    <Label for="draft-ready" class="text-ss-text"
+                        >AI draft ready</Label
+                    >
+                    <p class="text-sm text-ss-text-2">
+                        Toast and chime when a draft you generated finishes (or
+                        fails) in a chat you're not looking at. The chat list
+                        also shows a green "Ready" either way.
+                    </p>
+                </div>
+            </div>
+
             <div
                 class="grid gap-2"
                 :class="
-                    notificationPrefs.playSound
+                    notificationPrefs.playSound || notificationPrefs.draftReady
                         ? ''
                         : 'pointer-events-none opacity-50'
                 "

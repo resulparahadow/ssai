@@ -621,7 +621,18 @@ engine uses its in-process copy. Provider keys live in the engine's env
   actively viewing in a focused tab). Prefs are editable in two places sharing that store: a quick
   bell menu in the Conversations list header (`SsNotifyMenu`) and `/settings/notifications`
   (`settings/Notifications.vue`). Nothing is persisted server-side — it only mirrors live to open
-  browsers. Run Reverb with `php artisan reverb:start` (now part of `composer run dev`); real OF
+  browsers. **AI draft alerts** (chatter feedback: "a green light when a message is done
+  generating") share that prefs store but are NOT inbound events: a Generate takes 25-45s, so
+  chatters work other chats meanwhile. `SsConvoList` shows a spinner on the row while generating
+  and a green **Ready** pill while a suggestion awaits Accept/Send/Dismiss (`chatAiStatus()` off
+  the per-chat composer store — no extra state), and `SsComposer`'s suggestion card carries the
+  same pill. `lib/draftAlerts.ts` toasts + bings when a draft finishes OR fails, unless the
+  chatter is watching that chat in a focused tab (`isViewingChat` + `hasFocus`, like the inbound
+  notifier). Gated by its own `draftReady` pref, deliberately separate from the inbound toggles —
+  muting noisy inbound traffic must not hide a draft the chatter is waiting on. The toast's
+  **Open** opens the row in place when `Conversations.vue` is still mounted on that creator, else
+  `select(creator)` + visit `/conversations?chat=<id>` (the draft survives in the module-scoped
+  composer store, so it's there on arrival). Run Reverb with `php artisan reverb:start` (now part of `composer run dev`); real OF
   delivery needs a public URL (tunnel) + the webhook subscribed to `messages.received` (no secret
   yet). Deferred: `messages.sent`/outbound echo, signature verification, inbound media/PPV rendering,
   browser/system (Notification API) alerts.
