@@ -77,6 +77,10 @@ return [
         // instead of hanging for the full generation budget above.
         'connect_timeout' => (int) env('ENGINE_CONNECT_TIMEOUT', 5),
         'session_gap_hours' => (int) env('ENGINE_SESSION_GAP_HOURS', 12),
+        // Clock for creators with no timezone of their own (AichModel::timezoneOrDefault()).
+        // The engine runs in a UTC container, so this — not the host — is what the AI's
+        // "current time" and per-message stamps read.
+        'default_timezone' => env('CREATOR_DEFAULT_TIMEZONE', 'UTC'),
     ],
 
 ];

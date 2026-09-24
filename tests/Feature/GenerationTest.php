@@ -76,3 +76,15 @@ it('requires authentication', function () {
     // Web route → unauthenticated requests redirect to login rather than 401.
     $this->post("/dev/generate/{$this->session->id}")->assertRedirect(route('login'));
 });
+
+it('runs the engine on the creator\'s clock', function () {
+    AichModel::where('name', 'Camila')->update(['timezone' => 'America/Denver']);
+    Http::fake(['*/generate' => Http::response(['draft' => 'hi', 'strategy' => null, 'telemetry' => null, 'writes' => []])]);
+
+    $this->actingAs(User::factory()->admin()->create())
+        ->postJson("/dev/generate/{$this->session->id}", ['api' => 'claude'])
+        ->assertOk();
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/generate')
+        && data_get($r->data(), 'timezone') === 'America/Denver');
+});

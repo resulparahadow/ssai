@@ -140,7 +140,24 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - Parity guards: `node engine/parity.js`, `node engine/smoke.js`, `node engine/concurrency_check.js`, `node legacy/tests/harness.js` (283/0).
 - Input guards (each proves the engine REACTS to one PHP-supplied input, not just receives it):
   `node engine/money_check.js` (session ppv/tip → `tipPrimary`), `node engine/state_check.js`
-  (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier).
+  (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
+  `node engine/tz_check.js` (`timezone` → the prompts' clock, per request).
+- **The AI's clock is the CREATOR's timezone, not the server's (fixed 2026-09-24).** Legacy built
+  its time lines ("CURRENT TIME CONTEXT … EARLY EVENING block", "Current local time: …") from
+  `new Date()` in the chatter's browser; the engine container runs on **UTC**, so a US creator's
+  lunchtime reached the AI as evening. It also lost the per-message stamps: legacy printed
+  `[9:02 AM] CUSTOMER: …` from each message's `ts`, but `LiveThreadMapper` only emitted `ts_iso`,
+  so the transcript carried relative gaps ("9 hrs later") and no clock times. Now
+  **`aich_models.timezone`** (IANA, nullable; picker on the Creator Models show page, validated
+  `timezone:all`) → `AichModel::timezoneOrDefault()` (else `services.engine.default_timezone`,
+  env `CREATOR_DEFAULT_TIMEZONE`, default `UTC`) feeds BOTH halves, which must agree or the AI
+  sees two clocks: `LiveThreadMapper::map(…, $timezone)` stamps `ts` (`g:i A`), and
+  `EngineClient` sends `timezone` in the payload. The engine applies it with
+  **`engine/zonedDate.js`** — a `Date` subclass whose local getters + `toLocale*String` read that
+  zone, installed as the `Date` of each generation's own VM context (`createEngine({ timezone })`).
+  NOT `process.env.TZ`: that is process-wide and would race concurrent generations. Legacy is
+  untouched; no `timezone` → the host `Date`, exactly as before. Scope limit: `new Date(y,m,d)`
+  and the local setters still use the host zone — legacy only does that in DOM-only paths.
 - The `AnthropicService`/`MistralService` PHP stubs still THROW — a future PHP port
   (intended foundation: the first-party **Laravel AI SDK**) can replace the sidecar.
 

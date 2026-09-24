@@ -19,6 +19,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 const crypto = require('crypto');
+const { makeZonedDate } = require('./zonedDate');
 
 const LEGACY_JS = path.join(__dirname, '..', 'legacy', 'js');
 
@@ -91,7 +92,8 @@ function makeSbCapture(writes) {
     return { from: builder, _writes: writes };
 }
 
-function buildSandbox() {
+/** @param {{timezone?: string}} [opts] timezone: IANA zone the legacy code's local clock reads in. */
+function buildSandbox(opts = {}) {
     const document = makeDocument();
     const sandbox = {
         console,
@@ -112,7 +114,7 @@ function buildSandbox() {
         // getOrCreateSb() is never called at top level; provide a stub anyway.
         supabase: { createClient: () => makeSbCapture([]) },
         TextEncoder, TextDecoder,
-        Date, Math, JSON, RegExp, String, Number, Boolean, Array, Object, Symbol, Map, Set,
+        Date: makeZonedDate(opts.timezone), Math, JSON, RegExp, String, Number, Boolean, Array, Object, Symbol, Map, Set,
         Promise, parseFloat, parseInt, isNaN, isFinite, encodeURIComponent, decodeURIComponent,
         Intl, Error, TypeError,
     };
@@ -164,10 +166,13 @@ globalThis.__SSAI_ENGINE = {
  * another's state mid-flight. The compiled bundle is shared and reused, so this
  * only pays the (small) cost of running the top-level legacy code into a new
  * context — no disk re-read, no re-compile.
+ *
+ * `opts.timezone` (IANA) sets the clock legacy reads via `new Date()` — per context, so
+ * concurrent generations for creators in different zones stay independent.
  */
-function createEngine() {
+function createEngine(opts = {}) {
     const script = compileBundle();
-    const { sandbox, document } = buildSandbox();
+    const { sandbox, document } = buildSandbox(opts);
     vm.createContext(sandbox);
     script.runInContext(sandbox);
 

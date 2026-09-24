@@ -115,3 +115,21 @@ it('starts the session at the most recent long gap when several gaps exist', fun
     // Only the most-recent-gap session counts: the $25 PPV, not the $40 one.
     expect($out['total_spend'])->toBe(25.0);
 });
+
+it('stamps each message with its clock time in the creator timezone', function () {
+    // 13:02 UTC is 9:02 AM in New York (EDT). The legacy transcript prints this stamp as
+    // "[9:02 AM] CUSTOMER: …" — without it the AI sees only relative gaps, no clock times.
+    $out = app(LiveThreadMapper::class)->map([
+        ['from' => 'fan', 'text' => 'good morning', 'time' => '2026-09-24T13:02:00+00:00'],
+        ['from' => 'creator', 'text' => 'hey you', 'time' => '2026-09-24T22:40:00+00:00'],
+    ], 12, 'America/New_York');
+
+    expect($out['messages'][0]['ts'])->toBe('9:02 AM');
+    expect($out['messages'][1]['ts'])->toBe('6:40 PM');
+});
+
+it('does not invent a stamp for a message with no time', function () {
+    $out = app(LiveThreadMapper::class)->map([['from' => 'fan', 'text' => 'hey']], 12, 'America/New_York');
+
+    expect($out['messages'][0])->not->toHaveKey('ts');
+});

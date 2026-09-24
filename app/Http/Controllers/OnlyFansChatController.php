@@ -840,7 +840,11 @@ class OnlyFansChatController extends Controller
             'api' => 'nullable|in:claude,auto,mistral',
         ]);
 
-        $mapped = $this->mapper->map($data['messages'] ?? [], (int) config('services.engine.session_gap_hours', 12));
+        $mapped = $this->mapper->map(
+            $data['messages'] ?? [],
+            (int) config('services.engine.session_gap_hours', 12),
+            $model->timezoneOrDefault(),
+        );
         $messages = $mapped['messages'];
 
         // Load-or-create the persisted fan memory (refreshes spend from OnlyFans) and

@@ -83,6 +83,9 @@ class EngineClient
             'api' => $opts['api'] ?? 'claude',
             'sender' => $opts['sender'] ?? 'customer',
             'context' => $opts['context'] ?? '',
+            // The clock legacy's "current time" prompt lines read (engine/zonedDate.js). Must
+            // match the zone LiveThreadMapper stamped the messages in.
+            'timezone' => $model->timezoneOrDefault(),
         ]));
     }
 
@@ -141,6 +144,7 @@ class EngineClient
             'api' => $opts['api'] ?? 'claude',
             'sender' => $opts['sender'] ?? 'customer',
             'context' => $opts['context'] ?? '',
+            'timezone' => $model?->timezoneOrDefault() ?? (string) config('services.engine.default_timezone', 'UTC'),
         ]);
     }
 

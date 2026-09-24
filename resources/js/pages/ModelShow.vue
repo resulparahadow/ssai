@@ -11,7 +11,7 @@ import {
     UserSearch,
     Users,
 } from '@lucide/vue';
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import SsModelFans from '@/components/crm/models/SsModelFans.vue';
 import SsModelLinks from '@/components/crm/models/SsModelLinks.vue';
 import SsModelNotifications from '@/components/crm/models/SsModelNotifications.vue';
@@ -26,6 +26,8 @@ const props = defineProps<{
     model: CreatorModel;
     connected: boolean;
     chatters: ChatterOption[];
+    timezones: string[];
+    defaultTimezone: string;
 }>();
 
 const draft = reactive<CreatorModel>({
@@ -44,6 +46,23 @@ function initials(name: string): string {
             .toUpperCase() || '?'
     );
 }
+
+// The creator's clock right now, so whoever picks the zone can sanity-check it
+// ("is it really 3 PM for her?"). Snapshot at render — it's a hint, not a clock.
+const localNow = computed(() => {
+    const zone = draft.timezone || props.defaultTimezone;
+
+    try {
+        return new Date().toLocaleTimeString('en-US', {
+            timeZone: zone,
+            hour: 'numeric',
+            minute: '2-digit',
+            weekday: 'short',
+        });
+    } catch {
+        return null; // a zone this browser's Intl doesn't know
+    }
+});
 
 // ---- live OnlyFans connection status ----
 const status = ref<OfAccountStatus | null>(null);
@@ -83,6 +102,7 @@ function saveSettings() {
             content_library: draft.content_library,
             feedback_rules: draft.feedback_rules,
             of_account_id: draft.of_account_id,
+            timezone: draft.timezone,
         },
         {
             preserveScroll: true,
@@ -256,6 +276,33 @@ onMounted(loadStatus);
                         placeholder="acct_…"
                         class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 font-ss-mono text-sm text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
                     />
+                </label>
+                <label class="block">
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >Timezone</span
+                    >
+                    <select
+                        v-model="draft.timezone"
+                        class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 text-sm text-ss-text focus:border-ss-accent focus:outline-none"
+                    >
+                        <option :value="null">
+                            Agency default ({{ props.defaultTimezone }})
+                        </option>
+                        <option
+                            v-for="tz in props.timezones"
+                            :key="tz"
+                            :value="tz"
+                        >
+                            {{ tz.replaceAll('_', ' ') }}
+                        </option>
+                    </select>
+                    <span class="mt-1 block text-[11px] text-ss-text-3">
+                        The AI reads the time of day on this clock<template
+                            v-if="localNow"
+                        >
+                            — it's {{ localNow }} there now</template
+                        >.
+                    </span>
                 </label>
                 <label class="block">
                     <span class="mb-1 block text-[12px] text-ss-text-2"
