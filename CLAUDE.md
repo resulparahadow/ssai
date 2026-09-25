@@ -141,7 +141,30 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - Input guards (each proves the engine REACTS to one PHP-supplied input, not just receives it):
   `node engine/money_check.js` (session ppv/tip → `tipPrimary`), `node engine/state_check.js`
   (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
-  `node engine/tz_check.js` (`timezone` → the prompts' clock, per request).
+  `node engine/tz_check.js` (`timezone` → the prompts' clock, per request),
+  `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt).
+- **Reject with feedback — legacy's correction loop, restored + persisted (2026-09-25).** Chatter
+  feedback "the agent override box doesn't get listened to" traced to this, not to the box: the
+  box reaches the AI exactly as in legacy, but legacy ALSO had a Feedback → "Submit & Reject" on
+  every draft, whose reason every later draft saw as "REJECTED RESPONSES IN THIS SESSION — learn
+  from these mistakes" (`s._sessionFeedback`, app.js ~6062). The rewrite had only Dismiss, so a
+  mistake the chatter corrected came straight back. Now `SsComposer`'s suggestion card has
+  **Reject** → reason → **Reject & regenerate**; `POST onlyfans/{model}/chats/{chat}/rejections`
+  stores it in **`aich_draft_rejections`** (`AichDraftRejection`, `BelongsToChatter`), and
+  `generate` loads the active ones SERVER-side (`DraftRejectionService::active`) into the engine's
+  `_sessionFeedback` — the client never sends them, so every chatter on the fan gets the same set.
+  Stored, unlike legacy (in-memory, lost on reload), so it survives reloads and shift changes.
+  **Active = current conversation only:** a rejection steers the AI until the chat goes quiet for
+  longer than `session_gap_hours` (12h, the same gap as session spend) AFTER it — walked from the
+  rejection through every later message to NOW, not from the thread's session start, so one made
+  while re-engaging a quiet fan still counts. Max 5 (newest), oldest first. Rows are kept as
+  history. `SsComposer` lists the active ones ("SSAI is avoiding") with a remove button
+  (`DELETE …/rejections/{id}`, scoped to that chat); the list mirrors the rule client-side
+  (`lib/draftRejections.ts`, gap via the `sessionGapHours` page prop) — keep the two in step.
+  Legacy's key names are load-bearing: it reads `f.rejectedMsg.slice(0,100)`, so a renamed key
+  throws mid-generate. NOT restored (by choice): legacy's manager feedback queue (rejections →
+  synthesized model rules) and the per-session "Agent Note". Guards:
+  `tests/Feature/DraftRejectionTest.php`, `node engine/rejection_check.js`.
 - **The AI's clock is the CREATOR's timezone, not the server's (fixed 2026-09-24).** Legacy built
   its time lines ("CURRENT TIME CONTEXT … EARLY EVENING block", "Current local time: …") from
   `new Date()` in the chatter's browser; the engine container runs on **UTC**, so a US creator's
@@ -183,8 +206,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     Copy-JSON). Period filter Today/7d/30d. Guards: `node engine/usage_check.js`.
   - **Conversations** (`/conversations`) — a **live OnlyFans proxy; no message text is persisted**
     (Phase 6 replaced the old DB-backed version). The only server-side persistence is metadata-only
-    carve-outs: AI Intel (`AichChatIntel`, strategy-only), the usage ledger (`aich_usage_events`), and
-    **fan memory** (`customer_profiles` — trust/archetype/memory/toggles, see the Fan-tab card below). The sidebar "Conversations" item is a
+    carve-outs: AI Intel (`AichChatIntel`, strategy-only), the usage ledger (`aich_usage_events`),
+    **fan memory** (`customer_profiles` — trust/archetype/memory/toggles, see the Fan-tab card below),
+    and **rejected drafts** (`aich_draft_rejections` — the AI's own rejected output + the chatter's
+    reason, never fan text; see "Reject with feedback" below). The sidebar "Conversations" item is a
     **dropdown of creator models** (shared `creators` prop from `HandleInertiaRequests`);
     picking one opens `/conversations?creator=<name>`. The Vue page fetches everything LIVE
     client-side (`resources/js/lib/onlyfans.ts`) via `OnlyFansChatController` (`/onlyfans/{model}/…`):

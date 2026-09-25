@@ -21,6 +21,7 @@ import {
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
 import { alertDraftDone } from '@/lib/draftAlerts';
+import { activeRejections } from '@/lib/draftRejections';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     ensureSubscribed,
@@ -37,6 +38,10 @@ import type {
     OfMessage,
     SidebarCreator,
 } from '@/types/crm';
+
+const props = defineProps<{
+    sessionGapHours: number;
+}>();
 
 const page = usePage();
 const { selectedId, select: selectCreator } = useCreatorContext();
@@ -117,6 +122,17 @@ const rail = ref<'fan' | 'ai'>('fan');
 // preserved across switches.
 const cur = computed(() =>
     selected.value ? chatComposer(selected.value.id) : null,
+);
+
+// The rejected drafts the next generate will send to the AI (the server applies the same rule).
+const curRejections = computed(() =>
+    cur.value
+        ? activeRejections(
+              cur.value.rejections ?? [],
+              messages.value,
+              props.sessionGapHours,
+          )
+        : [],
 );
 
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
@@ -255,6 +271,82 @@ function goToChat(creatorId: number, chatId: string) {
 
     selectCreator(creatorId);
     router.visit(`/conversations?chat=${encodeURIComponent(chatId)}`);
+}
+
+/** Reject the current draft with a reason (stored, shared, fed to later generations in this
+ *  conversation), then generate a fresh one that sees it. */
+async function rejectDraft(feedback: string) {
+    const m = model.value;
+    const chatId = selected.value?.id;
+
+    if (!m || !chatId) {
+        return;
+    }
+
+    const st = chatComposer(chatId);
+    const draft = st.suggestion;
+
+    if (!draft || st.rejecting) {
+        return;
+    }
+
+    st.rejecting = true;
+    st.error = null;
+
+    try {
+        const { rejection } = await ofApi.rejectDraft(m.id, chatId, {
+            draft,
+            feedback,
+        });
+        st.rejections = [...(st.rejections ?? []), rejection];
+        st.suggestion = null;
+    } catch (e) {
+        st.error = e instanceof Error ? e.message : String(e);
+
+        return; // keep the draft on screen — the reason didn't save, so nothing would change
+    } finally {
+        st.rejecting = false;
+    }
+
+    if (selected.value?.id === chatId) {
+        void generate();
+    }
+}
+
+/** Stop a rejection steering the AI (it no longer applies). */
+async function removeRejection(id: number) {
+    const m = model.value;
+    const chatId = selected.value?.id;
+
+    if (!m || !chatId) {
+        return;
+    }
+
+    const st = chatComposer(chatId);
+
+    try {
+        await ofApi.removeRejection(m.id, chatId, id);
+        st.rejections = (st.rejections ?? []).filter((r) => r.id !== id);
+    } catch (e) {
+        st.error = e instanceof Error ? e.message : String(e);
+    }
+}
+
+/** Load this chat's rejected drafts. Revalidated on every open: other chatters on the same
+ *  fan add to the list too. */
+async function fetchRejections(chatId: string) {
+    const m = model.value;
+
+    if (!m) {
+        return;
+    }
+
+    try {
+        const { rejections } = await ofApi.rejections(m.id, chatId);
+        chatComposer(chatId).rejections = rejections;
+    } catch {
+        // Best-effort display — the server still applies them on generate either way.
+    }
 }
 
 /** Persist the adopted generation's strategy so the next Generate builds on it.
@@ -1239,6 +1331,7 @@ function openChat(chat: OfChat) {
     // in-memory strategy already rendered instantly above; this refreshes it and
     // restores it after a reload. Race-safe: only apply while this chat is open.
     fetchIntel(chat.id);
+    fetchRejections(chat.id);
 }
 
 async function fetchIntel(chatId: string) {
@@ -1505,6 +1598,8 @@ onBeforeUnmount(() => {
                         :error="cur.error"
                         :can-send="selected?.canSend ?? true"
                         :can-send-reason="selected?.canSendReason ?? null"
+                        :rejections="curRejections"
+                        :rejecting="cur.rejecting"
                         @update:draft="cur.draft = $event"
                         @update:context="cur.context = $event"
                         @update:attached-gif="cur.gif = $event"
@@ -1516,6 +1611,8 @@ onBeforeUnmount(() => {
                         @accept="acceptSuggestion"
                         @accept-send="acceptAndSend"
                         @dismiss="dismissSuggestion"
+                        @reject="rejectDraft"
+                        @remove-rejection="removeRejection"
                     />
                 </template>
             </SsChatThread>

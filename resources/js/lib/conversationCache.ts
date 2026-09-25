@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import type {
     AiStrategy,
     ComposerAttachment,
+    DraftRejection,
     OfChat,
     OfFan,
     OfGif,
@@ -46,6 +47,8 @@ export interface ComposerState {
     strategy: AiStrategy | null;
     strategyGeneratedAt: string | null; // ISO time the strategy was generated (for "generated X ago")
     telemetry: Record<string, unknown> | null; // last generate's telemetry (carry-forward state committed on accept/send)
+    rejections: DraftRejection[] | null; // this chat's rejected drafts (server-stored, shared); null = not loaded yet
+    rejecting: boolean; // a Reject & regenerate is saving
 }
 
 const composerStore = reactive<Record<string, ComposerState>>({});
@@ -64,6 +67,8 @@ export function chatComposer(chatId: string): ComposerState {
             strategy: null,
             strategyGeneratedAt: null,
             telemetry: null,
+            rejections: null,
+            rejecting: false,
         };
     }
 
