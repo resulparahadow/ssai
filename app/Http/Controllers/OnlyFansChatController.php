@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
+use App\Models\AichDraftRejection;
 use App\Models\AichModel;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\ChatStateService;
+use App\Services\OnlyFans\DraftRejectionService;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
@@ -41,6 +43,7 @@ class OnlyFansChatController extends Controller
         protected FanProfileService $profiles,
         protected ChatStateService $states,
         protected LiveThreadMapper $mapper,
+        protected DraftRejectionService $rejections,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -870,6 +873,12 @@ class OnlyFansChatController extends Controller
                 'crm_notes' => (string) ($profile->crm_notes ?? ''),
                 'sexting' => $profile->sexting_mode ?? 'AUTO',
                 'tipMode' => $profile->tip_mode ?? 'AUTO',
+                // Drafts the chatter rejected earlier in THIS conversation, with their reasons —
+                // legacy's "REJECTED RESPONSES IN THIS SESSION" block. Loaded here, not sent by the
+                // client, so every chatter on the fan gets the same list.
+                'rejections' => $this->rejections->toEngineFeedback(
+                    $this->rejections->active($model, $chat, array_column($data['messages'] ?? [], 'time')),
+                ),
             ]);
         } catch (ConnectionException $e) {
             // ConnectionException covers BOTH "nothing is listening" and "it answered too
@@ -991,6 +1000,54 @@ class OnlyFansChatController extends Controller
         ]);
 
         $this->states->commit($model, $chat, $data['strategy'], $data['telemetry'] ?? [], $request->user()?->id);
+
+        return response()->json(['ok' => true]);
+    }
+
+    // ---- rejected drafts (legacy "Feedback → Submit & Reject") -----------
+
+    /** This chat's recent rejections, oldest first (the client works out which are still active). */
+    public function rejections(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+
+        return response()->json([
+            'rejections' => $this->rejections->recent($model, $chat)
+                ->map(fn (AichDraftRejection $r) => $this->rejections->present($r))
+                ->all(),
+        ]);
+    }
+
+    /** Reject a draft with a reason; later generations in this conversation learn from it. */
+    public function reject(Request $request, AichModel $model, string $chat): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+        $data = $this->validateJson($request, [
+            'draft' => 'required|string|max:4000',
+            'feedback' => 'required|string|max:1000',
+        ]);
+
+        $row = AichDraftRejection::create([
+            'creator_model' => $model->name,
+            'chat_id' => $chat,
+            'user_id' => $request->user()?->id,
+            'draft' => $data['draft'],
+            'feedback' => trim($data['feedback']),
+        ]);
+
+        return response()->json(['rejection' => $this->rejections->present($row->load('chatter:id,name'))], 201);
+    }
+
+    /** Stop a rejection steering the AI (e.g. it no longer applies). Scoped to this chat. */
+    public function removeRejection(Request $request, AichModel $model, string $chat, int $rejection): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+
+        AichDraftRejection::withoutGlobalScopes()
+            ->where('creator_model', $model->name)
+            ->where('chat_id', $chat)
+            ->findOrFail($rejection)
+            ->delete();
 
         return response()->json(['ok' => true]);
     }

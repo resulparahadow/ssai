@@ -66,6 +66,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('chats/{chat}/profile', [OnlyFansChatController::class, 'profile'])->name('profile');
         Route::patch('chats/{chat}/profile', [OnlyFansChatController::class, 'updateProfile'])->name('profile.update');
         Route::post('chats/{chat}/state', [OnlyFansChatController::class, 'commitState'])->name('state');
+        Route::get('chats/{chat}/rejections', [OnlyFansChatController::class, 'rejections'])->name('rejections');
+        Route::post('chats/{chat}/rejections', [OnlyFansChatController::class, 'reject'])->name('reject');
+        Route::delete('chats/{chat}/rejections/{rejection}', [OnlyFansChatController::class, 'removeRejection'])
+            ->whereNumber('rejection')->name('rejections.remove');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
 

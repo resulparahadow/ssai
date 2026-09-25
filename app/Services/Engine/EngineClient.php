@@ -74,6 +74,9 @@ class EngineClient
                 '_nextPlannedMoveAtMsg' => $opts['state']['next_planned_move_at_msg'] ?? null,
                 '_promiseStatus' => $opts['state']['promise_status'] ?? 'not_started',
                 '_storyFrameworkStep' => (int) ($opts['state']['story_framework_step'] ?? 0),
+                // Rejected drafts + reasons for this conversation (DraftRejectionService) — legacy
+                // prints them as "REJECTED RESPONSES IN THIS SESSION — learn from these mistakes".
+                '_sessionFeedback' => $opts['rejections'] ?? [],
             ],
             'creatorStatus' => $status->map(fn (CreatorStatus $e) => [
                 'category' => $e->category,

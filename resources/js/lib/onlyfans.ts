@@ -1,6 +1,7 @@
 import { postJson } from '@/lib/api';
 import type {
     AiStrategy,
+    DraftRejection,
     OfFanNote,
     OfFanProfile,
     OfFanSummary,
@@ -421,6 +422,27 @@ export const ofApi = {
             'PATCH',
             `${base(m)}/chats/${chat}/profile`,
             payload,
+        ),
+
+    // ---- Rejected drafts (Reject with feedback) ------------------------------
+    rejections: (m: number, chat: string) =>
+        req<{ rejections: DraftRejection[] }>(
+            'GET',
+            `${base(m)}/chats/${chat}/rejections`,
+        ),
+    rejectDraft: (
+        m: number,
+        chat: string,
+        payload: { draft: string; feedback: string },
+    ) =>
+        postJson<{ rejection: DraftRejection }>(
+            `${base(m)}/chats/${chat}/rejections`,
+            payload,
+        ),
+    removeRejection: (m: number, chat: string, id: number) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/rejections/${id}`,
         ),
 
     // ---- Chat actions -----------------------------------------------------

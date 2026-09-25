@@ -7,10 +7,16 @@ import {
     Send,
     Smile,
     Sparkles,
+    ThumbsDown,
     X,
 } from '@lucide/vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import type { ComposerAttachment, OfGif, OfMedia } from '@/types/crm';
+import type {
+    ComposerAttachment,
+    DraftRejection,
+    OfGif,
+    OfMedia,
+} from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
 import SsVaultModal from './SsVaultModal.vue';
@@ -28,6 +34,8 @@ const props = defineProps<{
     error: string | null;
     canSend: boolean;
     canSendReason: string | null;
+    rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
+    rejecting: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -42,9 +50,32 @@ const emit = defineEmits<{
     accept: [];
     'accept-send': [];
     dismiss: [];
+    reject: [feedback: string];
+    'remove-rejection': [id: number];
 }>();
 
 const showPicker = ref(false);
+// Reject with feedback: the reason box under the suggestion. Reset whenever the draft changes,
+// so a half-typed reason never gets attached to a different draft.
+const showReject = ref(false);
+const rejectReason = ref('');
+
+watch(
+    () => props.suggestion,
+    () => {
+        showReject.value = false;
+        rejectReason.value = '';
+    },
+);
+
+function submitReject() {
+    const reason = rejectReason.value.trim();
+
+    if (reason && !props.rejecting) {
+        emit('reject', reason);
+    }
+}
+
 const showEmoji = ref(false);
 // Opens the "guide the AI" box automatically when a directive is already set (e.g.
 // switching back to a chat where one was typed) so it isn't silently in effect.
@@ -256,7 +287,49 @@ function onKeydown(e: KeyboardEvent) {
                 >
                     {{ props.suggestion }}
                 </p>
-                <div class="mt-2.5 flex items-center justify-end gap-2">
+                <!-- Reject with feedback: the reason is stored for this chat and every later
+                     draft in this conversation is told not to repeat the mistake. -->
+                <div v-if="showReject" class="mt-2.5 space-y-2">
+                    <textarea
+                        v-model="rejectReason"
+                        rows="2"
+                        placeholder="Why wasn't this good? e.g. don't sell yet, ask about his dog"
+                        class="w-full resize-none rounded-lg border border-ss-border bg-ss-surface px-2.5 py-1.5 text-[13px] leading-snug text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
+                        @keydown.enter.exact.prevent="submitReject"
+                    />
+                    <div class="flex items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            class="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2"
+                            @click="showReject = false"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            :disabled="!rejectReason.trim() || props.rejecting"
+                            class="flex items-center gap-1.5 rounded-lg bg-ss-neg px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                            title="Save the reason and write a new draft that avoids it"
+                            @click="submitReject"
+                        >
+                            <ThumbsDown :size="13" />
+                            {{
+                                props.rejecting
+                                    ? 'Saving…'
+                                    : 'Reject & regenerate'
+                            }}
+                        </button>
+                    </div>
+                </div>
+                <div v-else class="mt-2.5 flex items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        class="mr-auto flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-semibold text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-neg"
+                        title="Reject with a reason — SSAI avoids it for the rest of this conversation"
+                        @click="showReject = true"
+                    >
+                        <ThumbsDown :size="13" /> Reject
+                    </button>
                     <button
                         type="button"
                         class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2"
@@ -277,6 +350,39 @@ function onKeydown(e: KeyboardEvent) {
                     </button>
                 </div>
             </template>
+        </div>
+
+        <!-- What the AI is avoiding in this conversation (rejected drafts + reasons). Shared by
+             every chatter on this fan; expires once the chat goes quiet for the session gap. -->
+        <div
+            v-if="props.rejections.length"
+            class="rounded-xl border border-ss-border bg-ss-surface-2 px-2.5 py-2"
+        >
+            <p class="mb-1 text-[11px] font-semibold text-ss-text-2">
+                SSAI is avoiding · this conversation
+            </p>
+            <ul class="space-y-0.5">
+                <li
+                    v-for="r in props.rejections"
+                    :key="r.id"
+                    class="flex items-start gap-1.5 text-[12px] text-ss-text"
+                    :title="`Rejected draft: ${r.draft}${r.by ? ` — by ${r.by}` : ''}`"
+                >
+                    <ThumbsDown
+                        :size="11"
+                        class="mt-1 shrink-0 text-ss-text-3"
+                    />
+                    <span class="min-w-0 flex-1">{{ r.feedback }}</span>
+                    <button
+                        type="button"
+                        class="grid h-5 w-5 shrink-0 place-items-center rounded text-ss-text-3 hover:bg-ss-surface hover:text-ss-text-2"
+                        title="No longer applies — stop avoiding this"
+                        @click="emit('remove-rejection', r.id)"
+                    >
+                        <X :size="12" />
+                    </button>
+                </li>
+            </ul>
         </div>
 
         <p v-if="props.error" class="text-[11px] text-ss-neg">

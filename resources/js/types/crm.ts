@@ -168,6 +168,16 @@ export interface OfMessage {
     pinning?: boolean; // transient: a pin/unpin request is in flight
 }
 
+/** An AI draft a chatter rejected, with their reason (Reject with feedback). Stored per chat on
+ *  the server and fed to later generations in the same conversation. */
+export interface DraftRejection {
+    id: number;
+    feedback: string;
+    draft: string;
+    createdAt: string | null;
+    by: string | null; // who rejected it
+}
+
 export interface OfFan {
     id: string;
     name: string | null;
