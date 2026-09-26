@@ -142,7 +142,25 @@ engine uses its in-process copy. Provider keys live in the engine's env
   `node engine/money_check.js` (session ppv/tip → `tipPrimary`), `node engine/state_check.js`
   (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
   `node engine/tz_check.js` (`timezone` → the prompts' clock, per request),
-  `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt).
+  `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
+  `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note).
+- **The creator spoke last → the AI writes a follow-up, not a reply (fixed 2026-09-26).** Legacy was
+  only ever used to answer a fan message the chatter had just typed in, so its prompts take the
+  newest line to be the fan's ("your analysis must reflect what the LAST customer message actually
+  said"; the generator's fallback read is "responding to his last message"). A live thread often
+  ends with the creator's own message — the fan hasn't answered yet — and the AI replied to ITSELF.
+  Labels were never the problem (`CUSTOMER:` / `CAMILA:` print correctly). **`engine/followUp.js`**
+  fixes it without touching legacy: `followUpContext(session.messages)` finds the creator's
+  unanswered run at the end (`model` lines + unopened `ppv`s; an OPENED PPV counts as the fan's move,
+  since legacy's post-purchase path owns that), and `runGenerate` wraps the transports so every
+  `strategy*` and `generator*` call (retries + `generator_fallback` + `callMistral`) ends with a
+  "FOLLOW-UP — {FAN} HAS NOT REPLIED YET" note. The note says the last line is her own and must
+  not be answered, the fan's message is already answered, and gives advice by the time since her
+  last message: under 15 min an add-on, under 6h a light nudge, after that one check-in (doctrine's
+  SILENT TREATMENT). It adds a don't-chase line for 2+ unanswered messages. Other calls pass through, and
+  a thread ending with the fan gets no wrapper, so it reaches the AI byte-identical (parity + harness
+  unchanged). Chat mode only. NB the engine's Mistral route is unreachable today (legacy gates it on a
+  `localStorage` OpenRouter key the engine stub never returns), so `api:'mistral'` runs `generator_fallback`.
 - **Reject with feedback — legacy's correction loop, restored + persisted (2026-09-25).** Chatter
   feedback "the agent override box doesn't get listened to" traced to this, not to the box: the
   box reaches the AI exactly as in legacy, but legacy ALSO had a Feedback → "Submit & Reject" on
