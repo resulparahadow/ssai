@@ -697,6 +697,16 @@ it adds a `caddy` service (auto Let's Encrypt) publishing 80/443 that
 `bootstrap/app.php` sets **`trustProxies(at: '*')`** so Laravel detects HTTPS behind
 the edge (correct URLs, secure cookies, Reverb auth) — safe because app/web are
 reachable only over the internal Docker network.
+**nginx resolves `app`/`reverb` per request, not at startup (fixed 2026-09-26, after a prod
+outage).** `deploy.sh` recreates `app`/`reverb` (new internal IPs), but Compose recreates `web`
+only when its image changes — i.e. never on a deploy with no frontend/nginx edit. With the old
+static `fastcgi_pass app:9000`, nginx kept the address it resolved at boot, so every request
+502'd (`connect() failed (111) … upstream: "fastcgi://<old ip>:9000"`) and re-running `deploy.sh`
+couldn't fix it; `docker compose restart web` did. `default.conf` now sets
+`resolver 127.0.0.11 valid=5s` and passes `$php_upstream`/`$reverb_upstream` **variables** —
+the variable is what triggers runtime resolution, so don't inline them back. Verified by
+recreating `app` on a new IP under both configs (old → 502, new → 200) and that `/app/{key}`
+still reaches Reverb with its URI + upgrade headers intact.
 
 - **Env:** lives in **`.env.docker`** (git-ignored; template `.env.docker.example`
   with **blank** placeholders — never commit real secrets). `SITE_ADDRESS` +
