@@ -7,6 +7,7 @@
  */
 const { createEngine, makeSbCapture } = require('./loadEngine');
 const { makeRealCallApi, makeRealCallMistral } = require('./callModel');
+const { followUpContext, withFollowUp } = require('./followUp');
 
 /**
  * @param {object} input
@@ -51,8 +52,21 @@ async function generateDraft(input, opts = {}) {
     const usage = [];
 
     // Model transport (real by default; tests inject fakes).
-    eng.set('callApi', opts.callApi || makeRealCallApi(usage));
-    eng.set('callMistral', opts.callMistral || makeRealCallMistral(usage));
+    let transport = {
+        callApi: opts.callApi || makeRealCallApi(usage),
+        callMistral: opts.callMistral || makeRealCallMistral(usage),
+    };
+    // The creator spoke last (the fan hasn't answered): tell every reply-writing call, or legacy —
+    // which assumes the newest line is the fan's — answers her own message. See followUp.js.
+    const followUp = session.inputMode === 'chat' ? followUpContext(session.messages) : null;
+    if (followUp) {
+        transport = withFollowUp(transport, followUp, {
+            creator: session.creator_model,
+            fan: session.customer_name || 'the customer',
+        });
+    }
+    eng.set('callApi', transport.callApi);
+    eng.set('callMistral', transport.callMistral);
 
     // DOM-fed inputs.
     document.getElementById('ctxIn').value = input.context || '';
