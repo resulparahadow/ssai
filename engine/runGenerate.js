@@ -58,11 +58,14 @@ async function generateDraft(input, opts = {}) {
     };
     // The creator spoke last (the fan hasn't answered): tell every reply-writing call, or legacy —
     // which assumes the newest line is the fan's — answers her own message. See followUp.js.
-    const followUp = session.inputMode === 'chat' ? followUpContext(session.messages) : null;
+    // Only for a normal reply: PPV caption mode (sender 'ppv') is a different task.
+    const replying = session.inputMode === 'chat' && (input.sender || 'customer') === 'customer';
+    const followUp = replying ? followUpContext(session.messages) : null;
     if (followUp) {
         transport = withFollowUp(transport, followUp, {
             creator: session.creator_model,
             fan: session.customer_name || 'the customer',
+            override: String(input.context || '').trim() !== '',
         });
     }
     eng.set('callApi', transport.callApi);

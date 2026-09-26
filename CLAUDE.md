@@ -154,10 +154,37 @@ engine uses its in-process copy. Provider keys live in the engine's env
   unanswered run at the end (`model` lines + unopened `ppv`s; an OPENED PPV counts as the fan's move,
   since legacy's post-purchase path owns that), and `runGenerate` wraps the transports so every
   `strategy*` and `generator*` call (retries + `generator_fallback` + `callMistral`) ends with a
-  "FOLLOW-UP — {FAN} HAS NOT REPLIED YET" note. The note says the last line is her own and must
-  not be answered, the fan's message is already answered, and gives advice by the time since her
-  last message: under 15 min an add-on, under 6h a light nudge, after that one check-in (doctrine's
-  SILENT TREATMENT). It adds a don't-chase line for 2+ unanswered messages. Other calls pass through, and
+  "FOLLOW-UP — {FAN} HAS NOT REPLIED YET" note. The note **quotes** the fan's last message and her
+  unanswered ones (last 3, newest marked), and it says:
+  - they are her own words, so she must not answer, react to, continue, echo or re-ask them;
+  - any question in them is HIS to answer;
+  - the draft is ONE new message on a **different topic** ("describing her own day after asking
+    about his IS answering her own question");
+  - timing advice keyed off her last message: under 15 min keep it light, under 6h name how long
+    HE has been quiet, after that one check-in (doctrine's SILENT TREATMENT);
+  - a don't-chase line for 2+ unanswered messages.
+  **Don't bring back "continue her own thought" advice.** The first version said that (and only
+  said abstractly "the last line is hers"). Live, "Rough morning or a good one? 😏" became "just
+  out here enjoying my Saturday 😜 hope yours is a good one" — she answered her own question.
+  Real-LLM runs on that thread: abstract note → 3/3 drafts self-answered; quotes + no-self-answer
+  → the echo went away but she still described her own evening; plus the different-topic line →
+  0/4, and 0/2 on a single "…wbu?" thread.
+  Edge cases:
+  - **Override box set:** the note carries FACTS only (who said what, no self-answering) and says
+    the directive picks the move. With the full rules ("do not continue them") a directive like
+    "finish her bath story" contradicted the note.
+  - **Opening words:** the generator is told not to open with "actually"/"wait"/"hmm". Legacy's
+    reasoning-leak filter (`REASONING_PATTERNS`, app.js ~8045) discards any draft that opens that
+    way and shows `[generation failed register check…]`, and follow-ups often open that way: 2 of
+    3 override runs died on it before, 0 of 3 after.
+  - **Caption mode** (`sender: 'ppv'`, dev page only) gets no note.
+  - **Failed sends** (`m.failed`) are dropped from the generate payload in `Conversations.vue`.
+    Counted as hers, one read as "she already replied".
+  - **No fan message in the thread:** the note says "No message from {fan} in the conversation
+    above", not "he never wrote". The payload is only the loaded page (100 messages).
+  Verified by an A/B diff of every prompt against the pre-follow-up engine (`404a01f`) on 18
+  cases: 11 fan-last or caption cases came out byte-identical, and 7 creator-last cases came out
+  as the old prompt plus the note on the reply calls only. Other calls pass through, and
   a thread ending with the fan gets no wrapper, so it reaches the AI byte-identical (parity + harness
   unchanged). Chat mode only. NB the engine's Mistral route is unreachable today (legacy gates it on a
   `localStorage` OpenRouter key the engine stub never returns), so `api:'mistral'` runs `generator_fallback`.
