@@ -141,5 +141,10 @@ docker compose logs -f reverb
   makes the app image the single source of truth for `public/build`, so nginx
   can never serve a manifest that mismatches the app (no `/build/*.js` 404s).
   Rebuild `app` and `up -d app`; the new assets propagate to nginx automatically.
+- **nginx resolves `app`/`reverb` per request** (`resolver 127.0.0.11` + variables in
+  `fastcgi_pass`/`proxy_pass`, see `docker/nginx/default.conf`). Recreating `app` gives it a
+  new internal IP while `web` keeps running (Compose only recreates `web` when its image
+  changes), so a name resolved once at nginx startup went stale and every request 502'd
+  until `docker compose restart web` — prod outage 2026-09-26. Keep the upstreams as variables.
 - **Persistent data** lives in the `mysql-data`, `redis-data`, and `storage`
   named volumes. Back these up; `docker compose down` (without `-v`) keeps them.

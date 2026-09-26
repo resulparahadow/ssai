@@ -1567,6 +1567,7 @@ onBeforeUnmount(() => {
         <template v-if="selected && model">
             <SsChatThread
                 :model-id="model.id"
+                :creator="model.name"
                 :chat="selected"
                 :fan="fan"
                 :role="role"

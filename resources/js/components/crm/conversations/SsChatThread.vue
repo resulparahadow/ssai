@@ -35,6 +35,8 @@ import type { OfChat, OfFan, OfMedia, OfMessage } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
+    /** The creator's name — labels her side. `chat.name` is the FAN's name. */
+    creator: string;
     chat: OfChat;
     fan: OfFan | null;
     role: Role;
@@ -512,7 +514,7 @@ function fmtDuration(sec: number | null): string {
             v-if="showPinned"
             :model-id="modelId"
             :chat-id="chat.id"
-            :creator="chat.name"
+            :creator="creator"
             @close="showPinned = false"
             @jump="jumpTo"
             @unpinned="
@@ -709,9 +711,7 @@ function fmtDuration(sec: number | null): string {
                 <span
                     class="mt-1 flex items-center gap-1 px-1 text-[10px] text-ss-text-3"
                 >
-                    {{
-                        m.from === 'creator' ? chat.name + ' · you' : chat.name
-                    }}
+                    {{ m.from === 'creator' ? creator + ' · you' : chat.name }}
                     <template v-if="m.pending">
                         ·
                         <LoaderCircle :size="11" class="animate-spin" />
