@@ -203,15 +203,20 @@ async function generate() {
             msgCache.get(chatId) ??
             (selected.value?.id === chatId ? messages.value : []);
         const data = await ofApi.generate(m.id, chatId, {
-            messages: thread.map((mm) => ({
-                from: mm.from,
-                text: mm.text,
-                time: mm.time,
-                price: mm.price,
-                isFree: mm.isFree,
-                isOpened: mm.isOpened,
-                isTip: mm.isTip,
-            })),
+            // A failed send never reached the fan, so the AI must not see it either: counted as
+            // her message, it would read as "she already replied" and the engine would write a
+            // follow-up instead of answering him (engine/followUp.js).
+            messages: thread
+                .filter((mm) => !mm.failed)
+                .map((mm) => ({
+                    from: mm.from,
+                    text: mm.text,
+                    time: mm.time,
+                    price: mm.price,
+                    isFree: mm.isFree,
+                    isOpened: mm.isOpened,
+                    isTip: mm.isTip,
+                })),
             // Name + username are load-bearing, not decoration: the legacy prompt prints
             // "Customer: {name} (@{username})" and then tells the model "You already know
             // his name ({name})... use his name when it fits". Omitting them makes the
