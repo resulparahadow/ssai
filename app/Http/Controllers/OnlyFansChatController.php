@@ -10,6 +10,7 @@ use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\ChatStateService;
 use App\Services\OnlyFans\DraftRejectionService;
+use App\Services\OnlyFans\FanMemoryLog;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
@@ -907,8 +908,15 @@ class OnlyFansChatController extends Controller
         }
 
         // Folded-analysis write-back: auto-fill unlocked memory fields (skips human-pinned ones).
+        // The message times decide whether this is still the conversation the memory log's
+        // current entry belongs to; the zone dates a new entry on the creator's clock.
         if (! empty($out['strategy'])) {
-            $this->profiles->applyAnalysis($profile, $out['strategy']);
+            $this->profiles->applyAnalysis(
+                $profile,
+                $out['strategy'],
+                array_column($data['messages'] ?? [], 'time'),
+                $model->timezoneOrDefault(),
+            );
         }
 
         $this->usage->record($out['usage'] ?? [], [
@@ -971,7 +979,8 @@ class OnlyFansChatController extends Controller
             'archetype' => 'sometimes|nullable|string|max:120',
             'trust_level' => 'sometimes|integer|min:0|max:5',
             'temperature' => 'sometimes|nullable|string|max:20',
-            'key_details' => 'sometimes|nullable|string|max:5000',
+            // The dated memory log grows one entry per conversation, so the whole log must stay editable.
+            'key_details' => 'sometimes|nullable|string|max:'.FanMemoryLog::MAX_CHARS,
             // `crm_notes` is deliberately absent: the note is owned by OnlyFans and written
             // only through the notes endpoints, which mirror it back into that column.
             'is_timewaster' => 'sometimes|boolean',

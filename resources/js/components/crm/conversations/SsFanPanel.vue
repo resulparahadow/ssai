@@ -307,7 +307,7 @@ async function saveProfile(): Promise<void> {
     }
 }
 
-/** Hand a pinned field back to the AI (clears + un-pins on the server). */
+/** Hand a pinned field back to the AI (un-pins; the server clears it, except the memory log). */
 async function unlockField(field: OfLockableField): Promise<void> {
     if (!props.fan || props.modelId == null) {
         return;
@@ -655,7 +655,7 @@ onBeforeUnmount(stopPolling);
                             class="mb-1 flex items-center justify-between text-[10px]"
                         >
                             <span class="text-ss-text-3"
-                                >Key details (AI memory)</span
+                                >Key details (AI memory log)</span
                             >
                             <button
                                 v-if="isLocked('key_details')"
@@ -666,10 +666,11 @@ onBeforeUnmount(stopPolling);
                                 <Lock :size="10" /> pinned · let AI manage
                             </button>
                         </div>
+                        <!-- One dated entry per conversation; the AI rewrites only the newest. -->
                         <textarea
                             v-model="form.key_details"
-                            rows="2"
-                            placeholder="Facts the AI should remember about him"
+                            rows="5"
+                            placeholder="Facts the AI should remember about him — it adds a dated entry per conversation"
                             class="w-full resize-y rounded-md border border-ss-border bg-ss-surface px-2 py-1 text-[12px] text-ss-text"
                         />
                     </div>
