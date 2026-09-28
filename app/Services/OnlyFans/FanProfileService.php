@@ -82,7 +82,9 @@ class FanProfileService
             'temperature' => $profile->temperature ?? 'cold',
             'total_spend' => (float) $profile->total_spend,
             'tips_spend' => (float) $profile->tips_spend,
-            'key_details' => (string) ($profile->key_details ?? ''),
+            // The newest entries of the memory log, not all of it, so a long-time fan's
+            // growing history doesn't grow the cost of every generate.
+            'key_details' => FanMemoryLog::recent($profile->key_details),
             // Load-bearing cast: legacy `computeCustomerTier` short-circuits to the
             // 'flagged_tw' posture tier on a strict `is_timewaster===true`, so a truthy
             // 1/"1" would silently do nothing. Human-owned — never auto-set by analysis.
@@ -92,32 +94,64 @@ class FanProfileService
 
     /**
      * Folded-analysis write-back: copy AI-owned fields from the strategy JSON onto
-     * the record, skipping any the human has pinned. Fire-and-forget; caller swallows.
+     * the record, skipping any the human has pinned. `key_details` goes into the
+     * dated memory log (recordMemory) rather than replacing it.
      *
      * @param  array<string, mixed>  $strategy
+     * @param  list<string|null>  $messageTimes  the thread's message times as generate received them
+     * @param  string  $timezone  the creator's zone — the log's dates read the same clock as the AI
      */
-    public function applyAnalysis(CustomerProfile $profile, array $strategy): void
+    public function applyAnalysis(CustomerProfile $profile, array $strategy, array $messageTimes, string $timezone): void
     {
-        $incoming = [
-            'archetype' => $strategy['archetype'] ?? null,
-            'trust_level' => $strategy['trust_level'] ?? null,
-            'temperature' => $strategy['temperature'] ?? null,
-            'key_details' => $strategy['key_details'] ?? null,
-        ];
-
-        foreach ($incoming as $field => $value) {
+        foreach (['archetype', 'trust_level', 'temperature'] as $field) {
+            $value = $strategy[$field] ?? null;
             if ($value === null || $value === '' || $profile->isLocked($field)) {
                 continue;
             }
             $profile->{$field} = $field === 'trust_level' ? (int) $value : $value;
         }
 
+        $summary = $strategy['key_details'] ?? null;
+        if (is_string($summary) && trim($summary) !== '' && ! $profile->isLocked('key_details')) {
+            $this->recordMemory($profile, $summary, $messageTimes, $timezone);
+        }
+
         $profile->save();
     }
 
     /**
+     * Legacy's dated memory log (writeSessionMemory): rewrite the entry the AI started in this
+     * conversation, or append a new one once the chat has gone quiet for longer than the
+     * session gap since it last wrote — the same conversation rule as draft rejections.
+     *
+     * @param  list<string|null>  $messageTimes
+     */
+    protected function recordMemory(CustomerProfile $profile, string $summary, array $messageTimes, string $timezone): void
+    {
+        $now = now();
+        $times = array_values(array_filter(array_map(
+            fn ($t) => $t ? strtotime((string) $t) : false,
+            $messageTimes,
+        )));
+        sort($times);
+
+        // No write time = no entry of the AI's to continue (new fan, or a human edited the log).
+        $continues = $profile->key_details_written_at !== null && DraftRejectionService::isActive(
+            $profile->key_details_written_at->getTimestamp(),
+            $times,
+            $now->getTimestamp(),
+            (int) config('services.engine.session_gap_hours', 12) * 3600,
+        );
+
+        $date = $now->copy()->setTimezone($timezone)->format('M j, Y');
+        $profile->key_details = FanMemoryLog::record($profile->key_details, $summary, $date, $continues);
+        $profile->key_details_written_at = $now;
+    }
+
+    /**
      * Apply a manual edit: setting an AI-owned field also pins it; `unlock[]` un-pins
-     * (and clears so the next generate refills). Toggles/notes are set directly.
+     * (and clears so the next generate refills — except the memory log, whose history
+     * is kept). Toggles/notes are set directly.
      *
      * @param  array<string, mixed>  $data
      */
@@ -133,6 +167,12 @@ class FanProfileService
             $locked[] = $field;
         }
 
+        // The log's last entry is the chatter's now, so the AI must not rewrite it:
+        // its next summary starts a new entry below.
+        if (array_key_exists('key_details', $data)) {
+            $profile->key_details_written_at = null;
+        }
+
         foreach (['crm_notes', 'is_timewaster', 'sexting_mode', 'tip_mode'] as $field) {
             if (array_key_exists($field, $data)) {
                 $profile->{$field} = $data[$field];
@@ -141,7 +181,10 @@ class FanProfileService
 
         foreach ($data['unlock'] ?? [] as $field) {
             $locked = array_filter($locked, fn ($f) => $f !== $field);
-            if (in_array($field, CustomerProfile::AI_FIELDS, true)) {
+            if ($field === 'key_details') {
+                // Clearing would erase the whole dated history; the AI adds below it instead.
+                $profile->key_details_written_at = null;
+            } elseif (in_array($field, CustomerProfile::AI_FIELDS, true)) {
                 $profile->{$field} = $field === 'trust_level' ? 0 : null;
             }
         }

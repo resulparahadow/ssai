@@ -457,6 +457,17 @@ engine uses its in-process copy. Provider keys live in the engine's env
     lurker), then **folds the returned analysis back** into the record (`trust_level`/`archetype`/
     `temperature`/`key_details`). Merge is **per-field lock**: a human edit pins that field in
     `locked_fields` so auto-analysis won't clobber it; the card's lock button un-pins ("let AI manage").
+    **`key_details` is a dated LOG, not one summary (2026-09-28).** It used to be overwritten on every
+    generate — and legacy was no better: its per-generate `updateProfile` clobbered the dated entries
+    its session-close `writeSessionMemory` appended. Now `FanMemoryLog` keeps one
+    `[Sep 28, 2026] …` entry per conversation: the strategy's `key_details` rewrites only the entry
+    the AI started in THIS conversation, and a new one is appended once the chat went quiet for
+    longer than `session_gap_hours` since the AI last wrote (`customer_profiles.key_details_written_at`,
+    walked with `DraftRejectionService::isActive` — the same conversation rule as rejections). Dates
+    use the creator's timezone. A human edit nulls `key_details_written_at` so the AI never rewrites
+    the chatter's text (it appends below), and unlocking `key_details` KEEPS the log (other AI fields
+    still clear). The engine sees only the newest ~3000 chars (`FanMemoryLog::recent`), whole entries;
+    the stored log is capped at 60000 chars (oldest dropped; `mediumText`), which is also the PATCH max.
     Human-owned (no lock): `crm_notes`, `is_timewaster`, `sexting_mode`, `tip_mode` (AUTO/FORCE_ON/
     FORCE_OFF). `is_timewaster` rides on `_profile` **cast to a real bool** — legacy
     `computeCustomerTier` short-circuits to the `flagged_tw` posture tier on a strict `=== true`,

@@ -5,6 +5,7 @@ use App\Models\CustomerProfile;
 use App\Models\ModelAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 
@@ -15,27 +16,45 @@ beforeEach(function () {
     $this->model = AichModel::create(['name' => 'Camila', 'prompt' => 'You are Camila.', 'of_account_id' => 'acct_cam']);
 });
 
+/** What the engine answers a generate with; `$strategy` overrides the analysis fields. */
+function engineReply(array $strategy = []): array
+{
+    return [
+        'draft' => 'aw that means a lot babe',
+        'strategy' => array_merge(['archetype' => 'Explorer', 'trust_level' => 3, 'temperature' => 'warm', 'key_details' => 'likes cars'], $strategy),
+        'telemetry' => null,
+        'usage' => [],
+    ];
+}
+
 /** Fake OF getUser (spend) + the engine generate, with an overridable strategy. */
 function fakeGenerate(array $strategy = [], array $fanData = []): void
 {
+    fakeGenerates([$strategy], $fanData);
+}
+
+/** Like fakeGenerate, but each generate gets the next strategy in turn. */
+function fakeGenerates(array $strategies, array $fanData = []): void
+{
+    $engine = Http::sequence();
+    foreach ($strategies as $strategy) {
+        $engine->push(engineReply($strategy));
+    }
+
     Http::fake([
         'app.onlyfansapi.com/*' => Http::response(['data' => array_merge([
             'id' => 101, 'isSubscribed' => true,
             'subscribedByData' => ['totalSumm' => 120.5, 'tipsSumm' => 30],
         ], $fanData)]),
-        '127.0.0.1:8787/*' => Http::response([
-            'draft' => 'aw that means a lot babe',
-            'strategy' => array_merge(['archetype' => 'Explorer', 'trust_level' => 3, 'temperature' => 'warm', 'key_details' => 'likes cars'], $strategy),
-            'telemetry' => null,
-            'usage' => [],
-        ]),
+        '127.0.0.1:8787/*' => $engine,
     ]);
 }
 
-function runGenerate(User $user, AichModel $model, string $chat = '101'): TestResponse
+/** @param  list<array{from:string,text:string,time:string}>|null  $messages  default: one fan line sent now */
+function runGenerate(User $user, AichModel $model, string $chat = '101', ?array $messages = null): TestResponse
 {
     return test()->actingAs($user)->postJson("/onlyfans/{$model->id}/chats/{$chat}/generate", [
-        'messages' => [['from' => 'fan', 'text' => 'my day was long but better talking to you', 'time' => now()->toIso8601String()]],
+        'messages' => $messages ?? [['from' => 'fan', 'text' => 'my day was long but better talking to you', 'time' => now()->toIso8601String()]],
         'customer' => ['id' => $chat, 'name' => 'Jake', 'username' => 'jake_w'],
     ]);
 }
@@ -53,6 +72,7 @@ it('auto-creates a fan profile keyed by (creator_model, of_fan_id) and refreshes
 });
 
 it('writes back the analysis into unlocked memory fields on generate', function () {
+    $this->travelTo(Carbon::parse('2026-09-28 15:00', 'UTC'));
     fakeGenerate();
 
     runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
@@ -61,7 +81,7 @@ it('writes back the analysis into unlocked memory fields on generate', function 
     expect($p->archetype)->toBe('Explorer');
     expect($p->trust_level)->toBe(3);
     expect($p->temperature)->toBe('warm');
-    expect($p->key_details)->toBe('likes cars');
+    expect($p->key_details)->toBe('[Sep 28, 2026] likes cars');
 });
 
 it('feeds lifetime spend via _profile and keeps session spend at $0', function () {
@@ -179,8 +199,8 @@ it('forwards the timewaster flag to the engine so the posture tier can flip', fu
 
     // Legacy `computeCustomerTier` short-circuits to 'flagged_tw' on a strict `=== true`,
     // so the flag has to arrive as a real boolean, not 1/"1".
-    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
-        || $r['session']['_profile']['is_timewaster'] === true);
+    Http::assertSent(fn ($r) => str_contains($r->url(), '127.0.0.1:8787')
+        && $r['session']['_profile']['is_timewaster'] === true);
 });
 
 it('sends the timewaster flag as false when the fan is not flagged', function () {
@@ -188,8 +208,8 @@ it('sends the timewaster flag as false when the fan is not flagged', function ()
 
     runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
 
-    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
-        || $r['session']['_profile']['is_timewaster'] === false);
+    Http::assertSent(fn ($r) => str_contains($r->url(), '127.0.0.1:8787')
+        && $r['session']['_profile']['is_timewaster'] === false);
 });
 
 it('forwards the fan name and username to the engine', function () {
@@ -199,6 +219,138 @@ it('forwards the fan name and username to the engine', function () {
 
     // The legacy prompt prints "Customer: {name} (@{username})" and tells the model
     // "You already know his name ({name})" — a fallback of 'Fan' is read as his actual name.
-    Http::assertSent(fn ($r) => ! str_contains($r->url(), '127.0.0.1:8787')
-        || ($r['session']['customer_name'] === 'Jake' && $r['session']['customer_username'] === 'jake_w'));
+    Http::assertSent(fn ($r) => str_contains($r->url(), '127.0.0.1:8787')
+        && $r['session']['customer_name'] === 'Jake' && $r['session']['customer_username'] === 'jake_w');
+});
+
+// ---- Memory log: dated entries, one per conversation ------------------------
+
+function memoryLog(): ?string
+{
+    return CustomerProfile::withoutGlobalScopes()->first()?->key_details;
+}
+
+it('rewrites the current memory entry while the chat continues', function () {
+    $admin = User::factory()->admin()->create();
+    fakeGenerates([['key_details' => 'likes cars'], ['key_details' => 'likes cars, has a dog']]);
+
+    $this->travelTo(Carbon::parse('2026-09-28 15:00', 'UTC'));
+    runGenerate($admin, $this->model)->assertOk();
+    $this->travel(1)->hours();
+    runGenerate($admin, $this->model)->assertOk();
+
+    expect(memoryLog())->toBe('[Sep 28, 2026] likes cars, has a dog');
+});
+
+it('starts a new dated memory entry after the chat went quiet for longer than the session gap', function () {
+    $admin = User::factory()->admin()->create();
+    fakeGenerates([['key_details' => 'likes cars'], ['key_details' => 'likes cars, has a dog']]);
+
+    $this->travelTo(Carbon::parse('2026-09-28 15:00', 'UTC'));
+    runGenerate($admin, $this->model)->assertOk();
+    $this->travelTo(Carbon::parse('2026-09-29 16:00', 'UTC'));
+    runGenerate($admin, $this->model)->assertOk();
+
+    expect(memoryLog())->toBe("[Sep 28, 2026] likes cars\n\n[Sep 29, 2026] likes cars, has a dog");
+});
+
+it('keeps one memory entry while the fan kept chatting, even with no generate for over 12h', function () {
+    $admin = User::factory()->admin()->create();
+    fakeGenerates([['key_details' => 'likes cars'], ['key_details' => 'likes cars, has a dog']]);
+
+    $this->travelTo(Carbon::parse('2026-09-28 08:00', 'UTC'));
+    runGenerate($admin, $this->model)->assertOk();
+
+    // 14h since the last generate, but no 12h silence in the chat itself.
+    $this->travelTo(Carbon::parse('2026-09-28 22:00', 'UTC'));
+    runGenerate($admin, $this->model, '101', array_map(fn (string $at) => [
+        'from' => 'fan', 'text' => 'still here', 'time' => Carbon::parse("2026-09-28 {$at}", 'UTC')->toIso8601String(),
+    ], ['12:00', '16:00', '20:00', '22:00']))->assertOk();
+
+    expect(memoryLog())->toBe('[Sep 28, 2026] likes cars, has a dog');
+});
+
+it('dates memory entries in the creator timezone', function () {
+    $this->model->update(['timezone' => 'America/New_York']);
+    fakeGenerate(['key_details' => 'likes cars']);
+
+    // 02:00 UTC on the 28th is still the evening of the 27th in New York.
+    $this->travelTo(Carbon::parse('2026-09-28 02:00', 'UTC'));
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    expect(memoryLog())->toBe('[Sep 27, 2026] likes cars');
+});
+
+it('keeps the memory log when a chatter hands it back to the AI, which then adds below it', function () {
+    $admin = User::factory()->admin()->create();
+    $this->travelTo(Carbon::parse('2026-09-28 15:00', 'UTC'));
+
+    test()->actingAs($admin)->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['key_details' => 'works nights'])->assertOk();
+    test()->actingAs($admin)
+        ->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['unlock' => ['key_details']])
+        ->assertOk()
+        ->assertJsonPath('profile.key_details', 'works nights')
+        ->assertJsonPath('profile.locked_fields', []);
+
+    fakeGenerate(['key_details' => 'likes cars']);
+    runGenerate($admin, $this->model)->assertOk();
+
+    expect(memoryLog())->toBe("works nights\n\n[Sep 28, 2026] likes cars");
+});
+
+it('does not overwrite a chatter correction to the current memory entry', function () {
+    $admin = User::factory()->admin()->create();
+    fakeGenerates([['key_details' => 'likes cars'], ['key_details' => 'likes cars']]);
+
+    $this->travelTo(Carbon::parse('2026-09-28 15:00', 'UTC'));
+    runGenerate($admin, $this->model)->assertOk();
+
+    $fixed = '[Sep 28, 2026] likes trucks, not cars';
+    test()->actingAs($admin)->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['key_details' => $fixed])->assertOk();
+    test()->actingAs($admin)->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['unlock' => ['key_details']])->assertOk();
+
+    // Same conversation, but the entry is the chatter's now: the AI adds its own below it.
+    $this->travel(1)->hours();
+    runGenerate($admin, $this->model)->assertOk();
+
+    expect(memoryLog())->toBe("{$fixed}\n\n[Sep 28, 2026] likes cars");
+});
+
+it('shows the AI only the newest memory entries', function () {
+    CustomerProfile::withoutGlobalScopes()->create([
+        'creator_model' => 'Camila', 'of_fan_id' => '101', 'customer_username' => 'jake_w',
+        'key_details' => '[Jan 1, 2026] '.str_repeat('a', 3000)."\n\n[Sep 27, 2026] works nights",
+    ]);
+    fakeGenerate();
+
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '127.0.0.1:8787')
+        && $r['session']['_profile']['key_details'] === '[Sep 27, 2026] works nights');
+});
+
+it('accepts a manual edit of a memory log longer than 5000 characters', function () {
+    test()->actingAs(User::factory()->admin()->create())
+        ->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['key_details' => str_repeat('a', 6000)])
+        ->assertOk();
+
+    expect(mb_strlen(memoryLog()))->toBe(6000);
+});
+
+it('ignores a memory summary that is not text', function () {
+    fakeGenerate(['key_details' => ['likes cars']]);
+
+    runGenerate(User::factory()->admin()->create(), $this->model)->assertOk();
+
+    expect(memoryLog())->toBeNull();
+});
+
+it('leaves a pinned memory log untouched on generate', function () {
+    $admin = User::factory()->admin()->create();
+    test()->actingAs($admin)->patchJson("/onlyfans/{$this->model->id}/chats/101/profile", ['key_details' => 'works nights'])->assertOk();
+
+    fakeGenerate(['key_details' => 'likes cars']);
+    runGenerate($admin, $this->model)->assertOk();
+
+    expect(memoryLog())->toBe('works nights');
 });

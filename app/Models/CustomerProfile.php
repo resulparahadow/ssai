@@ -28,6 +28,7 @@ class CustomerProfile extends Model
         'tips_spend',
         'time_on_page',
         'key_details',
+        'key_details_written_at',
         'crm_notes',
         'locked_fields',
         'sexting_mode',
@@ -56,6 +57,7 @@ class CustomerProfile extends Model
         'tips_spend' => 'decimal:2',
         'time_on_page' => 'integer',
         'locked_fields' => 'array',
+        'key_details_written_at' => 'datetime',
         'last_seen_at' => 'datetime',
     ];
 }
