@@ -52,7 +52,10 @@ function canManage(u: TeamUser): boolean {
 const modalOpen = ref(false);
 const editing = ref<TeamUser | null>(null);
 
-const form = useForm({
+// A factory, not an object: after a successful submit Inertia replaces the
+// form's defaults with the submitted data, so reset() would refill "Add user"
+// (password included) with the last user saved. A factory makes reset() blank.
+const form = useForm(() => ({
     name: '',
     email: '',
     role: 'chatter' as Role,
@@ -60,7 +63,7 @@ const form = useForm({
     password_confirmation: '',
     must_change_password: true,
     assigned: [] as string[],
-});
+}));
 
 // Only send password when the admin actually typed one (blank = keep current on edit).
 form.transform((data) => {
