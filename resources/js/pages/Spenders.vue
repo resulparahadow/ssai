@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
-import { ChevronDown, Plus, RefreshCw, RotateCcw, X } from '@lucide/vue';
+import {
+    ChevronDown,
+    MousePointerClick,
+    Plus,
+    RefreshCw,
+    RotateCcw,
+    X,
+} from '@lucide/vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { ofModel } from '@/lib/onlyfansModel';
@@ -20,7 +27,9 @@ const creators = computed<SidebarCreator[]>(() => page.props.creators ?? []);
 const scopedCreators = computed<SidebarCreator[]>(() => {
     const id = selectedId.value;
 
-    return id == null ? creators.value : creators.value.filter((c) => c.id === id);
+    return id == null
+        ? creators.value
+        : creators.value.filter((c) => c.id === id);
 });
 const connected = computed(() => scopedCreators.value.filter((c) => c.hasOf));
 
@@ -92,9 +101,7 @@ async function loadCreator(c: SidebarCreator, fresh: boolean): Promise<void> {
         st.status = 'loaded';
     } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to load';
-        st.error = msg.includes('503')
-            ? 'OnlyFans API not configured'
-            : msg;
+        st.error = msg.includes('503') ? 'OnlyFans API not configured' : msg;
         st.status = 'error';
     }
 }
@@ -192,12 +199,26 @@ const loadedCount = computed(
 const drill = ref<{ id: number; threshold: number } | null>(null);
 
 function toggleDrill(id: number, threshold: number): void {
-    if (drill.value && drill.value.id === id && drill.value.threshold === threshold) {
+    if (
+        drill.value &&
+        drill.value.id === id &&
+        drill.value.threshold === threshold
+    ) {
         drill.value = null;
     } else {
         drill.value = { id, threshold };
     }
 }
+
+function isOpen(id: number, threshold: number): boolean {
+    return drill.value?.id === id && drill.value.threshold === threshold;
+}
+
+// Box shared by the clickable count pills and the plain cells in the same
+// columns (zero counts, agency totals), so every number right-aligns. The
+// plain cells use a transparent border and a chevron-wide spacer.
+const COUNT_BOX =
+    'inline-flex items-center gap-1 rounded-md border px-2 py-0.5';
 
 const drillList = computed<OfFanRow[]>(() => {
     if (!drill.value) {
@@ -234,7 +255,14 @@ const drillRows = computed<FanSplit[]>(() =>
         const tips = r2(fan.tips);
         const subs = r2(fan.subs);
 
-        return { fan, total, ppv, tips, subs, other: r2(total - ppv - tips - subs) };
+        return {
+            fan,
+            total,
+            ppv,
+            tips,
+            subs,
+            other: r2(total - ppv - tips - subs),
+        };
     }),
 );
 const drillHasOther = computed(() =>
@@ -294,7 +322,8 @@ function bracketLabel(n: number): string {
                 <h2 class="text-xl font-bold text-ss-text">Spender brackets</h2>
                 <p class="text-sm text-ss-text-2">
                     How many fans each creator has above each lifetime-spend
-                    threshold. Live from OnlyFans · all-time spend incl. churned.
+                    threshold. Live from OnlyFans · all-time spend incl.
+                    churned.
                 </p>
             </div>
             <button
@@ -370,6 +399,14 @@ function bracketLabel(n: number): string {
         <div
             class="overflow-hidden rounded-xl border border-ss-border bg-ss-surface"
         >
+            <div
+                v-if="loadedCount > 0"
+                class="flex items-center gap-1.5 border-b border-ss-border px-4 py-2 text-[12px] text-ss-text-2"
+            >
+                <MousePointerClick :size="14" class="text-ss-accent-text" />
+                Click any count to see the fans in that bracket and how their
+                spend splits across PPV, tips and subs.
+            </div>
             <div class="overflow-x-auto">
                 <table class="w-full border-collapse text-[13px]">
                     <thead
@@ -396,7 +433,13 @@ function bracketLabel(n: number): string {
                             v-for="row in perCreator"
                             :key="row.creator.id"
                         >
-                            <tr class="border-t border-ss-border">
+                            <tr
+                                class="border-t border-ss-border"
+                                :class="{
+                                    'bg-ss-surface-2':
+                                        drill?.id === row.creator.id,
+                                }"
+                            >
                                 <td class="px-4 py-2.5">
                                     <div class="flex items-center gap-2">
                                         <span class="font-medium text-ss-text">
@@ -437,9 +480,7 @@ function bracketLabel(n: number): string {
                                 </template>
 
                                 <!-- error -->
-                                <template
-                                    v-else-if="row.st.status === 'error'"
-                                >
+                                <template v-else-if="row.st.status === 'error'">
                                     <td
                                         :colspan="thresholds.length + 1"
                                         class="px-4 py-2.5 text-ss-neg"
@@ -453,24 +494,64 @@ function bracketLabel(n: number): string {
                                     <td
                                         v-for="(n, i) in row.counts"
                                         :key="i"
-                                        class="px-3 py-2.5 text-right font-ss-mono tabular-nums"
-                                        :class="
-                                            n > 0
-                                                ? 'cursor-pointer text-ss-text hover:text-ss-accent-text'
-                                                : 'text-ss-text-3'
-                                        "
-                                        @click="
-                                            n > 0 &&
-                                            toggleDrill(
-                                                row.creator.id,
-                                                thresholds[i],
-                                            )
-                                        "
+                                        class="px-3 py-1.5 text-right font-ss-mono tabular-nums"
                                     >
-                                        {{ n || '—' }}
+                                        <button
+                                            v-if="n > 0"
+                                            type="button"
+                                            :class="[
+                                                COUNT_BOX,
+                                                'group cursor-pointer font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none',
+                                                isOpen(
+                                                    row.creator.id,
+                                                    thresholds[i],
+                                                )
+                                                    ? 'border-ss-accent bg-ss-accent text-white'
+                                                    : 'border-ss-border bg-ss-surface text-ss-accent-text hover:border-ss-accent hover:bg-ss-accent-soft',
+                                            ]"
+                                            :aria-expanded="
+                                                isOpen(
+                                                    row.creator.id,
+                                                    thresholds[i],
+                                                )
+                                            "
+                                            :title="`Show the ${n} fan${n === 1 ? '' : 's'} who spent ${bracketLabel(thresholds[i])} or more`"
+                                            @click="
+                                                toggleDrill(
+                                                    row.creator.id,
+                                                    thresholds[i],
+                                                )
+                                            "
+                                        >
+                                            {{ n }}
+                                            <ChevronDown
+                                                :size="12"
+                                                class="transition-transform"
+                                                :class="
+                                                    isOpen(
+                                                        row.creator.id,
+                                                        thresholds[i],
+                                                    )
+                                                        ? 'rotate-180'
+                                                        : 'opacity-60 group-hover:opacity-100'
+                                                "
+                                            />
+                                        </button>
+                                        <span
+                                            v-else
+                                            :class="[
+                                                COUNT_BOX,
+                                                'border-transparent text-ss-text-3',
+                                            ]"
+                                        >
+                                            —<span
+                                                class="w-3"
+                                                aria-hidden="true"
+                                            />
+                                        </span>
                                     </td>
                                     <td
-                                        class="px-4 py-2.5 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                        class="px-4 py-2.5 text-right font-ss-mono text-ss-text-2 tabular-nums"
                                     >
                                         {{ money(row.cohortSpend) }}
                                     </td>
@@ -479,23 +560,39 @@ function bracketLabel(n: number): string {
 
                             <!-- drill-down -->
                             <tr
-                                v-if="
-                                    drill && drill.id === row.creator.id
-                                "
+                                v-if="drill && drill.id === row.creator.id"
                                 :key="`${row.creator.id}-drill`"
                                 class="border-t border-ss-border bg-ss-surface-2"
                             >
                                 <td
                                     :colspan="thresholds.length + 2"
-                                    class="px-4 py-3"
+                                    class="px-4 py-3 shadow-[inset_3px_0_0_var(--ss-accent)]"
                                 >
                                     <div
-                                        class="mb-2 flex items-center gap-1.5 text-[11px] text-ss-text-3"
+                                        class="mb-2 flex items-center justify-between gap-2"
                                     >
-                                        <ChevronDown :size="13" />
-                                        {{ row.creator.name }} — fans ≥
-                                        {{ bracketLabel(drill.threshold) }}
-                                        ({{ drillList.length }})
+                                        <div
+                                            class="flex flex-wrap items-center gap-1.5 text-[12px] text-ss-text-2"
+                                        >
+                                            <span
+                                                class="font-medium text-ss-text"
+                                                >{{ row.creator.name }}</span
+                                            >
+                                            · fans who spent
+                                            {{ bracketLabel(drill.threshold) }}
+                                            or more
+                                            <span
+                                                class="rounded-full bg-ss-accent-soft px-1.5 text-[11px] font-semibold text-ss-accent-text"
+                                                >{{ drillList.length }}</span
+                                            >
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ss-text-3 hover:bg-ss-surface hover:text-ss-text"
+                                            @click="drill = null"
+                                        >
+                                            <X :size="12" /> Close
+                                        </button>
                                     </div>
                                     <div
                                         class="overflow-x-auto rounded-lg border border-ss-border bg-ss-surface"
@@ -564,7 +661,9 @@ function bracketLabel(n: number): string {
                                                             }}</span
                                                         >
                                                         <span
-                                                            v-if="sr.fan.username"
+                                                            v-if="
+                                                                sr.fan.username
+                                                            "
                                                             class="ml-1 text-ss-text-3"
                                                             >@{{
                                                                 sr.fan.username
@@ -572,28 +671,28 @@ function bracketLabel(n: number): string {
                                                         >
                                                     </td>
                                                     <td
-                                                        class="px-3 py-2 text-right font-ss-mono font-semibold tabular-nums text-ss-pos"
+                                                        class="px-3 py-2 text-right font-ss-mono font-semibold text-ss-pos tabular-nums"
                                                     >
                                                         {{ money2(sr.total) }}
                                                     </td>
                                                     <td
-                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                        class="px-3 py-2 text-right font-ss-mono text-ss-text-2 tabular-nums"
                                                     >
                                                         {{ money2(sr.ppv) }}
                                                     </td>
                                                     <td
-                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                        class="px-3 py-2 text-right font-ss-mono text-ss-text-2 tabular-nums"
                                                     >
                                                         {{ money2(sr.tips) }}
                                                     </td>
                                                     <td
-                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-2"
+                                                        class="px-3 py-2 text-right font-ss-mono text-ss-text-2 tabular-nums"
                                                     >
                                                         {{ money2(sr.subs) }}
                                                     </td>
                                                     <td
                                                         v-if="drillHasOther"
-                                                        class="px-3 py-2 text-right font-ss-mono tabular-nums text-ss-text-3"
+                                                        class="px-3 py-2 text-right font-ss-mono text-ss-text-3 tabular-nums"
                                                     >
                                                         {{ money2(sr.other) }}
                                                     </td>
@@ -695,12 +794,17 @@ function bracketLabel(n: number): string {
                             <td
                                 v-for="(n, i) in totals.counts"
                                 :key="i"
-                                class="px-3 py-2.5 text-right font-ss-mono tabular-nums text-ss-text"
+                                class="px-3 py-2.5 text-right font-ss-mono text-ss-text tabular-nums"
                             >
-                                {{ n }}
+                                <span
+                                    :class="[COUNT_BOX, 'border-transparent']"
+                                >
+                                    {{ n
+                                    }}<span class="w-3" aria-hidden="true" />
+                                </span>
                             </td>
                             <td
-                                class="px-4 py-2.5 text-right font-ss-mono tabular-nums text-ss-text"
+                                class="px-4 py-2.5 text-right font-ss-mono text-ss-text tabular-nums"
                             >
                                 {{ money(totals.cohortSpend) }}
                             </td>
@@ -712,8 +816,7 @@ function bracketLabel(n: number): string {
 
         <p class="text-[11px] text-ss-text-3">
             "Cohort spend" = combined lifetime spend of fans at or above your
-            lowest bracket ({{ bracketLabel(floor) }}). Click a count to list the
-            fans in that bracket. Defaults:
+            lowest bracket ({{ bracketLabel(floor) }}). Defaults:
             {{ DEFAULT_THRESHOLDS.map(bracketLabel).join(' · ') }}.
         </p>
     </div>
