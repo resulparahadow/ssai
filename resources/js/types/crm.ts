@@ -74,6 +74,12 @@ export type OfPreviewKind =
     | 'locked'
     | 'media';
 
+/** Conversations-list filter chip → OnlyFans `filter` ('' = every chat). A subset of the documented enum. */
+export type OfChatFilter = '' | 'unread' | 'with_tips' | 'pinned';
+
+/** Conversations-list sort → OnlyFans `order` (newest / oldest last message first). */
+export type OfChatOrder = 'recent' | 'old';
+
 export interface OfChat {
     id: string; // fan user id (= chat id)
     name: string;

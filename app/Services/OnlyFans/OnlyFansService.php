@@ -43,9 +43,35 @@ class OnlyFansService
 
     // ---- Chats ------------------------------------------------------------
 
+    /** Documented `order` enum for the chat list (OpenAPI `paths:`). Default `recent`. */
+    private const CHAT_ORDERS = ['recent', 'old'];
+
+    /** Documented `filter` enum for the chat list. Absent = every chat. */
+    private const CHAT_FILTERS = ['pinned', 'priority', 'unread', 'with_tips', 'unread_with_tips'];
+
     public function listChats(string $account, array $params = []): Response
     {
-        return $this->client()->get("{$account}/chats", $this->pageParams($params));
+        $page = collect($this->pageParams($params))->except(['order', 'filter', 'query'])->all();
+
+        return $this->client()->get("{$account}/chats", [...$page, ...$this->chatView($params)]);
+    }
+
+    /**
+     * The params that decide WHICH chats the list shows (`order`/`filter`/`query`), as opposed
+     * to where paging is. An off-enum `order`/`filter` is a VALIDATION_ERROR that still costs a
+     * credit, so it is dropped and the API applies its default (every chat, newest first) —
+     * the same clamp-don't-forward stance as listVaultMedia's `field`/`sort`.
+     *
+     * @return array<string, string>
+     */
+    public function chatView(array $params): array
+    {
+        return collect($params)
+            ->only(['order', 'filter', 'query'])
+            ->filter(fn ($v) => is_string($v) && $v !== '')
+            ->reject(fn ($v, $k) => ($k === 'order' && ! in_array($v, self::CHAT_ORDERS, true))
+                || ($k === 'filter' && ! in_array($v, self::CHAT_FILTERS, true)))
+            ->all();
     }
 
     public function listChatMedia(string $account, string $chatId, array $params = []): Response

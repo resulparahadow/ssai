@@ -4,6 +4,8 @@ import type {
     ComposerAttachment,
     DraftRejection,
     OfChat,
+    OfChatFilter,
+    OfChatOrder,
     OfFan,
     OfGif,
     OfMessage,
@@ -20,6 +22,16 @@ export const chatsCache = new Map<number, OfChat[]>();
 // returning to a creator restores where the paging got to instead of starting over.
 // `null` once the last page has been reached; absent until the first page has loaded.
 export const chatsNextCache = new Map<number, Record<string, string> | null>();
+// Which view (filter|order|search) the cached rows + cursor above were fetched for. Rows are
+// only reusable for the SAME view: an "All" cache shown under "Unread" would list read chats,
+// and its cursor would page on from the wrong result set.
+export const chatsViewCache = new Map<number, string>();
+// The conversations list's filter chip + sort toggle. Module-scoped like the caches, so the
+// chatter's choice survives switching creators; a reload resets it to every chat, newest first.
+export const chatListView = reactive<{
+    filter: OfChatFilter;
+    order: OfChatOrder;
+}>({ filter: '', order: 'recent' });
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
 

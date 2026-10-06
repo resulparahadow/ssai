@@ -431,6 +431,29 @@ engine uses its in-process copy. Provider keys live in the engine's env
     scrolled to; `SsConvoList` owns no `search` state any more. This required fixing
     `OnlyFansService::nextCursor`, whose allowlist dropped **`query`**/`filter`, so page 2 of a
     search silently widened back to every chat. Guards: `tests/Feature/OnlyFansChatPagingTest.php`.
+    **Filter chips + sort (2026-10-06)** — `SsConvoList` has **All · Unread · Tips · Pinned** chips
+    and a **Newest/Oldest** toggle, server-side for the same reason as search: they map to the
+    spec's `filter` (`unread`/`with_tips`/`pinned`; `priority` + `unread_with_tips` exist but
+    are not exposed) and `order` (`recent`/`old`). State lives in `chatListView`
+    (`lib/conversationCache.ts`, module-scoped: survives creator switches, resets on reload).
+    `OnlyFansService::chatView` drops off-enum values (a billed `VALIDATION_ERROR` otherwise),
+    and `chats()` re-applies the request's view params to `next` — the spec's example
+    `next_page` carries only `offset`/`limit`, so trusting it could widen page 2. Client
+    invariants: cached rows are reused only for the SAME view (`chatsViewCache`, key
+    `filter|order|query` — this also fixed a search on a creator switch merging that creator's
+    cached full list in behind the results); a `chatsLoadSeq` counter lets only the latest
+    page-one load land; a scroll page from a view already left is dropped; `SsConvoList`
+    resets `askedAt` on any view change; and a realtime inbound from a fan not in the list is
+    prepended only under All/Unread + Newest with no search.
+    **`filter=unread` EXCLUDES MUTED CHATS (verified live 2026-10-06, undocumented).** Across 3
+    accounts every chat with `unreadMessagesCount > 0` and `isMutedNotifications: true` was
+    missing from the filtered list (Camila v2 returned an empty list beside 2 such chats), and
+    the only unmuted unread chat was present; subscription state did not decide it. So "Unread
+    shows nothing" with unread badges visible is OnlyFans' rule, not a paging bug. We keep it
+    (including muted chats would mean paging the whole list at ~10 chats/credit) and make it
+    legible instead: muted rows carry a `BellOff` icon and a grey (not accent) unread badge,
+    and the Unread chip shows a "muted chats aren't included" note. Filtered responses also
+    carry `_pagination.notice: "OnlyFans manually overwrote the limit/offset value."`.
     **Upstream errors: `forward()`/`proxyAction()` live in `Concerns\ForwardsOnlyFansErrors`**
     (shared with `ModelOnlyFansController`). OnlyFansAPI answers every *application* error in
     JSON (422 validation, 404 `ONLYFANS_COM_ERROR`, even 500 `{"message":"Server Error"}`), so a

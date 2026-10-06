@@ -11,8 +11,10 @@ import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import {
     chatComposer,
+    chatListView,
     chatsCache,
     chatsNextCache,
+    chatsViewCache,
     fanCache,
     msgCache,
     nextCache,
@@ -33,6 +35,8 @@ import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
     OfChat,
+    OfChatFilter,
+    OfChatOrder,
     OfFan,
     OfMedia,
     OfMessage,
@@ -958,12 +962,29 @@ async function restoreOpenChat(m: SidebarCreator, allowFetch: boolean) {
     }
 }
 
+/** The question the list answers — filter chip, sort, search. See chatsViewCache. */
+function chatsViewKey(): string {
+    return [
+        chatListView.filter,
+        chatListView.order,
+        chatsQuery.value.trim(),
+    ].join('|');
+}
+
+// The view the shown rows + `chatsNext` belong to, and a counter so only the LATEST page-one
+// load lands: clicking Unread then Tips quickly must not let the slower Unread response win.
+let chatsActiveView: string | null = null;
+let chatsLoadSeq = 0;
+
 async function loadChats() {
     const m = model.value;
+    const view = chatsViewKey();
+    const seq = ++chatsLoadSeq;
+    const creatorChanged = activeModelId.value !== (m?.id ?? null);
 
     // Reset the open conversation only when the creator actually changes — not on
     // a same-creator revisit/Refresh (which would needlessly blank the thread).
-    if (activeModelId.value !== (m?.id ?? null)) {
+    if (creatorChanged) {
         selected.value = null;
         messages.value = [];
         fan.value = null;
@@ -977,16 +998,28 @@ async function loadChats() {
         }
 
         activeModelId.value = m?.id ?? null;
-        // Paging state is per creator and must not carry over. The cursor would page the
-        // NEW creator from the OLD one's offset; and a page still in flight for the creator
-        // we just left never clears `chatsLoadingMore` itself (its `finally` is scoped to
-        // that creator), which would block paging here permanently.
+    }
+
+    // Cached rows answer the view they were fetched for; a different filter/sort/search
+    // starts from page one rather than flashing (and paging on from) the wrong result set.
+    if (m && chatsViewCache.get(m.id) !== view) {
+        chatsCache.delete(m.id);
+        chatsNextCache.delete(m.id);
+    }
+
+    if (creatorChanged || view !== chatsActiveView) {
+        chatsActiveView = view;
+        // Paging state is per creator AND view and must not carry over. The cursor would page
+        // from the OLD list's offset; and a page still in flight for the list we just left
+        // never clears `chatsLoadingMore` itself (its `finally` is scoped to that list), which
+        // would block paging here permanently.
         chatsNext.value = m ? (chatsNextCache.get(m.id) ?? null) : null;
         chatsLoadingMore.value = false;
     }
 
     if (!m || !m.hasOf) {
         chats.value = [];
+        chatsLoading.value = false; // a superseded load in flight won't clear it (see stale())
         chatsError.value =
             m && !m.hasOf
                 ? 'No OnlyFans account connected for this creator (set it on Creator Models).'
@@ -1008,15 +1041,26 @@ async function loadChats() {
     // up front cost a credit per 100 chats and kept firing requests minutes after open.
     const params: Record<string, string> = { limit: CHAT_PAGE };
 
+    if (chatListView.filter) {
+        params.filter = chatListView.filter;
+    }
+
+    if (chatListView.order !== 'recent') {
+        params.order = chatListView.order; // `recent` is the upstream default
+    }
+
     if (chatsQuery.value.trim()) {
         params.query = chatsQuery.value.trim();
     }
 
+    // Superseded by a newer load — another creator, or another filter/sort/search.
+    const stale = () => seq !== chatsLoadSeq || model.value?.id !== m.id;
+
     try {
         const r = await ofApi.chats(m.id, params);
 
-        // Bail out if the user switched creators mid-load (finally still resets state).
-        if (model.value?.id !== m.id) {
+        // Bail out if a newer load replaced this one mid-flight (finally still resets state).
+        if (stale()) {
             return;
         }
 
@@ -1041,6 +1085,7 @@ async function loadChats() {
         // Cache and display share ONE array reference so the realtime inbound handler's
         // in-place list mutations keep the cache in sync (see onInbound).
         chatsCache.set(m.id, list);
+        chatsViewCache.set(m.id, view);
         // With deeper pages still held, the cursor that matters is the one pointing past
         // them — page one's `next` would re-fetch rows we already have.
         const cursor = deeper.length
@@ -1052,7 +1097,7 @@ async function loadChats() {
         rebindSelected();
         restoreOpenChat(m, true);
     } catch (e) {
-        if (model.value?.id === m.id) {
+        if (!stale()) {
             chatsError.value = e instanceof Error ? e.message : String(e);
 
             if (!cached) {
@@ -1060,7 +1105,7 @@ async function loadChats() {
             }
         }
     } finally {
-        if (model.value?.id === m.id) {
+        if (!stale()) {
             chatsLoading.value = false;
         }
     }
@@ -1069,12 +1114,13 @@ async function loadChats() {
 /**
  * Append the next page of conversations. Driven by the list's scroll sentinel, so it must be
  * cheap to call spuriously: it no-ops while a page is already in flight, once the cursor is
- * exhausted, or if the creator changed under it. A failure keeps every loaded row and leaves
- * the cursor intact so the footer's Retry can simply call this again.
+ * exhausted, or if the creator or view changed under it. A failure keeps every loaded row and
+ * leaves the cursor intact so the footer's Retry can simply call this again.
  */
 async function loadMoreChats() {
     const m = model.value;
     const cursor = chatsNext.value;
+    const view = chatsActiveView;
 
     if (!m || !cursor || chatsLoadingMore.value || chatsLoading.value) {
         return;
@@ -1083,10 +1129,14 @@ async function loadMoreChats() {
     chatsLoadingMore.value = true;
     chatsMoreError.value = null;
 
+    // A page of the list we already left (another creator, filter, sort or search) must not
+    // be appended to the new one; loadChats has reset the paging flags for it.
+    const stale = () => model.value?.id !== m.id || chatsActiveView !== view;
+
     try {
         const r = await ofApi.chats(m.id, cursor);
 
-        if (model.value?.id !== m.id) {
+        if (stale()) {
             return;
         }
 
@@ -1103,32 +1153,44 @@ async function loadMoreChats() {
         chatsNext.value = r.next;
         chatsNextCache.set(m.id, r.next);
     } catch (e) {
-        if (model.value?.id === m.id) {
+        if (!stale()) {
             chatsMoreError.value = e instanceof Error ? e.message : String(e);
         }
     } finally {
-        if (model.value?.id === m.id) {
+        if (!stale()) {
             chatsLoadingMore.value = false;
         }
     }
 }
 
-/** Debounced server-side search: reset to page one with the new `query`. */
+/**
+ * Debounced server-side search: reset to page one with the new `query`. A search is a
+ * different view, so loadChats drops the cached rows rather than flashing the full list
+ * behind the results (see chatsViewCache).
+ */
 function onSearch(q: string) {
     chatsQuery.value = q;
     clearTimeout(queryDebounce);
-    queryDebounce = setTimeout(() => {
-        // A search is a different result set, so drop the cached page-one rows for this
-        // creator — otherwise the stale full list would flash in behind the results.
-        const id = model.value?.id;
+    queryDebounce = setTimeout(loadChats, 350);
+}
 
-        if (id != null) {
-            chatsCache.delete(id);
-            chatsNextCache.delete(id);
-        }
-
+/**
+ * Filter chip / sort toggle. Server-side like search, never a client-side re-sort: the list
+ * only holds what has been paged in, so sorting or filtering those rows locally would
+ * misreport the order and hide chats not yet scrolled to.
+ */
+function onChatFilter(filter: OfChatFilter) {
+    if (chatListView.filter !== filter) {
+        chatListView.filter = filter;
         loadChats();
-    }, 350);
+    }
+}
+
+function onChatOrder(order: OfChatOrder) {
+    if (chatListView.order !== order) {
+        chatListView.order = order;
+        loadChats();
+    }
 }
 
 // How many messages to pull per page (OnlyFans caps this at 100).
@@ -1452,7 +1514,18 @@ function applyToChatList(
         return;
     }
 
-    // A fan we haven't loaded a chat card for yet — surface it at the top of the list.
+    // A fan we haven't loaded a chat card for yet — surface it at the top of the list, but
+    // only where the top is where a just-messaged chat belongs: every chat (or every unread
+    // one), newest first, no search. Under Tips/Pinned/Oldest or a search it may not belong
+    // in the list at all; the next load places it correctly.
+    if (
+        chatListView.order !== 'recent' ||
+        (chatListView.filter !== '' && chatListView.filter !== 'unread') ||
+        chatsQuery.value.trim()
+    ) {
+        return;
+    }
+
     const name = fan.name || fan.username || chatId;
     chats.value.unshift({
         id: chatId,
@@ -1561,12 +1634,16 @@ onBeforeUnmount(() => {
             :loading-more="chatsLoadingMore"
             :more-error="chatsMoreError"
             :search="chatsQuery"
+            :filter="chatListView.filter"
+            :order="chatListView.order"
             :creator="model?.name ?? null"
             :selected-id="selected?.id ?? null"
             @select="openChat"
             @refresh="loadChats"
             @load-more="loadMoreChats"
             @search="onSearch"
+            @filter="onChatFilter"
+            @order="onChatOrder"
         />
 
         <template v-if="selected && model">
