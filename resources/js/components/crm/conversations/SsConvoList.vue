@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+    ArrowDownUp,
+    BellOff,
     DollarSign,
     Image,
     ImagePlay,
@@ -24,7 +26,12 @@ import type { Component } from 'vue';
 import SsNotifyMenu from '@/components/crm/conversations/SsNotifyMenu.vue';
 import { chatAiStatus, chatDraft } from '@/lib/conversationCache';
 import { usd } from '@/lib/money';
-import type { OfChat, OfPreviewKind } from '@/types/crm';
+import type {
+    OfChat,
+    OfChatFilter,
+    OfChatOrder,
+    OfPreviewKind,
+} from '@/types/crm';
 
 const props = defineProps<{
     chats: OfChat[];
@@ -38,6 +45,9 @@ const props = defineProps<{
     moreError: string | null;
     /** Current search term. Owned by the parent: it drives a SERVER query, not a local filter. */
     search: string;
+    /** Filter chip + sort toggle — likewise server-side (OnlyFans `filter` / `order`). */
+    filter: OfChatFilter;
+    order: OfChatOrder;
     creator: string | null;
     selectedId: string | null;
 }>();
@@ -47,7 +57,38 @@ const emit = defineEmits<{
     refresh: [];
     loadMore: [];
     search: [q: string];
+    filter: [filter: OfChatFilter];
+    order: [order: OfChatOrder];
 }>();
+
+const FILTERS: {
+    value: OfChatFilter;
+    label: string;
+    empty: string;
+    title?: string;
+}[] = [
+    { value: '', label: 'All', empty: 'No conversations.' },
+    {
+        value: 'unread',
+        label: 'Unread',
+        empty: 'No unread conversations.',
+        title: 'Unread chats, except muted ones — OnlyFans leaves muted chats out of Unread',
+    },
+    { value: 'with_tips', label: 'Tips', empty: 'No conversations with tips.' },
+    { value: 'pinned', label: 'Pinned', empty: 'No pinned conversations.' },
+];
+
+// OnlyFans' `filter=unread` silently excludes MUTED chats, even ones with unread messages
+// (verified live 2026-10-06: every unread-but-muted chat was missing, every unmuted one
+// present). Nothing here can change that without paging the whole list, so say it.
+const MUTED_UNREAD_NOTE =
+    'Muted chats aren’t included — OnlyFans leaves them out of Unread.';
+
+const emptyLabel = computed(
+    () =>
+        FILTERS.find((f) => f.value === props.filter)?.empty ??
+        'No conversations.',
+);
 
 // Icon + label shown in the list when a chat's last message has no text (GIF/photo/video/…).
 const PREVIEW_META: Record<OfPreviewKind, { icon: Component; label: string }> =
@@ -136,9 +177,11 @@ watch(
     },
 );
 
-// A different creator is a different list — let it fill from scratch.
+// A different creator, filter, sort or search is a different list — let it fill from
+// scratch. Otherwise a new list whose first page happens to match the old row count reads
+// as "that page added nothing" and never asks for a second.
 watch(
-    () => props.creator,
+    () => [props.creator, props.filter, props.order, props.search] as const,
     () => {
         askedAt = -1;
     },
@@ -219,6 +262,46 @@ onBeforeUnmount(() => {
                     "
                 />
             </div>
+            <div class="flex items-center gap-1">
+                <button
+                    v-for="f in FILTERS"
+                    :key="f.value"
+                    type="button"
+                    :aria-pressed="filter === f.value"
+                    :title="f.title"
+                    class="rounded-full px-1.5 py-0.5 text-[11px] font-medium transition-colors"
+                    :class="
+                        filter === f.value
+                            ? 'bg-ss-accent-soft text-ss-accent-text'
+                            : 'text-ss-text-2 hover:bg-ss-surface-2'
+                    "
+                    @click="emit('filter', f.value)"
+                >
+                    {{ f.label }}
+                </button>
+                <button
+                    type="button"
+                    class="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ss-text-2 hover:bg-ss-surface-2"
+                    :title="
+                        order === 'recent'
+                            ? 'Newest messages first — click for oldest first'
+                            : 'Oldest messages first — click for newest first'
+                    "
+                    @click="
+                        emit('order', order === 'recent' ? 'old' : 'recent')
+                    "
+                >
+                    <ArrowDownUp :size="12" />
+                    {{ order === 'recent' ? 'Newest' : 'Oldest' }}
+                </button>
+            </div>
+            <p
+                v-if="filter === 'unread'"
+                class="flex items-center gap-1 text-[11px] text-ss-text-3"
+            >
+                <BellOff :size="11" class="shrink-0" />
+                {{ MUTED_UNREAD_NOTE }}
+            </p>
         </div>
 
         <div class="flex-1 overflow-y-auto p-2">
@@ -261,6 +344,15 @@ onBeforeUnmount(() => {
                                 class="truncate text-[13px] font-medium text-ss-text"
                                 >{{ c.name }}</span
                             >
+                            <!-- Muted also explains a gap in the Unread filter: OnlyFans
+                                 leaves muted chats out of it even with messages unread. -->
+                            <span
+                                v-if="c.muted"
+                                class="grid shrink-0 place-items-center text-ss-text-3"
+                                title="Notifications muted — not shown under Unread"
+                            >
+                                <BellOff :size="11" />
+                            </span>
                         </span>
                         <span class="flex shrink-0 items-center gap-1.5">
                             <!-- AI draft "green light": a Generate takes 25-45s, so the
@@ -282,7 +374,17 @@ onBeforeUnmount(() => {
                             >
                             <span
                                 v-if="c.unread > 0"
-                                class="grid h-4 min-w-4 place-items-center rounded-full bg-ss-accent px-1 text-[10px] font-semibold text-white"
+                                class="grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold"
+                                :class="
+                                    c.muted
+                                        ? 'bg-ss-surface-2 text-ss-text-2'
+                                        : 'bg-ss-accent text-white'
+                                "
+                                :title="
+                                    c.muted
+                                        ? 'Unread, but muted — not shown under Unread'
+                                        : undefined
+                                "
                                 >{{ c.unread }}</span
                             >
                         </span>
@@ -364,7 +466,7 @@ onBeforeUnmount(() => {
                 v-else-if="!rows.length"
                 class="px-2 py-6 text-center text-[13px] text-ss-text-3"
             >
-                No conversations.
+                {{ emptyLabel }}
             </p>
 
             <!-- Scroll sentinel + paging footer. A failed page keeps every loaded row and

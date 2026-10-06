@@ -55,10 +55,18 @@ class OnlyFansChatController extends Controller
             return $this->forward($res);
         }
         $j = $res->json();
+        $next = $this->of->nextCursor($j['_pagination'] ?? null);
+
+        // The list pages on scroll, so page 2 must answer the same question as page 1. The
+        // spec's own example next_page carries only offset + limit, so don't rely on upstream
+        // echoing the view back: re-apply the valid view params this page was asked with.
+        if ($next !== null) {
+            $next = [...$this->of->chatView($request->query()), ...$next];
+        }
 
         return response()->json([
             'chats' => collect($j['data'] ?? [])->map(fn ($c) => $this->of->normalizeChat($c))->values(),
-            'next' => $this->of->nextCursor($j['_pagination'] ?? null),
+            'next' => $next,
         ]);
     }
 
