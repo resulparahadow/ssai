@@ -642,10 +642,14 @@ function fmtDuration(sec: number | null): string {
                             >(no text)</span
                         >
                     </div>
-                    <!-- actions (real messages only): a liked heart stays visible; delete shows on hover -->
+                    <!--
+                      actions (real messages only): a liked heart stays visible; delete shows on hover.
+                      Creator rows mirror the order so the heart sits next to the bubble on both sides.
+                    -->
                     <div
                         v-if="!m.pending && !m.failed"
                         class="flex shrink-0 items-center gap-0.5"
+                        :class="m.from === 'creator' ? 'flex-row-reverse' : ''"
                     >
                         <button
                             type="button"
