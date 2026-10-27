@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Link, router } from '@inertiajs/vue3';
 import {
-    Bell,
     ChevronDown,
     LogOut,
     Moon,
@@ -11,6 +10,7 @@ import {
 } from '@lucide/vue';
 import { onClickOutside } from '@vueuse/core';
 import { computed, ref } from 'vue';
+import SsInboxBell from '@/components/crm/SsInboxBell.vue';
 import { useAppearance } from '@/composables/useAppearance';
 import { useCrmShell } from '@/composables/useCrmShell';
 import { logout } from '@/routes';
@@ -65,15 +65,8 @@ function handleLogout(): void {
         <h1 class="text-sm font-semibold text-ss-text">{{ title }}</h1>
 
         <div class="ml-auto flex items-center gap-1.5">
-            <!-- Signals — coming soon -->
-            <button
-                type="button"
-                disabled
-                class="grid h-9 w-9 cursor-not-allowed place-items-center rounded-lg text-ss-text-3 opacity-60"
-                title="Notifications — coming soon"
-            >
-                <Bell :size="18" />
-            </button>
+            <!-- New fan messages, per creator -->
+            <SsInboxBell />
 
             <!-- Theme -->
             <button
