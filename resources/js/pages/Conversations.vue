@@ -22,6 +22,7 @@ import {
     rememberOpenChat,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
+import { setWatchedCreator } from '@/lib/creatorInbox';
 import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
@@ -1599,10 +1600,15 @@ watch(
     { immediate: true },
 );
 
+// And tell the header bell which creator this page shows: its entry clears, and its new
+// messages land in the list below as unread badges instead of in the bell.
+watch(() => model.value?.id ?? null, setWatchedCreator, { immediate: true });
+
 onBeforeUnmount(() => {
     mounted = false;
     stopInbound();
     setActiveChat(null, null);
+    setWatchedCreator(null);
 });
 </script>
 

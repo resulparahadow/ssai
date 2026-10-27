@@ -1,6 +1,7 @@
 import { router } from '@inertiajs/vue3';
 import { toast } from 'vue-sonner';
 import { useCreatorContext } from '@/composables/useCreatorContext';
+import { recordInbound } from '@/lib/creatorInbox';
 import { notificationPrefs } from '@/lib/notificationPrefs';
 import {
     ensureSubscribed,
@@ -54,7 +55,9 @@ function notify(payload: InboundPayload): void {
 
 /**
  * Start (once) the app-wide new-message notifier: subscribe to every assigned creator's
- * live channel and toast + bing on inbound, gated by the user's notification prefs.
+ * live channel and toast + bing on inbound, gated by the user's notification prefs, and
+ * count each message into the header bell's per-creator inbox (not gated: the bell is
+ * the record of what arrived, not an alert).
  * Idempotent — safe to call from any authenticated layout on every navigation.
  */
 export function useInboundNotifications(creators: NotifyCreator[]): void {
@@ -67,4 +70,5 @@ export function useInboundNotifications(creators: NotifyCreator[]): void {
     registered = true;
     unlockAudioOnGesture();
     onInboundMessage(notify);
+    onInboundMessage(recordInbound);
 }

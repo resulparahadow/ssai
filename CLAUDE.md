@@ -725,7 +725,16 @@ engine uses its in-process copy. Provider keys live in the engine's env
   actively viewing in a focused tab). Prefs are editable in two places sharing that store: a quick
   bell menu in the Conversations list header (`SsNotifyMenu`) and `/settings/notifications`
   (`settings/Notifications.vue`). Nothing is persisted server-side — it only mirrors live to open
-  browsers. **AI draft alerts** (chatter feedback: "a green light when a message is done
+  browsers. **The header bell** (`SsInboxBell` in `SsTopbar`, state in `lib/creatorInbox.ts`) is
+  the lasting record the toast isn't: a per-creator count of unseen fan messages (badge = total,
+  dropdown = creators newest first with the latest fan + preview); a row switches the creator
+  context and opens Conversations (in place when already there). It is fed by the same inbound
+  handler fan-out (registered in `useInboundNotifications`, NOT gated by the toast/sound prefs) and
+  dedups webhook redeliveries by message id. Conversations calls `setWatchedCreator(model.id)`:
+  that creator's entry clears and its new messages stay out of the bell, since the chat list
+  already shows them as unread. Counts persist per TAB in sessionStorage (ids + numbers only);
+  the fan name/preview is memory-only, so after a reload a row reads "New messages". The badge
+  renders only after mount (SSR can't see sessionStorage). **AI draft alerts** (chatter feedback: "a green light when a message is done
   generating") share that prefs store but are NOT inbound events: a Generate takes 25-45s, so
   chatters work other chats meanwhile. `SsConvoList` shows a spinner on the row while generating
   and a green **Ready** pill while a suggestion awaits Accept/Send/Dismiss (`chatAiStatus()` off
