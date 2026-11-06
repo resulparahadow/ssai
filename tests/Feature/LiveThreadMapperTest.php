@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\OnlyFans\LiveThreadMapper;
+use App\Services\OnlyFans\OnlyFansService;
 
 function mapThread(array $messages, int $gapHours = 12): array
 {
@@ -116,6 +117,61 @@ it('starts the session at the most recent long gap when several gaps exist', fun
     expect($out['total_spend'])->toBe(25.0);
 });
 
+it('drops an unopened mass PPV entirely (no bubble, no spend)', function () {
+    $now = now();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => 'hey', 'time' => $now->copy()->subMinutes(10)->toIso8601String()],
+        // A mass-message blast (isFromQueue) the fan never bought — NOT a chatter pitch.
+        ['from' => 'creator', 'text' => 'mass blast caption', 'time' => $now->copy()->subMinutes(5)->toIso8601String(),
+            'price' => 21, 'isFree' => false, 'isOpened' => false, 'isTip' => false, 'fromQueue' => true],
+    ]);
+
+    expect(collect($out['messages'])->pluck('sender')->all())->not->toContain('ppv');
+    expect(collect($out['messages'])->pluck('text')->all())->not->toContain('mass blast caption');
+    expect($out['total_spend'])->toBe(0.0);
+});
+
+it('keeps an opened mass PPV as a ppv bubble with its spend (the fan really paid)', function () {
+    $now = now();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => 'hey', 'time' => $now->copy()->subMinutes(10)->toIso8601String()],
+        ['from' => 'creator', 'text' => 'mass blast caption', 'time' => $now->copy()->subMinutes(5)->toIso8601String(),
+            'price' => 21, 'isFree' => false, 'isOpened' => true, 'isTip' => false, 'fromQueue' => true],
+    ]);
+
+    $ppv = collect($out['messages'])->firstWhere('sender', 'ppv');
+    expect($ppv)->not->toBeNull();
+    expect($ppv['opened'])->toBeTrue();
+    expect($out['total_spend'])->toBe(21.0);
+});
+
+it('does not let an unopened mass blast bridge a session gap', function () {
+    $now = now();
+    $out = mapThread([
+        // Old opened chat PPV, then 8h to the blast, then 8h to the fan returning: with the
+        // blast counted the thread has no >12h gap and the old PPV would leak into this
+        // session's spend. Dropped BEFORE gap detection, the real gap is 16h.
+        ['from' => 'creator', 'text' => 'old ppv', 'time' => $now->copy()->subHours(16)->toIso8601String(),
+            'price' => 50, 'isFree' => false, 'isOpened' => true, 'isTip' => false],
+        ['from' => 'creator', 'text' => 'blast', 'time' => $now->copy()->subHours(8)->toIso8601String(),
+            'price' => 21, 'isFree' => false, 'isOpened' => false, 'isTip' => false, 'fromQueue' => true],
+        ['from' => 'fan', 'text' => 'im back', 'time' => $now->toIso8601String()],
+    ], 12);
+
+    expect($out['total_spend'])->toBe(0.0);
+});
+
+it('keeps a free mass message as an ordinary model bubble', function () {
+    $now = now();
+    $out = mapThread([
+        ['from' => 'creator', 'text' => 'free blast', 'time' => $now->copy()->subMinutes(2)->toIso8601String(),
+            'price' => 0, 'isFree' => true, 'isOpened' => false, 'isTip' => false, 'fromQueue' => true],
+    ]);
+
+    expect($out['messages'][0]['sender'])->toBe('model');
+    expect($out['messages'][0]['text'])->toBe('free blast');
+});
+
 it('stamps each message with its clock time in the creator timezone', function () {
     // 13:02 UTC is 9:02 AM in New York (EDT). The legacy transcript prints this stamp as
     // "[9:02 AM] CUSTOMER: …" — without it the AI sees only relative gaps, no clock times.
@@ -132,4 +188,22 @@ it('does not invent a stamp for a message with no time', function () {
     $out = app(LiveThreadMapper::class)->map([['from' => 'fan', 'text' => 'hey']], 12, 'America/New_York');
 
     expect($out['messages'][0])->not->toHaveKey('ts');
+});
+
+it('normalizeMessage carries isFromQueue through as fromQueue', function () {
+    $svc = app(OnlyFansService::class);
+
+    $mass = $svc->normalizeMessage([
+        'id' => 1, 'text' => 'blast', 'price' => 21, 'isFree' => false,
+        'isOpened' => false, 'isFromQueue' => true, 'queueId' => 42,
+        'fromUser' => ['id' => 556],
+    ], '101');
+    $direct = $svc->normalizeMessage([
+        'id' => 2, 'text' => 'hi', 'fromUser' => ['id' => 101],
+        // queueId alone is NOT a mass signal — seen live with isFromQueue:false.
+        'queueId' => 43,
+    ], '101');
+
+    expect($mass['fromQueue'])->toBeTrue();
+    expect($direct['fromQueue'])->toBeFalse();
 });

@@ -22,7 +22,11 @@ const label = computed(() => {
         return `${usd(p.price)} · Tip`;
     }
 
-    return `${usd(p.price)} · ${p.paid ? 'Paid' : 'Unpaid'}`;
+    // A mass-blast PPV is labeled so chatters know SSAI ignores it unless bought
+    // (unopened mass PPVs are excluded from the AI's view of the thread).
+    const mass = props.message.fromQueue ? ' · Mass' : '';
+
+    return `${usd(p.price)} · ${p.paid ? 'Paid' : 'Unpaid'}${mass}`;
 });
 </script>
 

@@ -221,6 +221,7 @@ async function generate() {
                     isFree: mm.isFree,
                     isOpened: mm.isOpened,
                     isTip: mm.isTip,
+                    fromQueue: mm.fromQueue,
                 })),
             // Name + username are load-bearing, not decoration: the legacy prompt prints
             // "Customer: {name} (@{username})" and then tells the model "You already know
@@ -474,6 +475,7 @@ async function send(override?: string) {
         isLiked: false,
         isPinned: false,
         isTip: false,
+        fromQueue: false,
         mediaCount: gifMedia.length + (att ? 1 : 0),
         media: att
             ? [
@@ -1492,7 +1494,8 @@ function applyToChatList(
     fan: InboundPayload['fan'],
     isOpen: boolean,
 ) {
-    const existing = chats.value.find((c) => c.id === chatId);
+    const existingIdx = chats.value.findIndex((c) => c.id === chatId);
+    const existing = existingIdx === -1 ? undefined : chats.value[existingIdx];
 
     const kind = messagePreviewKind(message);
 
@@ -1510,6 +1513,15 @@ function applyToChatList(
 
         if (!isOpen) {
             existing.unread = (existing.unread ?? 0) + 1;
+        }
+
+        // Newest-first list → the chat that just got a message belongs on top (the next
+        // server load would put it there anyway; without this the row only updated in
+        // place, mid-list, and looked like nothing happened). Under Oldest the row stays
+        // put. splice+unshift mutate in place — chatsCache shares this backing array.
+        if (chatListView.order === 'recent' && existingIdx > 0) {
+            chats.value.splice(existingIdx, 1);
+            chats.value.unshift(existing);
         }
 
         return;
