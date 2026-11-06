@@ -166,6 +166,7 @@ export interface OfMessage {
     isLiked: boolean;
     isPinned: boolean;
     isTip: boolean;
+    fromQueue: boolean; // OnlyFans mass-message blast (isFromQueue) — not a chatter-sent message
     mediaCount: number;
     media: OfMedia[];
     pending?: boolean; // optimistic: shown while the send is in flight

@@ -844,6 +844,9 @@ class OnlyFansChatController extends Controller
             'messages.*.isFree' => 'nullable|boolean',
             'messages.*.isOpened' => 'nullable|boolean',
             'messages.*.isTip' => 'nullable|boolean',
+            // Load-bearing like `time` above: unlisted keys are stripped, and without
+            // `fromQueue` every mass blast would read as a chatter-sent PPV again.
+            'messages.*.fromQueue' => 'nullable|boolean',
             // Deliberately rule-less nested keys: `customer` carries id/name/username, and
             // adding `customer.*` rules would strip anything not listed — the same trap
             // documented on `messages.*.time` above. The fan's name reaches the prompt.

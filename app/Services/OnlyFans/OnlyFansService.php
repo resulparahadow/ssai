@@ -1057,6 +1057,10 @@ class OnlyFansService
             'isLiked' => (bool) ($raw['isLiked'] ?? false),
             'isPinned' => (bool) ($raw['isPinned'] ?? false),
             'isTip' => (bool) ($raw['isTip'] ?? false),
+            // Mass-message blast (OnlyFans mass messaging / queue). Strictly `isFromQueue` —
+            // a non-null `queueId` also appears on ordinary direct messages (verified live
+            // 2026-11-07), so it must NOT be used as the signal.
+            'fromQueue' => (bool) ($raw['isFromQueue'] ?? false),
             'mediaCount' => $media !== [] ? count($media) : (int) ($raw['mediaCount'] ?? 0),
             'media' => $media,
         ];

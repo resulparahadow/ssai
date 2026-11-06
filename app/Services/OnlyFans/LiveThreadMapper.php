@@ -33,8 +33,23 @@ class LiveThreadMapper
                 'isOpened' => (bool) ($m['isOpened'] ?? false),
                 'isTip' => (bool) ($m['isTip'] ?? false),
                 'tipAmount' => isset($m['tipAmount']) ? (float) $m['tipAmount'] : null,
+                'fromQueue' => (bool) ($m['fromQueue'] ?? false),
             ];
         }, array_values($messages));
+
+        // An UNOPENED mass-message PPV (OnlyFans mass blast, `isFromQueue`) is broadcast
+        // noise, not a chatter pitch: left in, the engine reads it as "we already pitched
+        // him" (wrong pacing, false don't-chase) and its timestamp can bridge a real
+        // session gap. Dropped BEFORE sorting/gap detection so it affects neither. An
+        // OPENED one stays — the fan genuinely paid, so spend + post-purchase are correct.
+        $items = array_values(array_filter($items, fn ($m) => ! (
+            $m['fromQueue']
+            && $m['from'] === 'creator'
+            && ! $m['isFree']
+            && $m['price'] > 0
+            && ! $m['isTip']
+            && ! $m['isOpened']
+        )));
 
         // Oldest → newest so the session-window scan and the engine transcript are chronological.
         usort($items, fn ($a, $b) => ($a['ts'] ?? 0) <=> ($b['ts'] ?? 0));
