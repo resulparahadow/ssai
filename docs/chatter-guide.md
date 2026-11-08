@@ -164,7 +164,10 @@ old rejection explains the move.
 
 The right rail has a **PPV** tab: the creator's saved PPV sets (media + price +
 a default caption), the same idea as CreatorHero's PPV tab. Managers create them
-in **Media Vault → Select → Save as PPV set**.
+in **Media Vault → Select → Save as PPV set** — the selection survives switching
+folders, so a set can mix media from several lists. To change a set's media later:
+PPV tab → **⋯ → Edit → Change media in Media Vault**; the vault opens with the
+set's media already ticked, re-pick, then **Save media to set**.
 
 1. Open the fan's chat → **PPV** tab → click a set. It loads into the composer:
    the media tiles, a **Price to View** chip, and the default caption. If you

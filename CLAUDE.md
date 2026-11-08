@@ -531,7 +531,17 @@ engine uses its in-process copy. Provider keys live in the engine's env
     suggestion, confirm when dirty) with `ComposerState.ppv`; `SsPpvStrip` shows tiles + an
     editable **Price to View** chip (`isValidPpvPrice`, mirrors `App\Rules\PpvPrice`); Send posts
     `mediaFiles` + `price` + `ppvSetId`. Managers create sets in Media Vault (`SsVaultGrid` bulk
-    bar → **Save as PPV set** → `SsPpvSetModal`) and edit/delete from the rail. **Generate with a
+    bar → **Save as PPV set** → `SsPpvSetModal`) and edit/delete from the rail. **The vault
+    selection spans folders** (`selectedMedia: Map<id, PpvSetMedia>`, NOT cleared on a list
+    switch — the grid only holds the open list, so a Set of ids filtered against `items` lost
+    everything ticked in the previous folder; the bar shows "N from other folders"). **Media is
+    re-picked in the vault, not the modal:** the Edit modal links to `/media-vault?ppvSet=<id>`;
+    `MediaVault.vue` resolves the set (`ofApi.ppvSets`, manager only) and passes `editSet` to
+    `SsVaultGrid`, which enters select mode with the set's media pre-ticked and swaps the bar for
+    **Save media to set** (`PUT …/ppv-sets/{set}` with `media` only); save/cancel strips the param
+    via `replaceState`. The re-sent media carries OUR thumb route for cached thumbs, so
+    `media.*.thumb` is no longer `url`-validated and `durableThumb` maps `'local'`/that path back
+    to the `'local'` marker iff the file exists, fetching nothing. **Generate with a
     set loaded sends `sender:'ppv'`** = legacy's PPV CAPTION MODE (one curiosity caption); for it
     the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips
     `commitState` and the rail auto-switch — legacy forces that strategy to `send_content`, which

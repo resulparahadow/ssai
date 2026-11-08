@@ -224,3 +224,34 @@ it('reorders by ids', function () {
 
     expect($a->fresh()->sort_order)->toBe(1)->and($b->fresh()->sort_order)->toBe(0);
 });
+
+it('replaces media on update, keeping an already-cached thumb without re-fetching it', function () {
+    Storage::fake('local');
+    Http::fake();
+    Storage::disk('local')->put("ppv-thumbs/{$this->model->id}/v2", 'JPEGBYTES');
+    $set = PpvSet::create([
+        'creator_model' => 'Camila',
+        'name' => 'Edit me',
+        'price' => 20,
+        'media' => [['id' => 'v2', 'type' => 'video', 'thumb' => 'local']],
+        'sort_order' => 0,
+    ]);
+
+    $this->actingAs($this->manager)
+        ->putJson("{$this->url}/{$set->id}", ['media' => [
+            // Re-sent exactly as the client received it from present(): our own thumb route.
+            ['id' => 'v2', 'type' => 'video', 'thumb' => "/onlyfans/{$this->model->id}/ppv-sets/thumb/v2"],
+            // A newly picked item whose thumb is onlyfans-hosted.
+            ['id' => 'v9', 'type' => 'photo', 'thumb' => 'https://cdn2.onlyfans.com/files/t9.jpg'],
+            // A 'local' claim with no file behind it must not survive.
+            ['id' => 'v7', 'type' => 'photo', 'thumb' => 'local'],
+        ]])
+        ->assertOk()
+        ->assertJsonCount(3, 'set.media')
+        ->assertJsonPath('set.media.0.thumb', "/onlyfans/{$this->model->id}/ppv-sets/thumb/v2")
+        ->assertJsonPath('set.media.1.thumb', 'https://cdn2.onlyfans.com/files/t9.jpg')
+        ->assertJsonPath('set.media.2.thumb', null);
+
+    Http::assertNothingSent();
+    expect($set->fresh()->media[0]['thumb'])->toBe('local');
+});

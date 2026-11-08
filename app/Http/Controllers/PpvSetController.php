@@ -190,7 +190,7 @@ class PpvSetController extends Controller
             'media' => "{$req}|array|min:1|max:{$max}",
             'media.*.id' => 'required|string|max:64',
             'media.*.type' => 'required|in:photo,video,gif,audio',
-            'media.*.thumb' => 'nullable|string|url|max:2048',
+            'media.*.thumb' => 'nullable|string|max:2048', // https url, or our own thumb path (durableThumb decides)
         ];
     }
 
@@ -230,7 +230,19 @@ class PpvSetController extends Controller
 
     private function durableThumb(AichModel $model, string $mediaId, ?string $url): ?string
     {
-        if (! $url || ! str_starts_with($url, 'https://')) {
+        if (! $url) {
+            return null;
+        }
+
+        // Editing a set re-sends its media as the client received it — a cached thumb arrives
+        // as our own thumb route (or the raw marker). Keep it as 'local' only while the file
+        // is really there, and never fetch anything for it.
+        if ($url === 'local' || $url === "/onlyfans/{$model->id}/ppv-sets/thumb/{$mediaId}") {
+            return preg_match('/^[A-Za-z0-9_]{1,64}$/', $mediaId)
+                && Storage::disk('local')->exists(self::thumbPath($model, $mediaId)) ? 'local' : null;
+        }
+
+        if (! str_starts_with($url, 'https://')) {
             return null;
         }
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));

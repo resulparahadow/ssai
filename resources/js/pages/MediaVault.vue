@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
 import { Images, RefreshCw, Users } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { toast } from 'vue-sonner';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import SsVaultGrid from '@/components/crm/vault/SsVaultGrid.vue';
 import SsVaultRail from '@/components/crm/vault/SsVaultRail.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { can } from '@/crm/nav';
+import { ofApi } from '@/lib/onlyfans';
 import type { Role } from '@/types/auth';
-import type { OfVaultList, SidebarCreator } from '@/types/crm';
+import type { OfVaultList, PpvSet, SidebarCreator } from '@/types/crm';
 
 const page = usePage();
 const { selectedId } = useCreatorContext();
@@ -37,6 +39,64 @@ const openListName = computed(() => openList.value?.name ?? 'All media');
 
 // Bumped by Refresh; the children watch it and reload.
 const reloadNonce = ref(0);
+
+// --- Re-pick a PPV set's media (`/media-vault?ppvSet=<id>`, linked from the set's Edit modal) --
+// The grid opens in select mode with the set's media ticked; saving or cancelling drops the
+// param (replaceState, like Conversations' `?chat`) so a reload lands on the plain vault.
+const editSet = ref<PpvSet | null>(null);
+
+function editSetParam(): number | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const n = Number(new URLSearchParams(window.location.search).get('ppvSet'));
+
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function finishEdit() {
+    editSet.value = null;
+
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('ppvSet');
+    window.history.replaceState(window.history.state, '', url);
+}
+
+watch(
+    model,
+    async (m) => {
+        const id = editSetParam();
+
+        if (!m || !id || !canManage.value) {
+            return;
+        }
+
+        try {
+            const r = await ofApi.ppvSets(m.id);
+            const set = r.sets.find((s) => s.id === id) ?? null;
+
+            if (!set) {
+                toast.error('PPV set not found for this creator.');
+                finishEdit();
+
+                return;
+            }
+
+            editSet.value = set;
+        } catch (e) {
+            toast.error(
+                e instanceof Error ? e.message : 'Could not load the PPV set.',
+            );
+            finishEdit();
+        }
+    },
+    { immediate: true },
+);
 </script>
 
 <template>
@@ -116,6 +176,9 @@ const reloadNonce = ref(0);
                 :reload="reloadNonce"
                 :list-id="openListId"
                 :list-name="openListName"
+                :edit-set="editSet"
+                @ppv-set-saved="finishEdit"
+                @edit-cancel="finishEdit"
             />
         </div>
     </div>

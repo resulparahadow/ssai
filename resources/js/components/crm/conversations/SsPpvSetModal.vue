@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { LoaderCircle, X } from '@lucide/vue';
+import { Link } from '@inertiajs/vue3';
+import { Images, LoaderCircle, X } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { isValidPpvPrice } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
@@ -8,7 +9,8 @@ import type { PpvSet, PpvSetMedia } from '@/types/crm';
 /**
  * Create / edit a PPV set's name, price and caption (manager+; the server gates the write).
  * `set` null → create with `media` (the Media Vault selection); else update the metadata of
- * `set` (its media stays as saved — media is edited by saving a new set from the vault).
+ * `set` — its media is re-picked in the Media Vault (`/media-vault?ppvSet=<id>`, linked below),
+ * which has the grid and the folders this modal does not.
  */
 const props = defineProps<{
     modelId: number;
@@ -92,12 +94,22 @@ async function save() {
             </div>
 
             <div class="space-y-3 p-3">
-                <p class="text-[12px] text-ss-text-3">
-                    {{ mediaCount }} media item{{ mediaCount === 1 ? '' : 's' }}
-                    <template v-if="props.set">
-                        · media is edited by saving a new set from the Media
-                        Vault
-                    </template>
+                <p
+                    class="flex flex-wrap items-center gap-x-2 text-[12px] text-ss-text-3"
+                >
+                    <span
+                        >{{ mediaCount }} media item{{
+                            mediaCount === 1 ? '' : 's'
+                        }}</span
+                    >
+                    <Link
+                        v-if="props.set"
+                        :href="`/media-vault?ppvSet=${props.set.id}`"
+                        class="inline-flex items-center gap-1 font-semibold text-ss-accent-text hover:underline"
+                        title="Open the Media Vault with this set's media pre-selected"
+                    >
+                        <Images :size="12" /> Change media in Media Vault
+                    </Link>
                 </p>
 
                 <label class="block">
