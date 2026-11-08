@@ -1,28 +1,38 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
-import { Images, LoaderCircle, X } from '@lucide/vue';
+import { ImagePlus, LoaderCircle, Music, Play, X } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import SsVaultPickerModal from '@/components/crm/conversations/SsVaultPickerModal.vue';
 import { isValidPpvPrice } from '@/lib/money';
-import { ofApi } from '@/lib/onlyfans';
+import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { PpvSet, PpvSetMedia } from '@/types/crm';
 
 /**
- * Create / edit a PPV set's name, price and caption (manager+; the server gates the write).
- * `set` null → create with `media` (the Media Vault selection); else update the metadata of
- * `set` — its media is re-picked in the Media Vault (`/media-vault?ppvSet=<id>`, linked below),
- * which has the grid and the folders this modal does not.
+ * Create / edit a PPV set — name, price, caption AND media — in one place (manager+; the server
+ * gates the write). Media is picked in `SsVaultPickerModal` (folders + grid, multi-select), so
+ * the Media Vault page stays a browsing surface and never has to know about PPV sets.
+ * `set` null → create; else update, sending `media` only when it actually changed.
  */
-const props = defineProps<{
-    modelId: number;
-    set: PpvSet | null;
-    media: PpvSetMedia[];
-}>();
+const props = withDefaults(
+    defineProps<{
+        modelId: number;
+        set: PpvSet | null;
+        /** Starting media for a NEW set (optional). */
+        media?: PpvSetMedia[];
+    }>(),
+    { media: () => [] },
+);
 const emit = defineEmits<{ saved: [set: PpvSet]; close: [] }>();
+
+const MAX_MEDIA = 40;
 
 const name = ref(props.set?.name ?? '');
 // NB: Vue casts v-model on a type=number input to a number, so this holds string | number.
 const price = ref<string | number>(props.set ? String(props.set.price) : '');
 const caption = ref(props.set?.caption ?? '');
+const media = ref<PpvSetMedia[]>(
+    (props.set ? props.set.media : props.media).map((m) => ({ ...m })),
+);
+const showPicker = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
 
@@ -33,12 +43,32 @@ const priceNum = computed(() => {
     return priceText.value === '' || !Number.isFinite(n) ? NaN : n;
 });
 const priceOk = computed(() => isValidPpvPrice(priceNum.value));
-const mediaCount = computed(() =>
-    props.set ? props.set.media.length : props.media.length,
-);
+const mediaChanged = computed(() => {
+    const was = (props.set?.media ?? []).map((m) => m.id);
+    const now = media.value.map((m) => m.id);
+
+    return was.length !== now.length || was.some((id, i) => id !== now[i]);
+});
 const valid = computed(
-    () => name.value.trim().length > 0 && priceOk.value && mediaCount.value > 0,
+    () =>
+        name.value.trim().length > 0 &&
+        priceOk.value &&
+        media.value.length > 0 &&
+        media.value.length <= MAX_MEDIA,
 );
+
+function onPicked(picked: PpvSetMedia[]) {
+    media.value = picked;
+    showPicker.value = false;
+}
+
+function removeMedia(id: string) {
+    media.value = media.value.filter((m) => m.id !== id);
+}
+
+function thumbSrc(m: PpvSetMedia): string | null {
+    return m.thumb ? mediaSrc(props.modelId, m.thumb) : null;
+}
 
 async function save() {
     if (!valid.value || saving.value) {
@@ -56,10 +86,13 @@ async function save() {
 
     try {
         const res = props.set
-            ? await ofApi.updatePpvSet(props.modelId, props.set.id, body)
+            ? await ofApi.updatePpvSet(props.modelId, props.set.id, {
+                  ...body,
+                  ...(mediaChanged.value ? { media: media.value } : {}),
+              })
             : await ofApi.createPpvSet(props.modelId, {
                   ...body,
-                  media: props.media,
+                  media: media.value,
               });
         emit('saved', res.set);
     } catch (e) {
@@ -72,45 +105,118 @@ async function save() {
 
 <template>
     <div
-        class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+        class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 font-ss"
         @click.self="emit('close')"
     >
         <form
-            class="w-full max-w-sm overflow-hidden rounded-2xl border border-ss-border bg-ss-surface shadow-2xl"
+            class="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-ss-border bg-ss-surface shadow-2xl"
+            role="dialog"
+            aria-modal="true"
             @submit.prevent="save"
         >
             <div class="flex items-center gap-2 border-b border-ss-border p-3">
                 <p class="text-[14px] font-semibold text-ss-text">
-                    {{ props.set ? 'Edit PPV set' : 'Save as PPV set' }}
+                    {{ props.set ? 'Edit PPV set' : 'New PPV set' }}
                 </p>
                 <span class="flex-1" />
                 <button
                     type="button"
                     class="grid h-7 w-7 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2"
+                    title="Close"
                     @click="emit('close')"
                 >
                     <X :size="15" />
                 </button>
             </div>
 
-            <div class="space-y-3 p-3">
-                <p
-                    class="flex flex-wrap items-center gap-x-2 text-[12px] text-ss-text-3"
-                >
-                    <span
-                        >{{ mediaCount }} media item{{
-                            mediaCount === 1 ? '' : 's'
-                        }}</span
+            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+                <!-- Media -->
+                <div>
+                    <div class="mb-1 flex items-center">
+                        <span class="text-[11px] font-semibold text-ss-text-2"
+                            >Media</span
+                        >
+                        <span class="ml-1.5 text-[11px] text-ss-text-3"
+                            >{{ media.length }} / {{ MAX_MEDIA }}</span
+                        >
+                        <span class="flex-1" />
+                        <button
+                            v-if="media.length"
+                            type="button"
+                            class="flex items-center gap-1 text-[11px] font-semibold text-ss-accent-text hover:underline"
+                            @click="showPicker = true"
+                        >
+                            <ImagePlus :size="12" /> Change media
+                        </button>
+                    </div>
+
+                    <button
+                        v-if="!media.length"
+                        type="button"
+                        class="flex w-full flex-col items-center gap-1.5 rounded-xl border border-dashed border-ss-border bg-ss-surface-2 px-3 py-6 text-center transition-colors hover:border-ss-accent"
+                        @click="showPicker = true"
                     >
-                    <Link
-                        v-if="props.set"
-                        :href="`/media-vault?ppvSet=${props.set.id}`"
-                        class="inline-flex items-center gap-1 font-semibold text-ss-accent-text hover:underline"
-                        title="Open the Media Vault with this set's media pre-selected"
-                    >
-                        <Images :size="12" /> Change media in Media Vault
-                    </Link>
-                </p>
+                        <ImagePlus :size="20" class="text-ss-accent-text" />
+                        <span class="text-[12px] font-semibold text-ss-text"
+                            >Add media from the vault</span
+                        >
+                        <span class="text-[11px] text-ss-text-3"
+                            >Photos, videos, GIFs or audio — up to
+                            {{ MAX_MEDIA }}</span
+                        >
+                    </button>
+
+                    <ul v-else class="grid grid-cols-5 gap-1.5">
+                        <li
+                            v-for="m in media"
+                            :key="m.id"
+                            class="group relative aspect-square overflow-hidden rounded-lg border border-ss-border bg-ss-surface-2"
+                        >
+                            <img
+                                v-if="thumbSrc(m)"
+                                :src="thumbSrc(m) as string"
+                                :alt="m.type"
+                                class="h-full w-full object-cover"
+                                loading="lazy"
+                            />
+                            <span
+                                v-else
+                                class="grid h-full w-full place-items-center text-ss-text-3"
+                            >
+                                <Music v-if="m.type === 'audio'" :size="16" />
+                                <span
+                                    v-else
+                                    class="text-[9px] font-semibold uppercase"
+                                    >{{ m.type }}</span
+                                >
+                            </span>
+                            <span
+                                v-if="m.type === 'video'"
+                                class="absolute right-1 bottom-1 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white"
+                            >
+                                <Play :size="8" fill="currentColor" />
+                            </span>
+                            <button
+                                type="button"
+                                class="absolute top-0.5 right-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-ss-neg focus:opacity-100"
+                                :title="`Remove this ${m.type}`"
+                                @click="removeMedia(m.id)"
+                            >
+                                <X :size="11" />
+                            </button>
+                        </li>
+                        <li>
+                            <button
+                                type="button"
+                                class="grid aspect-square w-full place-items-center rounded-lg border border-dashed border-ss-border text-ss-text-3 transition-colors hover:border-ss-accent hover:text-ss-accent-text"
+                                title="Add more media"
+                                @click="showPicker = true"
+                            >
+                                <ImagePlus :size="16" />
+                            </button>
+                        </li>
+                    </ul>
+                </div>
 
                 <label class="block">
                     <span
@@ -183,7 +289,7 @@ async function save() {
                 <button
                     type="submit"
                     :disabled="!valid || saving"
-                    class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                    class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
                 >
                     <LoaderCircle
                         v-if="saving"
@@ -194,5 +300,14 @@ async function save() {
                 </button>
             </div>
         </form>
+
+        <SsVaultPickerModal
+            v-if="showPicker"
+            :model-id="props.modelId"
+            :initial="media"
+            :max="MAX_MEDIA"
+            @add="onPicked"
+            @close="showPicker = false"
+        />
     </div>
 </template>

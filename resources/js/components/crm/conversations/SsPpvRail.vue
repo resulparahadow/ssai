@@ -7,6 +7,7 @@ import {
     MoreVertical,
     Music,
     Pencil,
+    Plus,
     Trash2,
 } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -40,6 +41,7 @@ const error = ref<string | null>(null);
 const status = ref<PpvSetStatus>({});
 const menuFor = ref<number | null>(null);
 const editing = ref<PpvSet | null>(null);
+const creating = ref(false);
 const deleting = ref<number | null>(null);
 
 let setsToken = 0;
@@ -171,9 +173,13 @@ function counts(set: PpvSet) {
 // ---- manager actions ------------------------------------------------------------
 
 function onSaved(set: PpvSet) {
+    const isNew = creating.value;
     editing.value = null;
+    creating.value = false;
     invalidatePpvSets(props.modelId);
-    sets.value = sets.value.map((s) => (s.id === set.id ? set : s));
+    sets.value = isNew
+        ? [...sets.value, set]
+        : sets.value.map((s) => (s.id === set.id ? set : s));
     ppvSetsCache.set(props.modelId, sets.value);
 }
 
@@ -212,6 +218,21 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
 
 <template>
     <div class="min-h-0 flex-1 overflow-y-auto p-2">
+        <div v-if="props.canManage" class="mb-2 flex items-center gap-2 px-1">
+            <p class="text-[11px] text-ss-text-3">
+                {{ sets.length }} set{{ sets.length === 1 ? '' : 's' }}
+            </p>
+            <span class="flex-1" />
+            <button
+                type="button"
+                class="flex items-center gap-1 rounded-lg border border-ss-border px-2 py-1 text-[11px] font-semibold text-ss-text-2 transition-colors hover:border-ss-accent hover:text-ss-accent-text"
+                title="Create a PPV set: pick media from the vault, set a price and a caption"
+                @click="creating = true"
+            >
+                <Plus :size="12" /> New set
+            </button>
+        </div>
+
         <p v-if="error" class="mb-2 text-[12px] text-ss-neg">{{ error }}</p>
 
         <div
@@ -227,9 +248,10 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
         >
             <p>No PPV sets yet.</p>
             <p v-if="props.canManage" class="mt-1">
-                Create sets from the Media Vault: select media → Save as PPV
-                set.
+                Click <span class="font-semibold text-ss-text-2">New set</span>
+                to build one from the vault.
             </p>
+            <p v-else class="mt-1">A manager can add them.</p>
         </div>
 
         <ul v-else class="space-y-2">
@@ -358,12 +380,14 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
         </ul>
 
         <SsPpvSetModal
-            v-if="editing"
+            v-if="editing || creating"
             :model-id="props.modelId"
             :set="editing"
-            :media="editing.media"
             @saved="onSaved"
-            @close="editing = null"
+            @close="
+                editing = null;
+                creating = false;
+            "
         />
     </div>
 </template>

@@ -8,7 +8,6 @@ import {
     Link2,
     ListPlus,
     LoaderCircle,
-    PackagePlus,
     Play,
     Search,
     Trash2,
@@ -16,12 +15,9 @@ import {
     X,
 } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
-import { toast } from 'vue-sonner';
 import SsMediaLightbox from '@/components/crm/conversations/SsMediaLightbox.vue';
-import SsPpvSetModal from '@/components/crm/conversations/SsPpvSetModal.vue';
-import { invalidatePpvSets } from '@/lib/conversationCache';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
-import type { OfMedia, OfVaultList, PpvSet, PpvSetMedia } from '@/types/crm';
+import type { OfMedia, OfVaultList } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
@@ -30,10 +26,7 @@ const props = defineProps<{
     /** Vault list to show, or null for the whole vault. */
     listId: string | null;
     listName: string;
-    /** A PPV set whose media is being re-picked here (Media Vault `?ppvSet=<id>`). */
-    editSet?: PpvSet | null;
 }>();
-const emit = defineEmits<{ ppvSetSaved: [set: PpvSet]; editCancel: [] }>();
 
 const FILTERS = [
     { label: 'All', value: '' },
@@ -74,17 +67,16 @@ const actionError = ref<string | null>(null);
 let token = 0;
 
 // --- Selection --------------------------------------------------------------
-// Keyed by vault id and carrying each item's PPV shape, so a selection can span FOLDERS: the
-// grid only holds the open list's items, and a chatter building a set from several lists must
-// not lose what they ticked in the previous one. Cleared on creator change / leaving select mode.
+// Survives switching FOLDERS: the grid only holds the open list's items, so a selection filtered
+// against them lost everything ticked in the previous one. Cleared on creator change / leaving
+// select mode.
 const selectionMode = ref(false);
-const selectedMedia = ref<Map<string, PpvSetMedia>>(new Map());
-const selected = computed(() => new Set(selectedMedia.value.keys()));
+const selected = ref<Set<string>>(new Set());
 /** Selected items that are not in the open folder (ticked in another list). */
 const offFolderCount = computed(() => {
     const here = new Set(items.value.map((m) => m.id));
 
-    return [...selectedMedia.value.keys()].filter((id) => !here.has(id)).length;
+    return [...selected.value].filter((id) => !here.has(id)).length;
 });
 
 // --- Lightbox ---------------------------------------------------------------
@@ -189,7 +181,7 @@ function pickSort(v: string) {
  * Switching lists starts a clean view — stale filters would look like an empty list. `sort` is
  * deliberately NOT reset: it is a view preference, not a filter, so an ordering you picked
  * survives clicking through lists (it resets on a creator change). The SELECTION survives too
- * (see selectedMedia): a PPV set is often assembled from more than one folder.
+ * (see `selected`): adding to a list or deleting often spans more than one folder.
  */
 watch(
     () => props.listId,
@@ -198,20 +190,6 @@ watch(
         query.value = '';
         load(true);
     },
-);
-
-/** Editing a set's media: enter select mode with the set's current media pre-ticked. */
-watch(
-    () => props.editSet,
-    (set) => {
-        if (!set) {
-            return;
-        }
-
-        selectionMode.value = true;
-        selectedMedia.value = new Map(set.media.map((m) => [m.id, { ...m }]));
-    },
-    { immediate: true },
 );
 
 function formatDate(iso: string | null): string {
@@ -256,12 +234,6 @@ watch(
 
 // --- Selection --------------------------------------------------------------
 function toggleSelectionMode() {
-    if (props.editSet) {
-        cancelEdit();
-
-        return;
-    }
-
     selectionMode.value = !selectionMode.value;
 
     if (!selectionMode.value) {
@@ -270,17 +242,7 @@ function toggleSelectionMode() {
 }
 
 function clearSelection() {
-    selectedMedia.value = new Map();
-}
-
-function toPpvMedia(m: OfMedia): PpvSetMedia {
-    return {
-        id: m.id as string,
-        type: (['photo', 'video', 'gif', 'audio'].includes(m.type)
-            ? m.type
-            : 'photo') as PpvSetMedia['type'],
-        thumb: m.thumb ?? null,
-    };
+    selected.value = new Set();
 }
 
 async function onTile(m: OfMedia, i: number) {
@@ -323,15 +285,15 @@ function toggleSelect(m: OfMedia) {
         return;
     }
 
-    const s = new Map(selectedMedia.value);
+    const s = new Set(selected.value);
 
     if (s.has(m.id)) {
         s.delete(m.id);
     } else {
-        s.set(m.id, toPpvMedia(m));
+        s.add(m.id);
     }
 
-    selectedMedia.value = s;
+    selected.value = s;
 }
 
 // --- Upload -----------------------------------------------------------------
@@ -462,61 +424,6 @@ async function openListPicker() {
     } finally {
         listsLoading.value = false;
     }
-}
-
-// ---- Save as PPV set (manager+; the server gates the write) ------------------
-
-const showPpvModal = ref(false);
-const savingEdit = ref(false);
-
-/** The selection in tick order, as PPV-set media (vault id + type + raw thumb; the server
- *  keeps onlyfans-hosted thumbs and caches fansapi presigned ones on its disk). */
-const ppvSelection = computed<PpvSetMedia[]>(() => [
-    ...selectedMedia.value.values(),
-]);
-
-/** Edit mode: write the ticked media back onto the set (name/price/caption untouched). */
-async function saveEditMedia() {
-    if (!props.editSet || !ppvSelection.value.length || savingEdit.value) {
-        return;
-    }
-
-    savingEdit.value = true;
-    actionError.value = null;
-
-    try {
-        const r = await ofApi.updatePpvSet(props.modelId, props.editSet.id, {
-            media: ppvSelection.value,
-        });
-        invalidatePpvSets(props.modelId);
-        toast.success(`Media of "${r.set.name}" updated`, {
-            description: `${r.set.media.length} item${r.set.media.length === 1 ? '' : 's'} in the set.`,
-        });
-        selectionMode.value = false;
-        clearSelection();
-        emit('ppvSetSaved', r.set);
-    } catch (e) {
-        actionError.value =
-            e instanceof Error ? e.message : 'Saving the set failed.';
-    } finally {
-        savingEdit.value = false;
-    }
-}
-
-function cancelEdit() {
-    selectionMode.value = false;
-    clearSelection();
-    emit('editCancel');
-}
-
-function onPpvSetSaved(set: PpvSet) {
-    showPpvModal.value = false;
-    invalidatePpvSets(props.modelId);
-    toast.success(`PPV set "${set.name}" saved`, {
-        description: 'Chatters can load it from the PPV tab in Conversations.',
-    });
-    selectionMode.value = false;
-    clearSelection();
 }
 
 async function addToList(listId: string | null) {
@@ -804,36 +711,15 @@ async function deleteSelected() {
                 class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ss-accent/40 bg-ss-accent-soft px-3 py-2"
             >
                 <span class="text-[12px] font-semibold text-ss-accent-text">
-                    <template v-if="props.editSet"
-                        >Editing “{{ props.editSet.name }}” ·
-                    </template>
-                    {{ selected.size }} selected<template v-if="offFolderCount">
-                        <span class="font-normal text-ss-text-3"
-                            >· {{ offFolderCount }} from other folders</span
-                        ></template
+                    {{ selected.size }} selected<span
+                        v-if="offFolderCount"
+                        class="font-normal text-ss-text-3"
+                    >
+                        · {{ offFolderCount }} from other folders</span
                     >
                 </span>
                 <span class="flex-1" />
-                <!-- Leaving edit mode is the header's Select/Cancel toggle (toggleSelectionMode → cancelEdit). -->
-                <template v-if="props.editSet">
-                    <button
-                        type="button"
-                        class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
-                        :disabled="!ppvSelection.length || savingEdit"
-                        title="Replace the set's media with the selected items"
-                        @click="saveEditMedia"
-                    >
-                        <LoaderCircle
-                            v-if="savingEdit"
-                            :size="14"
-                            class="animate-spin"
-                        />
-                        <PackagePlus v-else :size="14" />
-                        Save media to set
-                    </button>
-                </template>
                 <button
-                    v-if="!props.editSet"
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
                     :disabled="!selected.size"
@@ -843,18 +729,7 @@ async function deleteSelected() {
                     Add to list
                 </button>
                 <button
-                    v-if="canManage && !props.editSet"
-                    type="button"
-                    class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
-                    :disabled="!ppvSelection.length"
-                    title="Save the selected media as a PPV set chatters can send from Conversations"
-                    @click="showPpvModal = true"
-                >
-                    <PackagePlus :size="14" />
-                    Save as PPV set
-                </button>
-                <button
-                    v-if="canManage && !props.editSet"
+                    v-if="canManage"
                     type="button"
                     class="flex items-center gap-1.5 rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-1.5 text-[12px] font-semibold text-ss-neg hover:bg-ss-neg/20 disabled:opacity-50"
                     :disabled="!selected.size || deleting"
@@ -999,15 +874,6 @@ async function deleteSelected() {
             :model-id="props.modelId"
             @update:index="lightboxIndex = $event"
             @close="lightboxIndex = null"
-        />
-
-        <SsPpvSetModal
-            v-if="showPpvModal"
-            :model-id="props.modelId"
-            :set="null"
-            :media="ppvSelection"
-            @saved="onPpvSetSaved"
-            @close="showPpvModal = false"
         />
 
         <!-- Add-to-list picker -->
