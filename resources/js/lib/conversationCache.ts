@@ -10,6 +10,7 @@ import type {
     OfFan,
     OfGif,
     OfMessage,
+    PpvSet,
 } from '@/types/crm';
 
 // Module-scoped stale-while-revalidate caches for the live Conversations view.
@@ -33,6 +34,13 @@ export const chatListView = reactive<{
     filter: OfChatFilter;
     order: OfChatOrder;
 }>({ filter: '', order: 'recent' });
+/** Creator id → PPV sets (loaded once per page session; invalidated on any manager edit). */
+export const ppvSetsCache = new Map<number, PpvSet[]>();
+
+export function invalidatePpvSets(modelId: number): void {
+    ppvSetsCache.delete(modelId);
+}
+
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
 

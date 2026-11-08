@@ -11,14 +11,17 @@ import {
     X,
 } from '@lucide/vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { isValidPpvPrice, usd } from '@/lib/money';
 import type {
     ComposerAttachment,
+    ComposerPpv,
     DraftRejection,
     OfGif,
     OfMedia,
 } from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
+import SsPpvStrip from './SsPpvStrip.vue';
 import SsVaultModal from './SsVaultModal.vue';
 
 const props = defineProps<{
@@ -29,6 +32,7 @@ const props = defineProps<{
     suggestion: string | null;
     attachedGif: OfGif | null;
     attachment: ComposerAttachment | null;
+    ppv: ComposerPpv | null; // a loaded PPV set (exclusive with gif/attachment)
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -43,6 +47,7 @@ const emit = defineEmits<{
     'update:context': [value: string];
     'update:attachedGif': [value: OfGif | null];
     'update:attachment': [value: ComposerAttachment | null];
+    'update:ppv': [value: ComposerPpv | null];
     'pick-file': [file: File];
     'pick-vault': [item: OfMedia];
     generate: [];
@@ -91,6 +96,12 @@ const attachBusy = computed(
         props.attachment?.status === 'processing',
 );
 
+// A loaded PPV set is sendable on its own (caption optional) — but never on a price the
+// vendor would 422 (free, or $3–$200), so Send stays disabled until the chip is fixed.
+const ppvPriceOk = computed(
+    () => props.ppv === null || isValidPpvPrice(props.ppv.price),
+);
+
 const sendable = computed(
     () =>
         props.canSend &&
@@ -98,10 +109,32 @@ const sendable = computed(
         // An attachment that is still uploading/processing is not sendable yet.
         !attachBusy.value &&
         props.attachment?.status !== 'failed' &&
+        ppvPriceOk.value &&
         (props.draft.trim().length > 0 ||
             props.attachedGif !== null ||
-            props.attachment?.status === 'ready'),
+            props.attachment?.status === 'ready' ||
+            props.ppv !== null),
 );
+
+const sendLabel = computed(() => {
+    if (props.sending) {
+        return 'Sending…';
+    }
+
+    if (props.ppv) {
+        return props.ppv.price > 0
+            ? `Send PPV ${usd(props.ppv.price)}`
+            : 'Send free media';
+    }
+
+    return 'Send';
+});
+
+function setPpvPrice(price: number) {
+    if (props.ppv) {
+        emit('update:ppv', { ...props.ppv, price });
+    }
+}
 
 const MAX_ROWS = 5;
 
@@ -389,6 +422,15 @@ function onKeydown(e: KeyboardEvent) {
             {{ props.error }}
         </p>
 
+        <!-- Loaded PPV set: media + price for the next send -->
+        <SsPpvStrip
+            v-if="props.ppv"
+            :ppv="props.ppv"
+            :model-id="props.modelId"
+            @update:price="setPpvPrice"
+            @remove="emit('update:ppv', null)"
+        />
+
         <!-- Attached GIF preview -->
         <div v-if="props.attachedGif" class="relative inline-block">
             <img
@@ -533,7 +575,11 @@ function onKeydown(e: KeyboardEvent) {
                 type="button"
                 :disabled="props.generating"
                 class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ss-border text-ss-accent-text hover:bg-ss-surface-2 disabled:opacity-50"
-                title="Generate an AI draft"
+                :title="
+                    props.ppv
+                        ? 'Generate caption — SSAI writes the PPV pitch for this fan'
+                        : 'Generate an AI draft'
+                "
                 @click="emit('generate')"
             >
                 <Sparkles
@@ -655,7 +701,7 @@ function onKeydown(e: KeyboardEvent) {
                 class="flex shrink-0 items-center gap-1.5 rounded-lg bg-ss-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
                 @click="emit('send')"
             >
-                <Send :size="14" /> {{ props.sending ? 'Sending…' : 'Send' }}
+                <Send :size="14" /> {{ sendLabel }}
             </button>
         </div>
 
