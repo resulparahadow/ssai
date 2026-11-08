@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\AuthorizesCreator;
 use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
@@ -17,13 +18,11 @@ use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -35,6 +34,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class OnlyFansChatController extends Controller
 {
+    use AuthorizesCreator;
     use ForwardsOnlyFansErrors;
 
     public function __construct(
@@ -1074,15 +1074,6 @@ class OnlyFansChatController extends Controller
 
     // ---- helpers ----------------------------------------------------------
 
-    /** Row-level access check shared by the OnlyFans + memory endpoints (chatter → assigned only). */
-    private function authorizeCreator(Request $request, AichModel $model): void
-    {
-        $user = $request->user();
-        if (! $user->canSeeAllCreators() && ! in_array($model->name, $user->assignedCreatorModels(), true)) {
-            abort(403, 'You are not assigned to this creator.');
-        }
-    }
-
     private function account(Request $request, AichModel $model): string
     {
         $this->authorizeCreator($request, $model);
@@ -1104,25 +1095,5 @@ class OnlyFansChatController extends Controller
             '['.now()->toDateTimeString()."] {$tag} ".json_encode($ctx, JSON_UNESCAPED_SLASHES).PHP_EOL,
             FILE_APPEND
         );
-    }
-
-    /**
-     * Validate and force a JSON 422 on failure. These routes aren't under `api/*`,
-     * so a ValidationException would otherwise 302-redirect (bootstrap/app.php
-     * shouldRenderJsonWhen) — an HttpResponseException guarantees JSON for the fetch client.
-     *
-     * @param  array<string, mixed>  $rules
-     * @return array<string, mixed>
-     */
-    private function validateJson(Request $request, array $rules): array
-    {
-        $validator = Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            throw new HttpResponseException(
-                response()->json(['error' => $validator->errors()->first(), 'errors' => $validator->errors()->toArray()], 422)
-            );
-        }
-
-        return $validator->validated();
     }
 }
