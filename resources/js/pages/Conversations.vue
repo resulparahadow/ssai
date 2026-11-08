@@ -7,8 +7,10 @@ import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
 import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
+import SsPpvRail from '@/components/crm/conversations/SsPpvRail.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
+import { can } from '@/crm/nav';
 import {
     chatComposer,
     chatListView,
@@ -25,7 +27,9 @@ import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
 import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
+import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
+import { composerDirty, suggestionStillApplies } from '@/lib/ppvComposer';
 import {
     ensureSubscribed,
     onInboundMessage,
@@ -35,12 +39,15 @@ import type { InboundPayload } from '@/lib/realtimeInbound';
 import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
+    ComposerPpv,
     OfChat,
     OfChatFilter,
     OfChatOrder,
     OfFan,
     OfMedia,
+    OfGif,
     OfMessage,
+    PpvSet,
     SidebarCreator,
 } from '@/types/crm';
 
@@ -120,7 +127,8 @@ const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
 
 // Right rail: Fan / AI Intel tabs.
-const rail = ref<'fan' | 'ai'>('fan');
+const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
+const ppvStatusKey = ref(0); // bumped after a PPV send → SsPpvRail refreshes its pills
 
 // The open chat's composer state (draft / generating / AI strategy). Per-chat,
 // so loading + results stay attached to the chat they belong to and drafts are
@@ -147,6 +155,7 @@ const role = computed<Role>(
         (page.props.auth as { user?: { role?: Role } })?.user?.role ??
         'chatter',
 );
+const canManage = computed(() => can(role.value, 'manageTeam'));
 
 /**
  * Patch the open chat's row after a server action. `selected` is a live reference into
@@ -201,6 +210,9 @@ async function generate() {
     st.generating = true;
     st.error = null;
     let draft: string | null = null;
+    // What this draft is FOR, decided now: a caption for the loaded set, or a reply. If the
+    // composer's set changes while the engine runs, the result no longer applies and is dropped.
+    const captionFor = st.ppv?.setId ?? null;
 
     try {
         // Use the cached thread for THIS chat, not whatever is on screen now.
@@ -230,19 +242,42 @@ async function generate() {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
+            // A loaded PPV set → legacy's caption mode: ONE curiosity caption, not a reply.
+            // The set name is deliberately NOT put in `context` — any context text flips
+            // the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
+            sender: captionFor !== null ? 'ppv' : 'customer',
         });
 
-        draft = data.draft || null;
-        st.suggestion = draft;
-        st.strategy = data.strategy;
-        st.strategyGeneratedAt = data.generatedAt ?? new Date().toISOString();
-        st.telemetry = data.telemetry ?? null;
-
-        if (!data.draft) {
+        if (!suggestionStillApplies(captionFor, st.ppv?.setId ?? null)) {
+            // A reply landed with a set loaded (it would be sent as the caption), or a caption
+            // landed for a set no longer loaded. Neither may reach the fan.
             st.error =
-                'Engine returned an empty draft (is the engine running with an API key?).';
-        } else if (data.strategy && selected.value?.id === chatId) {
-            rail.value = 'ai'; // surface intel only if this chat is still open
+                'Draft discarded: the PPV set changed while it was generating. Generate again.';
+            draft = null;
+        } else {
+            draft = data.draft || null;
+            st.suggestion = draft;
+            st.suggestionFor = captionFor;
+
+            // A caption's strategy is legacy's forced `send_content` read — not the fan's
+            // analysis. It never touches the local AI Intel/telemetry, so nothing can commit it.
+            if (captionFor === null) {
+                st.strategy = data.strategy;
+                st.strategyGeneratedAt =
+                    data.generatedAt ?? new Date().toISOString();
+                st.telemetry = data.telemetry ?? null;
+            }
+
+            if (!data.draft) {
+                st.error =
+                    'Engine returned an empty draft (is the engine running with an API key?).';
+            } else if (
+                data.strategy &&
+                selected.value?.id === chatId &&
+                captionFor === null
+            ) {
+                rail.value = 'ai'; // surface intel only if this chat is still open
+            }
         }
     } catch (e) {
         st.error = e instanceof Error ? e.message : String(e);
@@ -387,7 +422,10 @@ function acceptSuggestion() {
         return;
     }
 
-    commitStrategyMemory(chatId);
+    if (st.suggestionFor === null) {
+        commitStrategyMemory(chatId); // only a REPLY's strategy persists, never a caption's
+    }
+
     st.draft = st.suggestion;
     st.suggestion = null;
 }
@@ -401,7 +439,10 @@ async function acceptAndSend() {
         return;
     }
 
-    commitStrategyMemory(chatId);
+    if (st.suggestionFor === null) {
+        commitStrategyMemory(chatId);
+    }
+
     const text = st.suggestion;
     st.suggestion = null;
     await send(text);
@@ -410,6 +451,7 @@ async function acceptAndSend() {
 function dismissSuggestion() {
     if (cur.value) {
         cur.value.suggestion = null;
+        cur.value.suggestionFor = null;
     }
 }
 
@@ -429,8 +471,16 @@ async function send(override?: string) {
     // A ready attachment is sendable on its own (no caption required) — mirrors
     // SsComposer's `sendable` computed, which enables Send once the attachment is 'ready'.
     const att = st.attachment?.status === 'ready' ? st.attachment : null;
+    // A loaded PPV set: vault ids + price ride on this send (exclusive with gif/attachment).
+    const ppv = st.ppv;
 
-    if (!text && !gif && !att) {
+    if (!text && !gif && !att && !ppv) {
+        return;
+    }
+
+    if (ppv && !isValidPpvPrice(ppv.price)) {
+        st.error = 'PPV price must be free, or between $3 and $200.';
+
         return;
     }
 
@@ -461,6 +511,26 @@ async function send(override?: string) {
           ]
         : [];
 
+    // The PPV set's tiles, mapped to renderable media (stored thumbs are onlyfans CDN urls,
+    // so they go through the proxy; a null thumb renders as a locked placeholder).
+    const ppvMedia: OfMessage['media'] = ppv
+        ? ppv.media.map((pm) => ({
+              id: pm.id,
+              type: pm.type,
+              canView: true,
+              thumb: pm.thumb ? mediaSrc(m.id, pm.thumb) : null,
+              preview: pm.thumb ? mediaSrc(m.id, pm.thumb) : null,
+              full: null,
+              source: null,
+              createdAt: null,
+              duration: null,
+              width: null,
+              height: null,
+              likes: null,
+              tips: null,
+          }))
+        : [];
+
     // Optimistic bubble: show the message in the thread immediately with a
     // "sending" indicator, then reconcile with what OnlyFans returns.
     const tempId = `pending-${Date.now()}`;
@@ -469,34 +539,36 @@ async function send(override?: string) {
         from: 'creator',
         text,
         time: new Date().toISOString(),
-        price: 0,
-        isFree: true,
+        price: ppv?.price ?? 0,
+        isFree: !ppv || ppv.price === 0,
         isOpened: false,
         isLiked: false,
         isPinned: false,
         isTip: false,
         fromQueue: false,
-        mediaCount: gifMedia.length + (att ? 1 : 0),
-        media: att
-            ? [
-                  ...gifMedia,
-                  {
-                      id: att.id,
-                      type: att.kind,
-                      canView: true,
-                      thumb: att.previewUrl,
-                      preview: att.previewUrl,
-                      full: att.previewUrl,
-                      source: att.previewUrl,
-                      createdAt: null,
-                      duration: null,
-                      width: null,
-                      height: null,
-                      likes: null, // engagement counters are vault-only
-                      tips: null,
-                  },
-              ]
-            : gifMedia,
+        mediaCount: gifMedia.length + (att ? 1 : 0) + ppvMedia.length,
+        media: ppv
+            ? ppvMedia
+            : att
+              ? [
+                    ...gifMedia,
+                    {
+                        id: att.id,
+                        type: att.kind,
+                        canView: true,
+                        thumb: att.previewUrl,
+                        preview: att.previewUrl,
+                        full: att.previewUrl,
+                        source: att.previewUrl,
+                        createdAt: null,
+                        duration: null,
+                        width: null,
+                        height: null,
+                        likes: null, // engagement counters are vault-only
+                        tips: null,
+                    },
+                ]
+              : gifMedia,
         pending: true,
     };
 
@@ -510,7 +582,8 @@ async function send(override?: string) {
             chatId,
             text,
             gif?.id ?? undefined,
-            att?.id ? [att.id] : undefined,
+            ppv ? ppv.media.map((pm) => pm.id) : att?.id ? [att.id] : undefined,
+            ppv ? { price: ppv.price, ppvSetId: ppv.setId } : {},
         );
         const sent = (res.message as OfMessage) ?? {
             ...optimistic,
@@ -527,8 +600,9 @@ async function send(override?: string) {
         // A freshly-sent attachment echoes back canView:true but NOT yet transcoded — no
         // file URLs (isReady:false) — which the thread would otherwise paint as a "Locked"
         // tile. Keep the local blob preview we already showed; reconcileSentMedia() swaps in
-        // the real (proxied) media once OnlyFans finishes, then frees the blob.
-        const attPending = !!att && !mediaRenderable(sent);
+        // the real (proxied) media once OnlyFans finishes, then frees the blob. The same
+        // applies to a PPV set's vault media echoed back without files.
+        const attPending = (!!att || !!ppv) && !mediaRenderable(sent);
 
         if (attPending) {
             sent.media = optimistic.media;
@@ -543,26 +617,35 @@ async function send(override?: string) {
             messages.value = messages.value.map((x) =>
                 x.id === tempId ? sent : x,
             );
-            rail.value = 'fan'; // the turn is done — back to the fan view
+
+            if (rail.value !== 'ppv') {
+                rail.value = 'fan'; // the turn is done — back to the fan view
+            }
         }
 
         st.draft = '';
         st.suggestion = null;
 
-        // Only clear the attachment that was actually sent — the user may have
+        // Only clear the attachment / PPV set that was actually sent — the user may have
         // replaced it with a new pick while this send was in flight.
         if (st.attachment === att) {
             st.attachment = null;
         }
 
+        if (ppv && st.ppv === ppv) {
+            st.ppv = null;
+        }
+
+        if (ppv) {
+            ppvStatusKey.value++; // the rail's Sent/Bought pill re-reads the ledger
+        }
+
         // Free the blob now if the media was already renderable; otherwise defer to
         // reconcileSentMedia() (the confirmed bubble is still showing that blob preview).
-        if (att) {
-            if (attPending && sent.id) {
-                void reconcileSentMedia(m.id, chatId, sent.id, att);
-            } else {
-                revokeAttachment(att);
-            }
+        if (attPending && sent.id) {
+            void reconcileSentMedia(m.id, chatId, sent.id, att);
+        } else if (att) {
+            revokeAttachment(att);
         }
         // Keep st.strategy: the AI Intel for this chat stays available so reopening
         // the chat (or the AI Intel tab) still shows the last analysis. A new
@@ -624,7 +707,7 @@ async function reconcileSentMedia(
     modelId: number,
     chatId: string,
     msgId: string,
-    att: ComposerAttachment,
+    att: ComposerAttachment | null, // null for a PPV set (vault media: nothing to revoke)
 ) {
     for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, i === 0 ? 800 : 1500));
@@ -659,7 +742,9 @@ async function reconcileSentMedia(
             messages.value = swap(messages.value);
         }
 
-        revokeAttachment(att);
+        if (att) {
+            revokeAttachment(att);
+        }
 
         return;
     }
@@ -690,6 +775,10 @@ async function onPickFile(file: File) {
             previewUrl: null,
         };
 
+        return;
+    }
+
+    if (!confirmReplacePpv(cur)) {
         return;
     }
 
@@ -794,6 +883,10 @@ function onPickVault(item: OfMedia) {
 
     const cur = chatComposer(chat.id);
 
+    if (!confirmReplacePpv(cur)) {
+        return;
+    }
+
     revokeAttachment(cur.attachment);
     cur.gif = null;
 
@@ -828,6 +921,78 @@ function setAttachment(value: ComposerAttachment | null) {
 
     revokeAttachment(cur.attachment);
     cur.attachment = value;
+}
+
+function setGif(value: OfGif | null) {
+    const cur = cur_();
+
+    if (!cur || (value && !confirmReplacePpv(cur))) {
+        return;
+    }
+
+    cur.gif = value;
+}
+
+function cur_(): ComposerState | null {
+    return selected.value ? chatComposer(selected.value.id) : null;
+}
+
+const REPLACE_MSG =
+    'Replace current message? This replaces your text, media and price with the set.';
+
+/** Attaching a file/GIF/vault pick while a PPV set is loaded drops the set (they are exclusive). */
+function confirmReplacePpv(st: ComposerState): boolean {
+    if (!st.ppv) {
+        return true;
+    }
+
+    if (!window.confirm('Remove the loaded PPV set and attach this instead?')) {
+        return false;
+    }
+
+    st.ppv = null;
+
+    return true;
+}
+
+/**
+ * Load a saved PPV set into the composer (the CreatorHero "copy to message box" move): the
+ * whole send payload — text, media, GIF, price, pending suggestion — is replaced atomically,
+ * after a confirm when anything is already there, so Accept can never pair old text with new
+ * media or a stale price.
+ */
+function loadPpvSet(set: PpvSet) {
+    const chat = selected.value;
+
+    if (!chat) {
+        return;
+    }
+
+    const st = chatComposer(chat.id);
+
+    if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
+        return;
+    }
+
+    revokeAttachment(st.attachment);
+    st.attachment = null;
+    st.gif = null;
+    st.suggestion = null;
+    st.draft = set.caption ?? '';
+    st.ppv = {
+        setId: set.id,
+        setName: set.name,
+        price: set.price,
+        media: set.media.map((pm) => ({ ...pm })),
+    };
+}
+
+function setPpv(value: ComposerPpv | null) {
+    const cur = cur_();
+
+    if (cur) {
+        cur.ppv = value;
+    }
 }
 
 /** Retry a previously-failed optimistic message in place. */
@@ -1370,8 +1535,11 @@ function openChat(chat: OfChat) {
     urlChat.value = null; // consumed — from here the URL follows the user's clicks
     syncChatUrl(chat.id);
 
-    // Show AI Intel if this chat already has a generated strategy, else the Fan tab.
-    rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
+    // Show AI Intel if this chat already has a generated strategy, else the Fan tab. A chatter
+    // working the PPV tab stays on it across chats (that is how sets get sent fan after fan).
+    if (rail.value !== 'ppv') {
+        rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
+    }
 
     // Load-older cursor: restore instantly from cache (revalidated by fetchMessages).
     msgsNext.value = nextCache.get(chat.id) ?? null;
@@ -1694,6 +1862,7 @@ onBeforeUnmount(() => {
                         :suggestion="cur.suggestion"
                         :attached-gif="cur.gif"
                         :attachment="cur.attachment"
+                        :ppv="cur.ppv"
                         :generating="cur.generating"
                         :sending="cur.sending"
                         :error="cur.error"
@@ -1703,8 +1872,9 @@ onBeforeUnmount(() => {
                         :rejecting="cur.rejecting"
                         @update:draft="cur.draft = $event"
                         @update:context="cur.context = $event"
-                        @update:attached-gif="cur.gif = $event"
+                        @update:attached-gif="setGif"
                         @update:attachment="setAttachment"
+                        @update:ppv="setPpv"
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
                         @generate="generate"
@@ -1746,6 +1916,18 @@ onBeforeUnmount(() => {
                     >
                         AI Intel
                     </button>
+                    <button
+                        type="button"
+                        class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
+                        :class="
+                            rail === 'ppv'
+                                ? 'bg-ss-surface-2 text-ss-text'
+                                : 'text-ss-text-3 hover:text-ss-text-2'
+                        "
+                        @click="rail = 'ppv'"
+                    >
+                        PPV
+                    </button>
                 </div>
                 <SsFanPanel
                     v-show="rail === 'fan'"
@@ -1756,6 +1938,15 @@ onBeforeUnmount(() => {
                     v-show="rail === 'ai'"
                     :strategy="cur?.strategy ?? null"
                     :generated-at="cur?.strategyGeneratedAt ?? null"
+                />
+                <SsPpvRail
+                    v-if="rail === 'ppv'"
+                    :model-id="model.id"
+                    :chat-id="selected?.id ?? null"
+                    :messages="messages"
+                    :can-manage="canManage"
+                    :status-key="ppvStatusKey"
+                    @load="loadPpvSet"
                 />
             </aside>
         </template>

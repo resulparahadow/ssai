@@ -67,8 +67,17 @@ const actionError = ref<string | null>(null);
 let token = 0;
 
 // --- Selection --------------------------------------------------------------
+// Survives switching FOLDERS: the grid only holds the open list's items, so a selection filtered
+// against them lost everything ticked in the previous one. Cleared on creator change / leaving
+// select mode.
 const selectionMode = ref(false);
 const selected = ref<Set<string>>(new Set());
+/** Selected items that are not in the open folder (ticked in another list). */
+const offFolderCount = computed(() => {
+    const here = new Set(items.value.map((m) => m.id));
+
+    return [...selected.value].filter((id) => !here.has(id)).length;
+});
 
 // --- Lightbox ---------------------------------------------------------------
 const lightboxIndex = ref<number | null>(null);
@@ -171,14 +180,14 @@ function pickSort(v: string) {
 /**
  * Switching lists starts a clean view — stale filters would look like an empty list. `sort` is
  * deliberately NOT reset: it is a view preference, not a filter, so an ordering you picked
- * survives clicking through lists (it resets on a creator change).
+ * survives clicking through lists (it resets on a creator change). The SELECTION survives too
+ * (see `selected`): adding to a list or deleting often spans more than one folder.
  */
 watch(
     () => props.listId,
     () => {
         filter.value = '';
         query.value = '';
-        clearSelection();
         load(true);
     },
 );
@@ -702,7 +711,12 @@ async function deleteSelected() {
                 class="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ss-accent/40 bg-ss-accent-soft px-3 py-2"
             >
                 <span class="text-[12px] font-semibold text-ss-accent-text">
-                    {{ selected.size }} selected
+                    {{ selected.size }} selected<span
+                        v-if="offFolderCount"
+                        class="font-normal text-ss-text-3"
+                    >
+                        · {{ offFolderCount }} from other folders</span
+                    >
                 </span>
                 <span class="flex-1" />
                 <button

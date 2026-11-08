@@ -10,6 +10,7 @@ use App\Http\Controllers\MediaVaultController;
 use App\Http\Controllers\ModelController;
 use App\Http\Controllers\ModelOnlyFansController;
 use App\Http\Controllers\OnlyFansChatController;
+use App\Http\Controllers\PpvSetController;
 use App\Http\Controllers\SpenderAnalyticsController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\Webhooks\OnlyFansWebhookController;
@@ -70,6 +71,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('chats/{chat}/rejections', [OnlyFansChatController::class, 'reject'])->name('reject');
         Route::delete('chats/{chat}/rejections/{rejection}', [OnlyFansChatController::class, 'removeRejection'])
             ->whereNumber('rejection')->name('rejections.remove');
+        // PPV sets (creator-wide saved PPVs). Reads for anyone assigned; writes are in the
+        // manage-team group below. `ppv-sets/order` is registered before `ppv-sets/{set}`.
+        Route::get('ppv-sets', [PpvSetController::class, 'index'])->name('ppv-sets');
+        Route::get('ppv-sets/thumb/{media}', [PpvSetController::class, 'thumb'])->name('ppv-sets.thumb');
+        Route::get('chats/{chat}/ppv-sets/status', [PpvSetController::class, 'status'])->name('ppv-sets.status');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
 
@@ -90,6 +96,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Destructive/outward-facing actions on a real fan's account — manager/admin only.
         // The controller still scopes per-creator; this gate is the extra role bar.
         Route::middleware('can:manage-team')->group(function () {
+            Route::post('ppv-sets', [PpvSetController::class, 'store'])->name('ppv-sets.store');
+            Route::put('ppv-sets/order', [PpvSetController::class, 'reorder'])->name('ppv-sets.order');
+            Route::put('ppv-sets/{set}', [PpvSetController::class, 'update'])->whereNumber('set')->name('ppv-sets.update');
+            Route::delete('ppv-sets/{set}', [PpvSetController::class, 'destroy'])->whereNumber('set')->name('ppv-sets.destroy');
             // Hard-deletes on the creator's content library — manager/admin only.
             Route::delete('media/vault/delete-media', [OnlyFansChatController::class, 'deleteVaultMedia'])->name('media.vault.delete');
             Route::delete('media/vault/lists/{list}', [OnlyFansChatController::class, 'deleteVaultList'])->name('media.vault.lists.delete');

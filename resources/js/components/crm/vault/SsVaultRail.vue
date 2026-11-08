@@ -20,6 +20,8 @@ const props = defineProps<{
     reload: number;
     /** Currently open list id, or null for "All media". */
     selectedId: string | null;
+    /** Browse-only (the vault picker): no create / rename / delete controls at all. */
+    readonly?: boolean;
 }>();
 
 const emit = defineEmits<{ select: [list: OfVaultList | null] }>();
@@ -176,6 +178,7 @@ async function remove(l: OfVaultList) {
                 />
             </div>
             <button
+                v-if="!readonly"
                 type="button"
                 class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-ss-border text-ss-text-2 hover:bg-ss-surface-2"
                 title="New list"
@@ -314,7 +317,7 @@ async function remove(l: OfVaultList) {
                         :size="13"
                         class="shrink-0 animate-spin text-ss-text-3"
                     />
-                    <template v-else-if="canManage && l.canUpdate">
+                    <template v-else-if="!readonly && canManage && l.canUpdate">
                         <button
                             type="button"
                             class="grid h-6 w-6 shrink-0 place-items-center rounded text-ss-text-3 opacity-0 group-hover:opacity-100 hover:bg-ss-surface hover:text-ss-text"

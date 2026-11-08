@@ -143,7 +143,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
   (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
   `node engine/tz_check.js` (`timezone` → the prompts' clock, per request),
   `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
-  `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note).
+  `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note),
+  `node engine/ppv_caption_check.js` (`sender:'ppv'` → legacy's PPV CAPTION MODE on the generator, no
+  follow-up note, and NO `price_ppv` call — `runGenerate.js` short-circuits legacy's fire-and-forget
+  price suggestion because the engine never returns `_ppvSuggestion`, so it was a billed call thrown away).
 - **The creator spoke last → the AI writes a follow-up, not a reply (fixed 2026-09-26).** Legacy was
   only ever used to answer a fan message the chatter had just typed in, so its prompts take the
   newest line to be the fan's ("your analysis must reflect what the LAST customer message actually
@@ -296,8 +299,14 @@ engine uses its in-process copy. Provider keys live in the engine's env
     send endpoint (`sendGif` adds the `giphyId` body param; text stays optional). The optimistic
     bubble previews the Giphy CDN url directly — `mediaSrc()` proxies only onlyfans.com hosts, and
     a Giphy url isn't one (it isn't IP-locked, unlike OF CDN);
-    the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
-    PPV/tip + file-media sends remain deferred.
+    the confirmed OF message then renders the GIF through the normal media path. **PPV sends are
+    live (2026-11-08):** `send` takes `mediaFiles` (up to 40 vault/upload ids) + `price` — `0` (free)
+    or $3–$200 with ≤2 decimals, enforced by `App\Rules\PpvPrice` BEFORE the vendor call (the
+    vendor 422s anything else after billing) — and refuses a price with no media ("A price needs
+    media attached."). `sendMedia(…, float $price = 0)` omits the `price` key when 0. An optional
+    `ppvSetId` writes a `ppv_set_sends` ledger row on a 2xx (see PPV sets below); the set is
+    resolved against THIS creator before sending, and a ledger failure is logged
+    (`ppv.ledger_failed`), never surfaced as a failed send. Tips are still not sendable.
     **The chat media gallery's payload is MESSAGES, not media (fixed 2026-09-05).**
     `GET {acct}/chats/{chat}/media` returns `data.list[]` where each entry is a *message*
     wrapper (`responseType: "message"`, `text`, `price`, `fromUser`) whose media sit one level
@@ -502,12 +511,51 @@ engine uses its in-process copy. Provider keys live in the engine's env
     prompt prints `Customer: {name} (@{username})` and then states "You already know his name
     ({name})... use his name when it fits", so an omitted name makes the engine fall back to the
     literal string `'Fan'` and the AI addresses the fan as "Fan". `customer` is deliberately
-    rule-less in `generate()`'s `validate()` — adding `customer.*` rules would strip the keys not
+    rule-less in `generate()`'s `validateJson()` — adding `customer.*` rules would strip the keys not
     listed (the same trap as `messages.*.time`).
     Per-message PPV/`opened`/`price` mapping (`LiveThreadMapper` → `sender:'ppv'` bubbles +
     gap-windowed session spend) and multi-turn forcing-move continuation (`ChatStateService` →
     `_promiseStatus`/`_storyFrameworkStep`) are both DONE. Still deferred: `prior_session_count`
     (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
+    **PPV sets (2026-11-08, spec `docs/superpowers/specs/2026-11-08-ppv-sets-design.md`)** — the
+    CreatorHero "PPV tab" flow the team is used to. **`ppv_sets`** (`PpvSet`, creator-wide, keyed by
+    `creator_model`, `CreatorAccessScope`; `media` json = ordered `{id, type, thumb}` VAULT ids) and
+    **`ppv_set_sends`** (`PpvSetSend`, `BelongsToChatter`: set, fan = chat id, vendor message id,
+    price, sender, time — the only record of what SSAI sent; no text). `PpvSetController` under
+    `onlyfans/{model}/ppv-sets`: reads (`index`, `chats/{chat}/ppv-sets/status`, `thumb/{media}`)
+    for anyone assigned, writes (`store`/`update`/`destroy`/`PUT order`, registered ABOVE
+    `{set}`) in the `can:manage-team` group. Client: right-rail **PPV** tab (`SsPpvRail`) lists the
+    sets with a per-open-fan **Sent / Bought** pill (ledger joined with the loaded thread's
+    `isOpened`; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to
+    vault ids), click → `loadPpvSet` replaces the WHOLE send payload (text/media/GIF/price/pending
+    suggestion, confirm when dirty) with `ComposerState.ppv`; `SsPpvStrip` shows tiles + an
+    editable **Price to View** chip (`isValidPpvPrice`, mirrors `App\Rules\PpvPrice`); Send posts
+    `mediaFiles` + `price` + `ppvSetId`. **Sets are made and edited IN THE RAIL, not in the Media
+    Vault page** (2026-11-09, the team's CreatorHero habit): **New set** (manager) / **⋯ → Edit**
+    open `SsPpvSetModal` — media + name + price + caption in one form — and its **Add / Change
+    media** opens `SsVaultPickerModal`: `SsVaultRail` in `readonly` mode on the left (folders,
+    no create/rename/delete), a multi-select grid on the right (type pills, server search,
+    `?list=` paging), `Cancel` / `Add N items`. The selection is a `Map<id, PpvSetMedia>` that
+    SURVIVES folder switches (the grid only holds the open folder, so a Set filtered against it
+    lost the previous folder's ticks) and is pre-filled from the set when editing; `max` 40 greys
+    out further tiles. The modal re-sends `media` only when its ids changed; cached thumbs come
+    back as OUR thumb route, so `media.*.thumb` is not `url`-validated and `durableThumb` maps
+    `'local'`/that path to the `'local'` marker iff the file exists, fetching nothing. The Media
+    Vault page has NO PPV affordance any more (its bulk bar is Add to list / Delete; its own
+    selection also spans folders now, with an "N from other folders" hint). **Generate with a
+    set loaded sends `sender:'ppv'`** = legacy's PPV CAPTION MODE (one curiosity caption); for it
+    the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips
+    `commitState` and the rail auto-switch — legacy forces that strategy to `send_content`, which
+    would clobber the fan's real next move. The set name is deliberately NOT put in `context`: any
+    context text flips the brain into AGENT OVERRIDE (safeguards deferred). `ppv` is exclusive with
+    `gif`/`attachment`. **Thumbs:** the vendor serves vault thumbs onlyfans-hosted on first look and
+    as `cdn.fansapi.com` presigned urls (15-min expiry) once it has re-hosted them (verified live:
+    same ids flipped within an hour), so on save an onlyfans url is kept (the proxy re-signs) and a
+    fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/
+    {model}/{media}`, stored as the marker `local` and served by the private `thumb/{media}` route;
+    other hosts → null. Guards: `tests/Feature/{PpvSetModelTest,PpvSetTest,OnlyFansChatSendPpvTest,
+    OnlyFansChatCaptionTest}.php`, `node engine/ppv_caption_check.js`. NOT in this slice: AI picking
+    the set / price suggestion, `previews`/`lockedText`, auto follow-up on unbought PPVs.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.
@@ -699,15 +747,15 @@ engine uses its in-process copy. Provider keys live in the engine's env
     the `media_ids`/`mediaIds` add/remove keys, and that async `POST media/vault` returns a
     `prefixed_id` the status poller resolves.
 - **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
-  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text + optional
-  GIF (`giphyId`); PPV/paid still blocked (v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
+  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text, optional
+  GIF (`giphyId`), or media (`mediaFiles`) with an optional PPV `price`. Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
   per creator. Confirmed
   paths: `GET {acct}/chats`, `GET {acct}/chats/{chat}/messages[/{id}|/search]`, `GET {acct}/chats/{chat}/media`,
   `POST {acct}/chats/{chat}/messages` (send; `{text}` or `{giphyId,text?}`), `DELETE …/messages/{id}`,
   `POST …/messages/{id}/like|unlike`, `GET {acct}/users/{id}`, `GET {acct}/giphy/trending`,
   `GET {acct}/giphy/search?q&limit&offset`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
-  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **PPV/tip +
-  media sends**.
+  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **tip requests**
+  (PPV + media sends are done).
 - **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
   (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)
   handles `messages.received`: resolves the creator by `of_account_id`, normalises the message

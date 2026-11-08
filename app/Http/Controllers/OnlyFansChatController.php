@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\AuthorizesCreator;
 use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
 use App\Models\AichModel;
+use App\Models\PpvSet;
+use App\Models\PpvSetSend;
+use App\Rules\PpvPrice;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\ChatStateService;
@@ -17,13 +21,11 @@ use App\Services\OnlyFans\OnlyFansService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
@@ -35,6 +37,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
  */
 class OnlyFansChatController extends Controller
 {
+    use AuthorizesCreator;
     use ForwardsOnlyFansErrors;
 
     public function __construct(
@@ -501,35 +504,73 @@ class OnlyFansChatController extends Controller
     public function send(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
-        $data = $request->validate([
+        $data = $this->validateJson($request, [
             'text' => 'nullable|string',
             'giphyId' => 'nullable|string',
-            'mediaFiles' => 'nullable|array|max:1',
+            // Up to a whole PPV set (PpvSetController::MAX_MEDIA) of vault/upload ids.
+            'mediaFiles' => 'nullable|array|max:'.PpvSetController::MAX_MEDIA,
             'mediaFiles.*' => 'string',
-            'price' => 'nullable|numeric',
+            // 0 (free) or $3–$200 — validated here so a bad price never costs a billed vendor 422.
+            'price' => ['nullable', 'numeric', new PpvPrice],
+            // The PPV set this send came from, for the send ledger (rail Sent/Bought pill).
+            'ppvSetId' => 'nullable|integer',
         ]);
 
         $text = trim((string) ($data['text'] ?? ''));
         $giphyId = $data['giphyId'] ?? null;
         $mediaFiles = $data['mediaFiles'] ?? [];
+        $price = (float) ($data['price'] ?? 0);
 
         if ($text === '' && ! $giphyId && $mediaFiles === []) {
             return response()->json(['error' => 'Message requires text, a GIF, or media.'], 422);
         }
 
-        if ($this->of->ppvBlocked($data['price'] ?? 0)) {
-            return response()->json(['error' => 'PPV/paid send is disabled (text only).'], 422);
+        // A PPV is media behind a paywall: a priced text or GIF is a vendor 422 we pre-empt.
+        if ($price > 0 && $mediaFiles === []) {
+            return response()->json(['error' => 'A price needs media attached.'], 422);
+        }
+
+        // Resolve the set BEFORE the vendor call: a set id from another creator must fail
+        // cheaply, not after a billed send that then has nowhere to be recorded.
+        $set = null;
+        if (! empty($data['ppvSetId'])) {
+            $set = PpvSet::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['ppvSetId']);
+            if (! $set) {
+                return response()->json(['error' => 'PPV set not found for this creator.'], 422);
+            }
         }
 
         $res = match (true) {
-            $mediaFiles !== [] => $this->of->sendMedia($acct, $chat, $mediaFiles, $text),
+            $mediaFiles !== [] => $this->of->sendMedia($acct, $chat, $mediaFiles, $text, $price),
             (bool) $giphyId => $this->of->sendGif($acct, $chat, $giphyId, $text),
             default => $this->of->sendText($acct, $chat, $text),
         };
 
-        return $res->successful()
-            ? response()->json(['message' => $this->of->normalizeMessage($res->json('data') ?? [], $chat)])
-            : $this->forward($res);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        $sent = $res->json('data') ?? [];
+
+        // Send ledger (ids/price/time only — no text). A ledger failure must never fail a
+        // send that already reached the fan.
+        if ($set) {
+            try {
+                PpvSetSend::create([
+                    'ppv_set_id' => $set->id,
+                    'creator_model' => $model->name,
+                    'of_fan_id' => $chat,
+                    'of_message_id' => isset($sent['id']) ? (string) $sent['id'] : null,
+                    'price' => $price,
+                    'user_id' => $request->user()?->id,
+                    'sent_at' => now(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('ppv.ledger_failed', ['set' => $set->id, 'chat' => $chat, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return response()->json(['message' => $this->of->normalizeMessage($sent, $chat)]);
     }
 
     public function giphyTrending(Request $request, AichModel $model): JsonResponse
@@ -833,7 +874,7 @@ class OnlyFansChatController extends Controller
     public function generate(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $account = $this->account($request, $model);
-        $data = $request->validate([
+        $data = $this->validateJson($request, [
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
             'messages.*.text' => 'nullable|string',
@@ -853,7 +894,12 @@ class OnlyFansChatController extends Controller
             'customer' => 'array',
             'context' => 'nullable|string',
             'api' => 'nullable|in:claude,auto,mistral',
+            // 'ppv' = legacy's PPV caption mode (the chatter is about to send paid content;
+            // the engine writes ONE curiosity caption, no reply). See the skip rules below.
+            'sender' => 'nullable|in:customer,ppv',
         ]);
+        $sender = $data['sender'] ?? 'customer';
+        $captionMode = $sender === 'ppv';
 
         $mapped = $this->mapper->map(
             $data['messages'] ?? [],
@@ -874,6 +920,7 @@ class OnlyFansChatController extends Controller
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $data['context'] ?? '',
                 'api' => $data['api'] ?? 'claude',
+                'sender' => $sender,
                 // SESSION spend (this conversation), derived by LiveThreadMapper from the thread's
                 // opened PPVs + tips within the gap-based window. Lifetime spend still rides on
                 // _profile (below). Together these drive wall state + active-buyer/tier/tip logic.
@@ -921,7 +968,10 @@ class OnlyFansChatController extends Controller
         // Folded-analysis write-back: auto-fill unlocked memory fields (skips human-pinned ones).
         // The message times decide whether this is still the conversation the memory log's
         // current entry belongs to; the zone dates a new entry on the creator's clock.
-        if (! empty($out['strategy'])) {
+        // A caption generate is a different task from a reply: legacy forces its strategy to
+        // `phase: send_content`, which would clobber the fan's real read (AI Intel is shared
+        // across chatters) and the memory fields. Only the usage ledger is kept for it.
+        if (! $captionMode && ! empty($out['strategy'])) {
             $this->profiles->applyAnalysis(
                 $profile,
                 $out['strategy'],
@@ -941,7 +991,7 @@ class OnlyFansChatController extends Controller
         // Persist the AI Intel (strategy only — no message text) so the right-rail
         // panel survives a reload and is shared across chatters. Latest wins per chat.
         $generatedAt = null;
-        if (! empty($out['strategy'])) {
+        if (! $captionMode && ! empty($out['strategy'])) {
             $row = AichChatIntel::updateOrCreate(
                 ['creator_model' => $model->name, 'chat_id' => $chat],
                 ['strategy' => $out['strategy'], 'generated_by' => $request->user()?->id],
@@ -1074,15 +1124,6 @@ class OnlyFansChatController extends Controller
 
     // ---- helpers ----------------------------------------------------------
 
-    /** Row-level access check shared by the OnlyFans + memory endpoints (chatter → assigned only). */
-    private function authorizeCreator(Request $request, AichModel $model): void
-    {
-        $user = $request->user();
-        if (! $user->canSeeAllCreators() && ! in_array($model->name, $user->assignedCreatorModels(), true)) {
-            abort(403, 'You are not assigned to this creator.');
-        }
-    }
-
     private function account(Request $request, AichModel $model): string
     {
         $this->authorizeCreator($request, $model);
@@ -1104,25 +1145,5 @@ class OnlyFansChatController extends Controller
             '['.now()->toDateTimeString()."] {$tag} ".json_encode($ctx, JSON_UNESCAPED_SLASHES).PHP_EOL,
             FILE_APPEND
         );
-    }
-
-    /**
-     * Validate and force a JSON 422 on failure. These routes aren't under `api/*`,
-     * so a ValidationException would otherwise 302-redirect (bootstrap/app.php
-     * shouldRenderJsonWhen) — an HttpResponseException guarantees JSON for the fetch client.
-     *
-     * @param  array<string, mixed>  $rules
-     * @return array<string, mixed>
-     */
-    private function validateJson(Request $request, array $rules): array
-    {
-        $validator = Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            throw new HttpResponseException(
-                response()->json(['error' => $validator->errors()->first(), 'errors' => $validator->errors()->toArray()], 422)
-            );
-        }
-
-        return $validator->validated();
     }
 }
