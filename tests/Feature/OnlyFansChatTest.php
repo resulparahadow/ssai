@@ -286,7 +286,7 @@ it('redirects a vendor-CDN media url instead of rejecting it', function () {
     Http::assertNothingSent(); // browser-loadable: never worth a billed download
 });
 
-it('sends text to OnlyFans and blocks PPV', function () {
+it('sends text to OnlyFans and refuses a price on a text-only message', function () {
     Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 555, 'text' => 'hello', 'fromUser' => ['id' => 999]]])]);
     $admin = User::factory()->admin()->create();
 
@@ -296,9 +296,11 @@ it('sends text to OnlyFans and blocks PPV', function () {
         ->assertJsonPath('message.from', 'creator');
     Http::assertSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/acct_cam/chats/101/messages') && $r['text'] === 'hello');
 
+    // A PPV needs media behind the paywall; a priced text is a vendor 422 we pre-empt.
     $this->actingAs($admin)
         ->postJson("/onlyfans/{$this->model->id}/chats/101/messages", ['text' => 'pay me', 'price' => 20])
-        ->assertStatus(422);
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'A price needs media attached.');
 });
 
 it('sends a GIF (giphyId) with optional text', function () {
@@ -959,10 +961,15 @@ it('sends a message with mediaFiles', function () {
         && $r['mediaFiles'] === ['ofapi_media_abc123']);
 });
 
-it('still blocks PPV when media is attached', function () {
+it('forwards the price when media is attached (a real PPV)', function () {
+    Http::fake(['app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 561, 'price' => 20, 'isFree' => false, 'fromUser' => ['id' => 999]]])]);
+
     $this->actingAs(User::factory()->admin()->create())
         ->postJson("/onlyfans/{$this->model->id}/chats/101/messages", [
             'mediaFiles' => ['ofapi_media_abc123'], 'price' => 20,
         ])
-        ->assertStatus(422);
+        ->assertOk()
+        ->assertJsonPath('message.price', 20);
+
+    Http::assertSent(fn ($r) => (float) $r['price'] === 20.0 && $r['mediaFiles'] === ['ofapi_media_abc123']);
 });

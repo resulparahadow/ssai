@@ -296,8 +296,14 @@ engine uses its in-process copy. Provider keys live in the engine's env
     send endpoint (`sendGif` adds the `giphyId` body param; text stays optional). The optimistic
     bubble previews the Giphy CDN url directly — `mediaSrc()` proxies only onlyfans.com hosts, and
     a Giphy url isn't one (it isn't IP-locked, unlike OF CDN);
-    the confirmed OF message then renders the GIF through the normal media path. Still text/GIF only —
-    PPV/tip + file-media sends remain deferred.
+    the confirmed OF message then renders the GIF through the normal media path. **PPV sends are
+    live (2026-11-08):** `send` takes `mediaFiles` (up to 40 vault/upload ids) + `price` — `0` (free)
+    or $3–$200 with ≤2 decimals, enforced by `App\Rules\PpvPrice` BEFORE the vendor call (the
+    vendor 422s anything else after billing) — and refuses a price with no media ("A price needs
+    media attached."). `sendMedia(…, float $price = 0)` omits the `price` key when 0. An optional
+    `ppvSetId` writes a `ppv_set_sends` ledger row on a 2xx (see PPV sets below); the set is
+    resolved against THIS creator before sending, and a ledger failure is logged
+    (`ppv.ledger_failed`), never surfaced as a failed send. Tips are still not sendable.
     **The chat media gallery's payload is MESSAGES, not media (fixed 2026-09-05).**
     `GET {acct}/chats/{chat}/media` returns `data.list[]` where each entry is a *message*
     wrapper (`responseType: "message"`, `text`, `price`, `fromUser`) whose media sit one level
@@ -699,15 +705,15 @@ engine uses its in-process copy. Provider keys live in the engine's env
     the `media_ids`/`mediaIds` add/remove keys, and that async `POST media/vault` returns a
     `prefixed_id` the status poller resolves.
 - **OnlyFans live — DONE.** `OnlyFansService` (Bearer client, base `https://app.onlyfansapi.com/api`)
-  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text + optional
-  GIF (`giphyId`); PPV/paid still blocked (v1). Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
+  is the proxy for chats/messages/media/send/delete/like/unlike/users/giphy; send is text, optional
+  GIF (`giphyId`), or media (`mediaFiles`) with an optional PPV `price`. Needs `ONLYFANS_API_KEY` + `aich_models.of_account_id`
   per creator. Confirmed
   paths: `GET {acct}/chats`, `GET {acct}/chats/{chat}/messages[/{id}|/search]`, `GET {acct}/chats/{chat}/media`,
   `POST {acct}/chats/{chat}/messages` (send; `{text}` or `{giphyId,text?}`), `DELETE …/messages/{id}`,
   `POST …/messages/{id}/like|unlike`, `GET {acct}/users/{id}`, `GET {acct}/giphy/trending`,
   `GET {acct}/giphy/search?q&limit&offset`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
-  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **PPV/tip +
-  media sends**.
+  Conversations (kept only for the Dashboard + future analytics). STILL deferred: **tip requests**
+  (PPV + media sends are done).
 - **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
   (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)
   handles `messages.received`: resolves the creator by `of_account_id`, normalises the message

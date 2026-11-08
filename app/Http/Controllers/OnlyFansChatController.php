@@ -7,6 +7,9 @@ use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
 use App\Models\AichModel;
+use App\Models\PpvSet;
+use App\Models\PpvSetSend;
+use App\Rules\PpvPrice;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
 use App\Services\OnlyFans\ChatStateService;
@@ -501,35 +504,73 @@ class OnlyFansChatController extends Controller
     public function send(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $acct = $this->account($request, $model);
-        $data = $request->validate([
+        $data = $this->validateJson($request, [
             'text' => 'nullable|string',
             'giphyId' => 'nullable|string',
-            'mediaFiles' => 'nullable|array|max:1',
+            // Up to a whole PPV set (PpvSetController::MAX_MEDIA) of vault/upload ids.
+            'mediaFiles' => 'nullable|array|max:'.PpvSetController::MAX_MEDIA,
             'mediaFiles.*' => 'string',
-            'price' => 'nullable|numeric',
+            // 0 (free) or $3–$200 — validated here so a bad price never costs a billed vendor 422.
+            'price' => ['nullable', 'numeric', new PpvPrice],
+            // The PPV set this send came from, for the send ledger (rail Sent/Bought pill).
+            'ppvSetId' => 'nullable|integer',
         ]);
 
         $text = trim((string) ($data['text'] ?? ''));
         $giphyId = $data['giphyId'] ?? null;
         $mediaFiles = $data['mediaFiles'] ?? [];
+        $price = (float) ($data['price'] ?? 0);
 
         if ($text === '' && ! $giphyId && $mediaFiles === []) {
             return response()->json(['error' => 'Message requires text, a GIF, or media.'], 422);
         }
 
-        if ($this->of->ppvBlocked($data['price'] ?? 0)) {
-            return response()->json(['error' => 'PPV/paid send is disabled (text only).'], 422);
+        // A PPV is media behind a paywall: a priced text or GIF is a vendor 422 we pre-empt.
+        if ($price > 0 && $mediaFiles === []) {
+            return response()->json(['error' => 'A price needs media attached.'], 422);
+        }
+
+        // Resolve the set BEFORE the vendor call: a set id from another creator must fail
+        // cheaply, not after a billed send that then has nowhere to be recorded.
+        $set = null;
+        if (! empty($data['ppvSetId'])) {
+            $set = PpvSet::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['ppvSetId']);
+            if (! $set) {
+                return response()->json(['error' => 'PPV set not found for this creator.'], 422);
+            }
         }
 
         $res = match (true) {
-            $mediaFiles !== [] => $this->of->sendMedia($acct, $chat, $mediaFiles, $text),
+            $mediaFiles !== [] => $this->of->sendMedia($acct, $chat, $mediaFiles, $text, $price),
             (bool) $giphyId => $this->of->sendGif($acct, $chat, $giphyId, $text),
             default => $this->of->sendText($acct, $chat, $text),
         };
 
-        return $res->successful()
-            ? response()->json(['message' => $this->of->normalizeMessage($res->json('data') ?? [], $chat)])
-            : $this->forward($res);
+        if (! $res->successful()) {
+            return $this->forward($res);
+        }
+
+        $sent = $res->json('data') ?? [];
+
+        // Send ledger (ids/price/time only — no text). A ledger failure must never fail a
+        // send that already reached the fan.
+        if ($set) {
+            try {
+                PpvSetSend::create([
+                    'ppv_set_id' => $set->id,
+                    'creator_model' => $model->name,
+                    'of_fan_id' => $chat,
+                    'of_message_id' => isset($sent['id']) ? (string) $sent['id'] : null,
+                    'price' => $price,
+                    'user_id' => $request->user()?->id,
+                    'sent_at' => now(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('ppv.ledger_failed', ['set' => $set->id, 'chat' => $chat, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return response()->json(['message' => $this->of->normalizeMessage($sent, $chat)]);
     }
 
     public function giphyTrending(Request $request, AichModel $model): JsonResponse

@@ -123,7 +123,7 @@ class OnlyFansService
         return $this->client()->get("{$account}/chats/{$chatId}/messages/search", $this->pageParams($params));
     }
 
-    /** Send a TEXT message. PPV/paid is blocked in v1; callers must not pass a price. */
+    /** Send a TEXT message (no price — a PPV needs media behind the paywall; see sendMedia). */
     public function sendText(string $account, string $chatId, string $text): Response
     {
         $text = trim($text);
@@ -352,15 +352,19 @@ class OnlyFansService
     }
 
     /**
-     * Send a message carrying media (upload ids and/or vault ids), with optional text.
-     * Price is never sent — PPV stays blocked in v1.
+     * Send a message carrying media (upload ids and/or vault ids), with optional text and an
+     * optional price. A price > 0 makes it a locked PPV (vendor rule: $3–$200, enforced by
+     * App\Rules\PpvPrice before we get here); 0 sends free media and the key is omitted.
      */
-    public function sendMedia(string $account, string $chatId, array $mediaFiles, string $text = ''): Response
+    public function sendMedia(string $account, string $chatId, array $mediaFiles, string $text = '', float $price = 0): Response
     {
         $body = ['mediaFiles' => array_values($mediaFiles)];
         $text = trim($text);
         if ($text !== '') {
             $body['text'] = $this->textToOfHtml($text);
+        }
+        if ($price > 0) {
+            $body['price'] = $price;
         }
 
         return $this->client()->post("{$account}/chats/{$chatId}/messages", $body);
@@ -1683,11 +1687,6 @@ class OnlyFansService
         $html = preg_replace('/__(.+?)__/su', '<em>$1</em>', (string) $html);
 
         return (string) $html;
-    }
-
-    public function ppvBlocked(float|int|string|null $price): bool
-    {
-        return (float) $price > 0;
     }
 
     // ---- Analytics — Summary (agency-wide; take account_ids[]) -------------
