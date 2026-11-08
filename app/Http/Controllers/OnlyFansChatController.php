@@ -874,7 +874,7 @@ class OnlyFansChatController extends Controller
     public function generate(Request $request, AichModel $model, string $chat): JsonResponse
     {
         $account = $this->account($request, $model);
-        $data = $request->validate([
+        $data = $this->validateJson($request, [
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
             'messages.*.text' => 'nullable|string',
@@ -894,7 +894,12 @@ class OnlyFansChatController extends Controller
             'customer' => 'array',
             'context' => 'nullable|string',
             'api' => 'nullable|in:claude,auto,mistral',
+            // 'ppv' = legacy's PPV caption mode (the chatter is about to send paid content;
+            // the engine writes ONE curiosity caption, no reply). See the skip rules below.
+            'sender' => 'nullable|in:customer,ppv',
         ]);
+        $sender = $data['sender'] ?? 'customer';
+        $captionMode = $sender === 'ppv';
 
         $mapped = $this->mapper->map(
             $data['messages'] ?? [],
@@ -915,6 +920,7 @@ class OnlyFansChatController extends Controller
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $data['context'] ?? '',
                 'api' => $data['api'] ?? 'claude',
+                'sender' => $sender,
                 // SESSION spend (this conversation), derived by LiveThreadMapper from the thread's
                 // opened PPVs + tips within the gap-based window. Lifetime spend still rides on
                 // _profile (below). Together these drive wall state + active-buyer/tier/tip logic.
@@ -962,7 +968,10 @@ class OnlyFansChatController extends Controller
         // Folded-analysis write-back: auto-fill unlocked memory fields (skips human-pinned ones).
         // The message times decide whether this is still the conversation the memory log's
         // current entry belongs to; the zone dates a new entry on the creator's clock.
-        if (! empty($out['strategy'])) {
+        // A caption generate is a different task from a reply: legacy forces its strategy to
+        // `phase: send_content`, which would clobber the fan's real read (AI Intel is shared
+        // across chatters) and the memory fields. Only the usage ledger is kept for it.
+        if (! $captionMode && ! empty($out['strategy'])) {
             $this->profiles->applyAnalysis(
                 $profile,
                 $out['strategy'],
@@ -982,7 +991,7 @@ class OnlyFansChatController extends Controller
         // Persist the AI Intel (strategy only — no message text) so the right-rail
         // panel survives a reload and is shared across chatters. Latest wins per chat.
         $generatedAt = null;
-        if (! empty($out['strategy'])) {
+        if (! $captionMode && ! empty($out['strategy'])) {
             $row = AichChatIntel::updateOrCreate(
                 ['creator_model' => $model->name, 'chat_id' => $chat],
                 ['strategy' => $out['strategy'], 'generated_by' => $request->user()?->id],

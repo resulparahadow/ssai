@@ -68,6 +68,18 @@ async function generateDraft(input, opts = {}) {
             override: String(input.context || '').trim() !== '',
         });
     }
+    // Legacy's PPV price suggestion (`fetchPpvSuggestion`, tag 'price_ppv') is fire-and-forget
+    // after a generate — always in PPV caption mode, and as a pre-warm when the strategy lands
+    // on a sell phase. Its result only ever reached the legacy DOM modal; this engine never
+    // returns `_ppvSuggestion`, so the call would be billed and thrown away. Short-circuited
+    // here (legacy catches the empty answer as a failed suggestion). The next PPV slice can
+    // lift this and surface the price instead.
+    const inner = transport.callApi;
+    transport = {
+        ...transport,
+        callApi: (sys, user, max, fmt, tag, ...rest) =>
+            String(tag) === 'price_ppv' ? Promise.resolve('') : inner(sys, user, max, fmt, tag, ...rest),
+    };
     eng.set('callApi', transport.callApi);
     eng.set('callMistral', transport.callMistral);
 

@@ -143,7 +143,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
   (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
   `node engine/tz_check.js` (`timezone` → the prompts' clock, per request),
   `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
-  `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note).
+  `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note),
+  `node engine/ppv_caption_check.js` (`sender:'ppv'` → legacy's PPV CAPTION MODE on the generator, no
+  follow-up note, and NO `price_ppv` call — `runGenerate.js` short-circuits legacy's fire-and-forget
+  price suggestion because the engine never returns `_ppvSuggestion`, so it was a billed call thrown away).
 - **The creator spoke last → the AI writes a follow-up, not a reply (fixed 2026-09-26).** Legacy was
   only ever used to answer a fan message the chatter had just typed in, so its prompts take the
   newest line to be the fan's ("your analysis must reflect what the LAST customer message actually
