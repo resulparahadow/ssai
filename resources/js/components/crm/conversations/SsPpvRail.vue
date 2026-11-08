@@ -29,6 +29,8 @@ const props = defineProps<{
     chatId: string | null;
     messages: OfMessage[];
     canManage: boolean;
+    /** Bumped by the page after a PPV send so the Sent/Bought pill re-reads the ledger. */
+    statusKey: number;
 }>();
 const emit = defineEmits<{ load: [set: PpvSet] }>();
 
@@ -107,7 +109,7 @@ watch(
     },
 );
 watch(
-    () => props.chatId,
+    () => [props.chatId, props.statusKey],
     () => void loadStatus(),
 );
 

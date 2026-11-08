@@ -60,6 +60,10 @@ export interface ComposerState {
     draft: string; // what's in the typing bar (unsent) — drives the list "Draft:" badge
     context: string; // agent directive for the next generate ("he just tipped $50", etc.) — steers the AI, not sent to the fan
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
+    // What `suggestion` was generated for: null = a normal reply, else the PPV set id whose
+    // caption it is. Accept commits strategy memory only for a reply, and a draft whose
+    // mode/set no longer matches the composer is dropped (lib/ppvComposer.ts).
+    suggestionFor: number | null;
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
     ppv: ComposerPpv | null; // a loaded PPV set: vault media + price for the next send (excl. with gif/attachment)
@@ -81,6 +85,7 @@ export function chatComposer(chatId: string): ComposerState {
             draft: '',
             context: '',
             suggestion: null,
+            suggestionFor: null,
             gif: null,
             attachment: null,
             ppv: null,

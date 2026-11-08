@@ -29,6 +29,7 @@ import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
+import { composerDirty, suggestionStillApplies } from '@/lib/ppvComposer';
 import {
     ensureSubscribed,
     onInboundMessage,
@@ -127,6 +128,7 @@ const fan = ref<OfFan | null>(null);
 
 // Right rail: Fan / AI Intel tabs.
 const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
+const ppvStatusKey = ref(0); // bumped after a PPV send → SsPpvRail refreshes its pills
 
 // The open chat's composer state (draft / generating / AI strategy). Per-chat,
 // so loading + results stay attached to the chat they belong to and drafts are
@@ -208,6 +210,9 @@ async function generate() {
     st.generating = true;
     st.error = null;
     let draft: string | null = null;
+    // What this draft is FOR, decided now: a caption for the loaded set, or a reply. If the
+    // composer's set changes while the engine runs, the result no longer applies and is dropped.
+    const captionFor = st.ppv?.setId ?? null;
 
     try {
         // Use the cached thread for THIS chat, not whatever is on screen now.
@@ -240,22 +245,39 @@ async function generate() {
             // A loaded PPV set → legacy's caption mode: ONE curiosity caption, not a reply.
             // The set name is deliberately NOT put in `context` — any context text flips
             // the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
-            sender: st.ppv ? 'ppv' : 'customer',
+            sender: captionFor !== null ? 'ppv' : 'customer',
         });
 
-        draft = data.draft || null;
-        st.suggestion = draft;
-        st.strategy = data.strategy;
-        st.strategyGeneratedAt = data.generatedAt ?? new Date().toISOString();
-        st.telemetry = data.telemetry ?? null;
-
-        if (!data.draft) {
+        if (!suggestionStillApplies(captionFor, st.ppv?.setId ?? null)) {
+            // A reply landed with a set loaded (it would be sent as the caption), or a caption
+            // landed for a set no longer loaded. Neither may reach the fan.
             st.error =
-                'Engine returned an empty draft (is the engine running with an API key?).';
-        } else if (data.strategy && selected.value?.id === chatId && !st.ppv) {
-            // Surface intel only if this chat is still open. A caption generate stays put: its
-            // forced send_content strategy is not persisted and the chatter is on the PPV tab.
-            rail.value = 'ai';
+                'Draft discarded: the PPV set changed while it was generating. Generate again.';
+            draft = null;
+        } else {
+            draft = data.draft || null;
+            st.suggestion = draft;
+            st.suggestionFor = captionFor;
+
+            // A caption's strategy is legacy's forced `send_content` read — not the fan's
+            // analysis. It never touches the local AI Intel/telemetry, so nothing can commit it.
+            if (captionFor === null) {
+                st.strategy = data.strategy;
+                st.strategyGeneratedAt =
+                    data.generatedAt ?? new Date().toISOString();
+                st.telemetry = data.telemetry ?? null;
+            }
+
+            if (!data.draft) {
+                st.error =
+                    'Engine returned an empty draft (is the engine running with an API key?).';
+            } else if (
+                data.strategy &&
+                selected.value?.id === chatId &&
+                captionFor === null
+            ) {
+                rail.value = 'ai'; // surface intel only if this chat is still open
+            }
         }
     } catch (e) {
         st.error = e instanceof Error ? e.message : String(e);
@@ -400,8 +422,8 @@ function acceptSuggestion() {
         return;
     }
 
-    if (!st.ppv) {
-        commitStrategyMemory(chatId); // a caption's forced send_content strategy must not persist
+    if (st.suggestionFor === null) {
+        commitStrategyMemory(chatId); // only a REPLY's strategy persists, never a caption's
     }
 
     st.draft = st.suggestion;
@@ -417,7 +439,7 @@ async function acceptAndSend() {
         return;
     }
 
-    if (!st.ppv) {
+    if (st.suggestionFor === null) {
         commitStrategyMemory(chatId);
     }
 
@@ -429,6 +451,7 @@ async function acceptAndSend() {
 function dismissSuggestion() {
     if (cur.value) {
         cur.value.suggestion = null;
+        cur.value.suggestionFor = null;
     }
 }
 
@@ -611,6 +634,10 @@ async function send(override?: string) {
 
         if (ppv && st.ppv === ppv) {
             st.ppv = null;
+        }
+
+        if (ppv) {
+            ppvStatusKey.value++; // the rail's Sent/Bought pill re-reads the ledger
         }
 
         // Free the blob now if the media was already renderable; otherwise defer to
@@ -942,14 +969,8 @@ function loadPpvSet(set: PpvSet) {
     }
 
     const st = chatComposer(chat.id);
-    const dirty =
-        st.draft.trim() !== '' ||
-        st.suggestion !== null ||
-        st.gif !== null ||
-        st.attachment !== null ||
-        st.ppv !== null;
 
-    if (dirty && !window.confirm(REPLACE_MSG)) {
+    if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
         return;
     }
 
@@ -1924,6 +1945,7 @@ onBeforeUnmount(() => {
                     :chat-id="selected?.id ?? null"
                     :messages="messages"
                     :can-manage="canManage"
+                    :status-key="ppvStatusKey"
                     @load="loadPpvSet"
                 />
             </aside>

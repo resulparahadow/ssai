@@ -724,7 +724,10 @@ function fmtDuration(sec: number | null): string {
                     <template v-else-if="m.failed">
                         · <AlertCircle :size="11" class="text-ss-neg" />
                         <span class="text-ss-neg">not sent</span>
+                        <!-- Resend replays TEXT only. A failed media/PPV bubble must not offer it:
+                             the fan would get the caption alone, free, with nothing attached. -->
                         <button
+                            v-if="!m.mediaCount && !m.price"
                             type="button"
                             class="ml-1 inline-flex items-center gap-0.5 rounded px-1 font-medium text-ss-accent-text hover:bg-ss-accent-soft"
                             title="Resend this message"

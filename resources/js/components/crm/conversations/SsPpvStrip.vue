@@ -3,6 +3,7 @@ import { Film, Image as ImageIcon, Lock, Music, Tag, X } from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
+import { parsePpvPriceInput } from '@/lib/ppvComposer';
 import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
 
 /**
@@ -44,8 +45,8 @@ function startEdit() {
 }
 
 function commit() {
-    const n = Number(String(draftPrice.value).replace(/[$,\s]/g, ''));
-    emit('update:price', Number.isFinite(n) ? n : props.ppv.price);
+    // An empty/junk edit reverts to the previous price — never to free (lib/ppvComposer.ts).
+    emit('update:price', parsePpvPriceInput(draftPrice.value, props.ppv.price));
     editing.value = false;
 }
 
