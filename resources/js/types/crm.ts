@@ -142,6 +142,38 @@ export interface OfGif {
     height: number;
 }
 
+/** One item of a saved PPV set: a Media Vault id + its type + an onlyfans-hosted thumb (or null). */
+export interface PpvSetMedia {
+    id: string;
+    type: 'photo' | 'video' | 'gif' | 'audio';
+    thumb: string | null; // onlyfans.com CDN url (loads via the media proxy) or null — never a fansapi presigned url
+}
+
+/** A creator-wide saved PPV (manager-owned): media + price + default caption. */
+export interface PpvSet {
+    id: number;
+    name: string;
+    caption: string | null;
+    price: number; // 0 = free, else 3..200
+    media: PpvSetMedia[];
+    sortOrder: number;
+    createdAt: string | null;
+}
+
+/** SSAI's own send ledger for one fan: set id → sends, newest first. */
+export type PpvSetStatus = Record<
+    string,
+    { sentAt: string; messageId: string | null; price: number }[]
+>;
+
+/** A PPV set loaded into the composer for the next send (exclusive with gif/attachment). */
+export interface ComposerPpv {
+    setId: number;
+    setName: string;
+    price: number; // editable; validated by isValidPpvPrice before Send
+    media: PpvSetMedia[];
+}
+
 /** One media item attached to the next send: an upload in flight, or a vault pick. */
 export interface ComposerAttachment {
     id: string | null; // ofapi_media_… (upload) or the vault id; null until upload returns

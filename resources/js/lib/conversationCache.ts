@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import type {
     AiStrategy,
     ComposerAttachment,
+    ComposerPpv,
     DraftRejection,
     OfChat,
     OfChatFilter,
@@ -53,6 +54,7 @@ export interface ComposerState {
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
+    ppv: ComposerPpv | null; // a loaded PPV set: vault media + price for the next send (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -73,6 +75,7 @@ export function chatComposer(chatId: string): ComposerState {
             suggestion: null,
             gif: null,
             attachment: null,
+            ppv: null,
             generating: false,
             sending: false,
             error: null,

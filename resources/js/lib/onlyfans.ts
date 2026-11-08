@@ -11,7 +11,18 @@ import type {
     OfMessage,
     OfPreviewKind,
     OfVaultList,
+    PpvSet,
+    PpvSetMedia,
+    PpvSetStatus,
 } from '@/types/crm';
+
+/** Create/update body for a PPV set (media = vault ids + type + raw thumb; the server nulls non-onlyfans thumbs). */
+export interface PpvSetBody {
+    name: string;
+    caption: string | null;
+    price: number;
+    media: PpvSetMedia[];
+}
 
 /**
  * Classify a (text-less) message for the conversation-list preview indicator. Mirrors
@@ -325,11 +336,14 @@ export const ofApi = {
         text: string,
         giphyId?: string,
         mediaFiles?: string[],
+        // PPV: `price` 0 (free) or 3..200; `ppvSetId` records the send in the set ledger.
+        extra: { price?: number; ppvSetId?: number } = {},
     ) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
             text,
             giphyId,
             mediaFiles,
+            ...extra,
         }),
     giphyTrending: (m: number) =>
         req<{ gifs: OfGif[] }>('GET', `${base(m)}/giphy/trending`),
@@ -444,6 +458,23 @@ export const ofApi = {
             'DELETE',
             `${base(m)}/chats/${chat}/rejections/${id}`,
         ),
+
+    // ---- PPV sets (creator-wide; writes are manager+, server-gated) -----------
+    ppvSets: (m: number) =>
+        req<{ sets: PpvSet[] }>('GET', `${base(m)}/ppv-sets`),
+    ppvSetStatus: (m: number, chat: string) =>
+        req<{ status: PpvSetStatus }>(
+            'GET',
+            `${base(m)}/chats/${chat}/ppv-sets/status`,
+        ),
+    createPpvSet: (m: number, body: PpvSetBody) =>
+        postJson<{ set: PpvSet }>(`${base(m)}/ppv-sets`, body),
+    updatePpvSet: (m: number, id: number, body: Partial<PpvSetBody>) =>
+        req<{ set: PpvSet }>('PUT', `${base(m)}/ppv-sets/${id}`, body),
+    deletePpvSet: (m: number, id: number) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/ppv-sets/${id}`),
+    reorderPpvSets: (m: number, ids: number[]) =>
+        req<{ ok: boolean }>('PUT', `${base(m)}/ppv-sets/order`, { ids }),
 
     // ---- Chat actions -----------------------------------------------------
     mute: (m: number, chat: string) =>
