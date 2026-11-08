@@ -146,7 +146,7 @@ export interface OfGif {
 export interface PpvSetMedia {
     id: string;
     type: 'photo' | 'video' | 'gif' | 'audio';
-    thumb: string | null; // onlyfans.com CDN url (loads via the media proxy) or null — never a fansapi presigned url
+    thumb: string | null; // onlyfans.com CDN url (via the media proxy), a same-origin /ppv-sets/thumb path (cached on our disk), or null
 }
 
 /** A creator-wide saved PPV (manager-owned): media + price + default caption. */

@@ -6,6 +6,8 @@ use App\Models\PpvSet;
 use App\Models\PpvSetSend;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
@@ -91,20 +93,61 @@ it('returns per-fan send status grouped by set, newest first', function () {
 
 // ---- writes (manager only) ---------------------------------------------------------------
 
-it('lets a manager create a set and nulls a non-onlyfans thumb', function () {
+it('lets a manager create a set, keeping an onlyfans thumb and caching a fansapi one locally', function () {
+    Storage::fake('local');
+    Http::fake(['cdn.fansapi.com/*' => Http::response('JPEGBYTES', 200, ['Content-Type' => 'image/jpeg'])]);
+
     $this->actingAs($this->manager)
         ->postJson($this->url, ppvBody())
         ->assertCreated()
         ->assertJsonPath('set.name', 'Red set')
         ->assertJsonPath('set.price', 20)
+        // onlyfans CDN: the media proxy re-signs it, so the url itself is kept.
         ->assertJsonPath('set.media.0.thumb', 'https://cdn2.onlyfans.com/files/t1.jpg?Signature=x')
-        ->assertJsonPath('set.media.1.thumb', null)
+        // fansapi presigned (expires in 15 min): downloaded once now, served from our disk.
+        ->assertJsonPath('set.media.1.thumb', "/onlyfans/{$this->model->id}/ppv-sets/thumb/v2")
         ->assertJsonPath('set.media.1.type', 'video');
+
+    Storage::disk('local')->assertExists("ppv-thumbs/{$this->model->id}/v2");
 
     $row = PpvSet::sole();
     expect($row->creator_model)->toBe('Camila')
         ->and($row->created_by)->toBe($this->manager->id)
-        ->and($row->sort_order)->toBe(0);
+        ->and($row->sort_order)->toBe(0)
+        ->and($row->media[1]['thumb'])->toBe('local'); // stored marker, resolved per model on read
+});
+
+it('serves a cached thumb to an assigned chatter and nothing to a stranger', function () {
+    Storage::fake('local');
+    Storage::disk('local')->put("ppv-thumbs/{$this->model->id}/v2", 'JPEGBYTES');
+
+    $this->actingAs(ppvAssigned('Camila'))
+        ->get("{$this->url}/thumb/v2")
+        ->assertOk()
+        ->assertHeader('Cache-Control', 'max-age=86400, private');
+
+    $this->actingAs(ppvAssigned('Nina'))->get("{$this->url}/thumb/v2")->assertForbidden();
+    $this->actingAs(ppvAssigned('Camila'))->get("{$this->url}/thumb/missing")->assertNotFound();
+    // A slash never reaches the controller (the router rejects it); a dotted id does and is refused.
+    $this->actingAs(ppvAssigned('Camila'))->get("{$this->url}/thumb/..%2Fsecret")->assertNotFound();
+    $this->actingAs(ppvAssigned('Camila'))->get("{$this->url}/thumb/..")->assertStatus(400);
+});
+
+it('stores a null thumb when the fansapi download fails, and never fetches other hosts', function () {
+    Storage::fake('local');
+    Http::fake(['cdn.fansapi.com/*' => Http::response('nope', 403)]);
+
+    $this->actingAs($this->manager)
+        ->postJson($this->url, ppvBody(['media' => [
+            ['id' => 'v1', 'type' => 'photo', 'thumb' => 'https://cdn.fansapi.com/x/t1.jpg'],
+            ['id' => 'v3', 'type' => 'photo', 'thumb' => 'https://evil.example.com/t3.jpg'],
+        ]]))
+        ->assertCreated()
+        ->assertJsonPath('set.media.0.thumb', null)
+        ->assertJsonPath('set.media.1.thumb', null);
+
+    Http::assertSentCount(1);
+    Http::assertNotSent(fn ($r) => str_contains($r->url(), 'evil.example.com'));
 });
 
 it('appends new sets after the existing ones', function () {

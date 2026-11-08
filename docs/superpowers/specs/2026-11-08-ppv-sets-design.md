@@ -209,10 +209,13 @@ facts), so a stored onlyfans CDN thumb stays valid indefinitely. A `cdn.fansapi.
 url expires in 15 minutes and is stored as `null`. Rendering: tile with `thumb` → `mediaSrc`;
 tile without → type-icon placeholder. The rail cover is the first item with a thumb; if a set
 has none, ONE lazy `GET media/vault/{media}` for its first item, memoized per page session.
-First build step: verify live that vault `thumb` urls are onlyfans-hosted for photos and
-videos. If they turn out fansapi-only, fall back to mirroring each set into an OnlyFans vault
-list (`SSAI PPV · {name}`) so `GET media/vault?list=` returns every thumb in one call; the
-spec's data model is unchanged either way.
+**Build finding (2026-11-08):** the vendor serves onlyfans-hosted thumbs on first look and
+`cdn.fansapi.com` presigned ones for any media it has since re-hosted (same ids, an hour apart),
+so onlyfans urls cannot be relied on. Implemented fallback: a fansapi thumb is downloaded ONCE at
+save time (a direct S3 fetch, no credit) to `storage/app/private/ppv-thumbs/{model}/{mediaId}`,
+stored as the marker `local`, and served by `GET onlyfans/{model}/ppv-sets/thumb/{media}`
+(assigned users only, private, 1-day browser cache). Onlyfans-hosted thumbs are still kept as
+urls. Other hosts → null, never fetched.
 
 ### Media Vault: creating a set
 

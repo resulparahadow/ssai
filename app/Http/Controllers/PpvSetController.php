@@ -9,6 +9,10 @@ use App\Models\PpvSetSend;
 use App\Rules\PpvPrice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * Creator-wide PPV sets (see docs/superpowers/specs/2026-11-08-ppv-sets-design.md).
@@ -33,7 +37,7 @@ class PpvSetController extends Controller
             ->orderBy('sort_order')->orderBy('id')
             ->get();
 
-        return response()->json(['sets' => $sets->map(fn (PpvSet $s) => $this->present($s))->values()]);
+        return response()->json(['sets' => $sets->map(fn (PpvSet $s) => $this->present($s, $model))->values()]);
     }
 
     /** SSAI's own send ledger for one fan, grouped by set, newest first (the rail's Sent/Bought pill). */
@@ -69,13 +73,13 @@ class PpvSetController extends Controller
             'name' => trim($data['name']),
             'caption' => $this->caption($data['caption'] ?? null),
             'price' => $data['price'],
-            'media' => $this->cleanMedia($data['media']),
+            'media' => $this->cleanMedia($data['media'], $model),
             // Append after the creator's current last set (0 for the first one).
             'sort_order' => ($last = PpvSet::withoutGlobalScopes()->where('creator_model', $model->name)->max('sort_order')) === null ? 0 : (int) $last + 1,
             'created_by' => $request->user()?->id,
         ]);
 
-        return response()->json(['set' => $this->present($set)], 201);
+        return response()->json(['set' => $this->present($set, $model)], 201);
     }
 
     public function update(Request $request, AichModel $model, int $set): JsonResponse
@@ -95,11 +99,11 @@ class PpvSetController extends Controller
             $patch['price'] = $data['price'];
         }
         if (array_key_exists('media', $data)) {
-            $patch['media'] = $this->cleanMedia($data['media']);
+            $patch['media'] = $this->cleanMedia($data['media'], $model);
         }
         $row->update($patch);
 
-        return response()->json(['set' => $this->present($row->refresh())]);
+        return response()->json(['set' => $this->present($row->refresh(), $model)]);
     }
 
     public function destroy(Request $request, AichModel $model, int $set): JsonResponse
@@ -108,6 +112,29 @@ class PpvSetController extends Controller
         $this->find($model, $set)->delete(); // ppv_set_sends cascade at the DB level
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * A thumb cached at save time (see cleanMedia), served from our disk. Private to the
+     * creator's assigned users; a day of browser caching since the file never changes.
+     */
+    public function thumb(Request $request, AichModel $model, string $media): BinaryFileResponse
+    {
+        $this->authorizeCreator($request, $model);
+
+        // The id becomes a path segment on our disk — digits/letters/underscore only.
+        if (! preg_match('/^[A-Za-z0-9_]{1,64}$/', $media)) {
+            abort(400, 'Invalid media id.');
+        }
+
+        $disk = Storage::disk('local');
+        $path = self::thumbPath($model, $media);
+        if (! $disk->exists($path)) {
+            abort(404);
+        }
+
+        // BinaryFileResponse defaults to `public`; a creator's content thumb is not.
+        return response()->file($disk->path($path))->setPrivate()->setMaxAge(86400);
     }
 
     /** `ids` in the wanted order → sort_order 0..n-1. Ids of other creators are ignored. */
@@ -129,7 +156,7 @@ class PpvSetController extends Controller
     // ---- helpers ----------------------------------------------------------
 
     /** @return array<string, mixed> */
-    public function present(PpvSet $s): array
+    public function present(PpvSet $s, AichModel $model): array
     {
         return [
             'id' => $s->id,
@@ -139,7 +166,11 @@ class PpvSetController extends Controller
             'media' => array_values(array_map(fn (array $m) => [
                 'id' => (string) $m['id'],
                 'type' => (string) $m['type'],
-                'thumb' => $m['thumb'] ?? null,
+                // 'local' = cached on our disk → the per-model thumb route (a same-origin path,
+                // which mediaSrc() hands to <img> untouched). Else an onlyfans CDN url, or null.
+                'thumb' => ($m['thumb'] ?? null) === 'local'
+                    ? "/onlyfans/{$model->id}/ppv-sets/thumb/{$m['id']}"
+                    : ($m['thumb'] ?? null),
             ], $s->media ?? [])),
             'sortOrder' => (int) $s->sort_order,
             'createdAt' => $s->created_at?->toIso8601String(),
@@ -176,29 +207,59 @@ class PpvSetController extends Controller
     }
 
     /**
-     * Keep only what we store, and drop any thumb that is not onlyfans-hosted: a presigned
-     * cdn.fansapi.com url expires in 15 minutes, while an onlyfans.com one loads through the
-     * media proxy (which re-signs) for as long as the media exists.
+     * Keep only what we store, and make the thumb durable. Vault thumbs come in two hosts:
+     * an onlyfans.com CDN url loads through the media proxy (which re-signs) for as long as
+     * the media exists, so it is kept as-is; a presigned cdn.fansapi.com url expires in 15
+     * minutes — and the vendor serves THAT for any media it has already re-hosted (verified
+     * live 2026-11-08: the same ids came back onlyfans-hosted on first look, fansapi-hosted an
+     * hour later) — so it is downloaded ONCE now (no credit: it's a direct S3 fetch of a 300px
+     * jpeg) and stored as the marker 'local', which present() turns into our thumb route.
+     * Any other host is dropped without a fetch.
      *
      * @param  list<array<string, mixed>>  $media
      * @return list<array{id: string, type: string, thumb: string|null}>
      */
-    private function cleanMedia(array $media): array
+    private function cleanMedia(array $media, AichModel $model): array
     {
         return array_values(array_map(fn (array $m) => [
             'id' => (string) $m['id'],
             'type' => (string) $m['type'],
-            'thumb' => self::safeThumb($m['thumb'] ?? null),
+            'thumb' => $this->durableThumb($model, (string) $m['id'], $m['thumb'] ?? null),
         ], $media));
     }
 
-    public static function safeThumb(?string $url): ?string
+    private function durableThumb(AichModel $model, string $mediaId, ?string $url): ?string
     {
-        if (! $url) {
+        if (! $url || ! str_starts_with($url, 'https://')) {
             return null;
         }
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
 
-        return $host === 'onlyfans.com' || str_ends_with($host, '.onlyfans.com') ? $url : null;
+        if ($host === 'onlyfans.com' || str_ends_with($host, '.onlyfans.com')) {
+            return $url;
+        }
+
+        if (! preg_match('/(^|\.)fansapi\.com$/', $host) || ! preg_match('/^[A-Za-z0-9_]{1,64}$/', $mediaId)) {
+            return null;
+        }
+
+        try {
+            $res = Http::timeout(10)->get($url);
+            if (! $res->successful() || $res->body() === '') {
+                return null;
+            }
+            Storage::disk('local')->put(self::thumbPath($model, $mediaId), $res->body());
+
+            return 'local';
+        } catch (\Throwable $e) {
+            Log::warning('ppv.thumb_cache_failed', ['media' => $mediaId, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    private static function thumbPath(AichModel $model, string $mediaId): string
+    {
+        return "ppv-thumbs/{$model->id}/{$mediaId}";
     }
 }

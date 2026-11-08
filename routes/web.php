@@ -74,6 +74,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // PPV sets (creator-wide saved PPVs). Reads for anyone assigned; writes are in the
         // manage-team group below. `ppv-sets/order` is registered before `ppv-sets/{set}`.
         Route::get('ppv-sets', [PpvSetController::class, 'index'])->name('ppv-sets');
+        Route::get('ppv-sets/thumb/{media}', [PpvSetController::class, 'thumb'])->name('ppv-sets.thumb');
         Route::get('chats/{chat}/ppv-sets/status', [PpvSetController::class, 'status'])->name('ppv-sets.status');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
