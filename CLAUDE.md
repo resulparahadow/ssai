@@ -511,12 +511,40 @@ engine uses its in-process copy. Provider keys live in the engine's env
     prompt prints `Customer: {name} (@{username})` and then states "You already know his name
     ({name})... use his name when it fits", so an omitted name makes the engine fall back to the
     literal string `'Fan'` and the AI addresses the fan as "Fan". `customer` is deliberately
-    rule-less in `generate()`'s `validate()` — adding `customer.*` rules would strip the keys not
+    rule-less in `generate()`'s `validateJson()` — adding `customer.*` rules would strip the keys not
     listed (the same trap as `messages.*.time`).
     Per-message PPV/`opened`/`price` mapping (`LiveThreadMapper` → `sender:'ppv'` bubbles +
     gap-windowed session spend) and multi-turn forcing-move continuation (`ChatStateService` →
     `_promiseStatus`/`_storyFrameworkStep`) are both DONE. Still deferred: `prior_session_count`
     (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
+    **PPV sets (2026-11-08, spec `docs/superpowers/specs/2026-11-08-ppv-sets-design.md`)** — the
+    CreatorHero "PPV tab" flow the team is used to. **`ppv_sets`** (`PpvSet`, creator-wide, keyed by
+    `creator_model`, `CreatorAccessScope`; `media` json = ordered `{id, type, thumb}` VAULT ids) and
+    **`ppv_set_sends`** (`PpvSetSend`, `BelongsToChatter`: set, fan = chat id, vendor message id,
+    price, sender, time — the only record of what SSAI sent; no text). `PpvSetController` under
+    `onlyfans/{model}/ppv-sets`: reads (`index`, `chats/{chat}/ppv-sets/status`, `thumb/{media}`)
+    for anyone assigned, writes (`store`/`update`/`destroy`/`PUT order`, registered ABOVE
+    `{set}`) in the `can:manage-team` group. Client: right-rail **PPV** tab (`SsPpvRail`) lists the
+    sets with a per-open-fan **Sent / Bought** pill (ledger joined with the loaded thread's
+    `isOpened`; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to
+    vault ids), click → `loadPpvSet` replaces the WHOLE send payload (text/media/GIF/price/pending
+    suggestion, confirm when dirty) with `ComposerState.ppv`; `SsPpvStrip` shows tiles + an
+    editable **Price to View** chip (`isValidPpvPrice`, mirrors `App\Rules\PpvPrice`); Send posts
+    `mediaFiles` + `price` + `ppvSetId`. Managers create sets in Media Vault (`SsVaultGrid` bulk
+    bar → **Save as PPV set** → `SsPpvSetModal`) and edit/delete from the rail. **Generate with a
+    set loaded sends `sender:'ppv'`** = legacy's PPV CAPTION MODE (one curiosity caption); for it
+    the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips
+    `commitState` and the rail auto-switch — legacy forces that strategy to `send_content`, which
+    would clobber the fan's real next move. The set name is deliberately NOT put in `context`: any
+    context text flips the brain into AGENT OVERRIDE (safeguards deferred). `ppv` is exclusive with
+    `gif`/`attachment`. **Thumbs:** the vendor serves vault thumbs onlyfans-hosted on first look and
+    as `cdn.fansapi.com` presigned urls (15-min expiry) once it has re-hosted them (verified live:
+    same ids flipped within an hour), so on save an onlyfans url is kept (the proxy re-signs) and a
+    fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/
+    {model}/{media}`, stored as the marker `local` and served by the private `thumb/{media}` route;
+    other hosts → null. Guards: `tests/Feature/{PpvSetModelTest,PpvSetTest,OnlyFansChatSendPpvTest,
+    OnlyFansChatCaptionTest}.php`, `node engine/ppv_caption_check.js`. NOT in this slice: AI picking
+    the set / price suggestion, `previews`/`lockedText`, auto follow-up on unbought PPVs.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.

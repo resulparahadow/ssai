@@ -160,15 +160,45 @@ old rejection explains the move.
 
 ---
 
-## 7. Known limits (today)
+## 7. Sending a PPV
 
-- **SSAI can't send PPVs or set prices yet.** It drafts text; PPV/tip/media
-  sending from the CRM is still being built. When it says "send PPV", you
-  build the PPV manually on OnlyFans for now.
-- **Locked-message confusion (known bug).** SSAI can mistake a mass PPV (MPPV)
-  in the thread for a PPV *you* sent, and pace itself wrong. Until the MPPV
-  tagging feature ships, correct it in the context box:
-  `the locked message was a mass PPV, not ours — he hasn't bought anything in chat`.
+The right rail has a **PPV** tab: the creator's saved PPV sets (media + price +
+a default caption), the same idea as CreatorHero's PPV tab. Managers create them
+in **Media Vault → Select → Save as PPV set**.
+
+1. Open the fan's chat → **PPV** tab → click a set. It loads into the composer:
+   the media tiles, a **Price to View** chip, and the default caption. If you
+   already had text or media in the box you'll be asked before it's replaced.
+2. Click **Generate caption** (the sparkle button). SSAI writes ONE short
+   curiosity caption for *this* fan, in the creator's voice — it never
+   describes what's in the content, and it does not answer or continue the
+   fan's last message. **Accept** puts it in the box; **Accept & Send** sends.
+3. Check the price. Click the chip to change it — free, or $3–$200. Send is
+   disabled on anything else (OnlyFans would refuse it).
+4. **Send PPV $20** posts a locked message. The thread shows an amber
+   `$20.00 · Unpaid` pill until he buys, then green `Paid`.
+
+Notes:
+- The card's **Sent / Bought** pill is for the fan you have open. It only knows
+  about PPVs sent *from SSAI* — a set sent from CreatorHero or OnlyFans directly
+  shows no pill.
+- A caption generate does not change the fan's AI Intel or memory — it is a
+  caption, not a read of the conversation.
+- Attaching a GIF or a file while a set is loaded removes the set (they can't
+  go in the same message).
+
+---
+
+## 8. Known limits (today)
+
+- **SSAI doesn't pick the set or suggest the price yet.** You choose the set and
+  keep or change its price; SSAI writes the caption. Tip requests are still
+  not sendable from the CRM.
+- **Mass PPVs are handled automatically.** A locked mass message (MPPV) the fan
+  hasn't bought shows a `· Mass` label on its pill and SSAI ignores it, so it no
+  longer paces as if you'd already pitched him. A bought one counts as a real
+  purchase. If it ever looks wrong, the context box still wins:
+  `the locked message was a mass PPV, not ours`.
 - **It only sees the loaded page** (~last 100 messages). Ancient history lives
   in the memory log — keep it good.
 - **One draft at a time, per chat.** Generating again replaces the pending draft.
