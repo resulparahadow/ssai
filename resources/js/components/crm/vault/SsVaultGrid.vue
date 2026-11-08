@@ -8,6 +8,7 @@ import {
     Link2,
     ListPlus,
     LoaderCircle,
+    PackagePlus,
     Play,
     Search,
     Trash2,
@@ -15,9 +16,12 @@ import {
     X,
 } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
+import { toast } from 'vue-sonner';
 import SsMediaLightbox from '@/components/crm/conversations/SsMediaLightbox.vue';
+import SsPpvSetModal from '@/components/crm/conversations/SsPpvSetModal.vue';
+import { invalidatePpvSets } from '@/lib/conversationCache';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
-import type { OfMedia, OfVaultList } from '@/types/crm';
+import type { OfMedia, OfVaultList, PpvSet, PpvSetMedia } from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
@@ -417,6 +421,34 @@ async function openListPicker() {
     }
 }
 
+// ---- Save as PPV set (manager+; the server gates the write) ------------------
+
+const showPpvModal = ref(false);
+
+/** The selection in grid order, as PPV-set media (vault id + type + raw thumb; the server
+ *  keeps onlyfans-hosted thumbs and nulls fansapi presigned ones). Items without an id skip. */
+const ppvSelection = computed<PpvSetMedia[]>(() =>
+    items.value
+        .filter((m) => m.id && selected.value.has(m.id))
+        .map((m) => ({
+            id: m.id as string,
+            type: (['photo', 'video', 'gif', 'audio'].includes(m.type)
+                ? m.type
+                : 'photo') as PpvSetMedia['type'],
+            thumb: m.thumb ?? null,
+        })),
+);
+
+function onPpvSetSaved(set: PpvSet) {
+    showPpvModal.value = false;
+    invalidatePpvSets(props.modelId);
+    toast.success(`PPV set "${set.name}" saved`, {
+        description: 'Chatters can load it from the PPV tab in Conversations.',
+    });
+    selectionMode.value = false;
+    clearSelection();
+}
+
 async function addToList(listId: string | null) {
     if (!listId || !selected.value.size) {
         return;
@@ -717,6 +749,17 @@ async function deleteSelected() {
                 <button
                     v-if="canManage"
                     type="button"
+                    class="flex items-center gap-1.5 rounded-lg border border-ss-border bg-ss-surface px-3 py-1.5 text-[12px] font-semibold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-50"
+                    :disabled="!ppvSelection.length"
+                    title="Save the selected media as a PPV set chatters can send from Conversations"
+                    @click="showPpvModal = true"
+                >
+                    <PackagePlus :size="14" />
+                    Save as PPV set
+                </button>
+                <button
+                    v-if="canManage"
+                    type="button"
                     class="flex items-center gap-1.5 rounded-lg border border-ss-neg/40 bg-ss-neg/10 px-3 py-1.5 text-[12px] font-semibold text-ss-neg hover:bg-ss-neg/20 disabled:opacity-50"
                     :disabled="!selected.size || deleting"
                     @click="deleteSelected"
@@ -860,6 +903,15 @@ async function deleteSelected() {
             :model-id="props.modelId"
             @update:index="lightboxIndex = $event"
             @close="lightboxIndex = null"
+        />
+
+        <SsPpvSetModal
+            v-if="showPpvModal"
+            :model-id="props.modelId"
+            :set="null"
+            :media="ppvSelection"
+            @saved="onPpvSetSaved"
+            @close="showPpvModal = false"
         />
 
         <!-- Add-to-list picker -->
