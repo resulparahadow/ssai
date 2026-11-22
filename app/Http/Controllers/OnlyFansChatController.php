@@ -18,6 +18,7 @@ use App\Services\OnlyFans\FanMemoryLog;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
+use App\Services\OnlyFans\PpvReadiness;
 use App\Support\PpvPriceSuggestion;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
@@ -49,6 +50,7 @@ class OnlyFansChatController extends Controller
         protected ChatStateService $states,
         protected LiveThreadMapper $mapper,
         protected DraftRejectionService $rejections,
+        protected PpvReadiness $readiness,
     ) {}
 
     public function chats(Request $request, AichModel $model): JsonResponse
@@ -1016,6 +1018,13 @@ class OnlyFansChatController extends Controller
             // Caption mode only: legacy's price suggestion, clamped to a sendable price.
             ...($captionMode ? [
                 'ppvSuggestion' => PpvPriceSuggestion::normalize($out['ppvSuggestion'] ?? null),
+                // SSAI's saved plan, when it was a non-selling move that still applies (else null).
+                'ppvNotReady' => $this->readiness->plan(
+                    $state,
+                    $data['messages'] ?? [],
+                    now()->getTimestamp(),
+                    (int) config('services.engine.session_gap_hours', 12) * 3600,
+                ),
             ] : []),
         ]);
     }

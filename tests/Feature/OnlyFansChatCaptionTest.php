@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\AichChatIntel;
+use App\Models\AichChatState;
 use App\Models\AichModel;
 use App\Models\AichUsageEvent;
 use App\Models\CustomerProfile;
@@ -145,3 +146,21 @@ it('rejects bad ppvMedia', function (array $media) {
     'negative' => [['photo' => -1]],
     'over 40' => [['photo' => 41]],
 ]);
+
+it('returns ppvNotReady from saved chat state in caption mode only', function () {
+    $state = AichChatState::create(['creator_model' => 'Camila', 'chat_id' => '101', 'next_planned_move' => 'rapport_beat']);
+    $before = $state->fresh()->toArray();
+
+    $this->actingAs($this->admin)->postJson($this->url, [
+        'messages' => [['from' => 'fan', 'text' => 'show me', 'time' => now()->toIso8601String()]],
+        'customer' => ['id' => '101'],
+        'sender' => 'ppv',
+    ])->assertOk()->assertJsonPath('ppvNotReady', 'rapport_beat');
+
+    expect($state->fresh()->toArray())->toBe($before);
+
+    $this->actingAs($this->admin)->postJson($this->url, [
+        'messages' => [['from' => 'fan', 'text' => 'show me', 'time' => now()->toIso8601String()]],
+        'customer' => ['id' => '101'],
+    ])->assertOk()->assertJsonMissingPath('ppvNotReady');
+});
