@@ -3,7 +3,8 @@
  * saved set and the chatter clicks "Generate caption": the controller forwards `sender:'ppv'`
  * and the generator must (a) carry legacy's "PPV CAPTION MODE — OVERRIDES EVERYTHING ELSE"
  * directive, (b) NOT carry the FOLLOW-UP note even when the creator spoke last (a caption is
- * not a reply — runGenerate.js skips the wrapper), and (c) leave a normal `customer` run
+ * not a reply — runGenerate.js skips the wrapper), (c) make exactly ONE price_ppv call (the
+ * price suggestion — none on a reply), and (d) leave a normal `customer` run
  * byte-identical in the other direction (caption directive absent, follow-up note present). */
 const assert = require('assert');
 const { generateDraft } = require('./runGenerate');
@@ -54,17 +55,17 @@ const thread = [fan('show me something', 30), her('you sure you can handle it? �
         assert.ok(!(c.system + c.user).includes(NOTE), `${c.tag}: no follow-up note in caption mode`);
     }
     // Legacy fires fetchPpvSuggestion (tag 'price_ppv') after a PPV-mode generate; the engine
-    // never returns `_ppvSuggestion`, so that call would be billed and thrown away.
-    await new Promise((r) => setTimeout(r, 50)); // it is fire-and-forget in legacy
-    assert.ok(!ppv.some((c) => c.tag === 'price_ppv'), 'no price_ppv call reaches the model in caption mode');
+    // awaits it and returns `ppvSuggestion` (engine/ppv_price_check.js covers the result).
+    assert.strictEqual(ppv.filter((c) => c.tag === 'price_ppv').length, 1, 'exactly one price_ppv call in caption mode');
 
     const reply = await calls(thread, 'customer');
     const rgen = reply.filter((c) => c.tag.startsWith('generator'));
+    assert.ok(!reply.some((c) => c.tag === 'price_ppv'), 'no price_ppv call on a reply');
     assert.ok(rgen.length, 'customer: a generator call ran');
     for (const c of rgen) {
         assert.ok(!(c.system + c.user).includes(CAPTION), `${c.tag}: no caption directive on a reply`);
         assert.ok(c.user.includes(NOTE), `${c.tag}: reply to a creator-last thread carries the follow-up note`);
     }
 
-    console.log('✓ ppv_caption_check: sender=ppv → PPV CAPTION MODE on the generator, no follow-up note; sender=customer unchanged');
+    console.log('✓ ppv_caption_check: sender=ppv → PPV CAPTION MODE on the generator, no follow-up note, one price_ppv call; sender=customer unchanged, no price call');
 })().catch((e) => { console.error('PPV_CAPTION_CHECK FAILED:', e.message); process.exit(1); });
