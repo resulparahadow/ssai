@@ -56,3 +56,69 @@ export function composerDirty(st: {
         st.ppv !== null
     );
 }
+
+type PpvMediaType = 'photo' | 'video' | 'gif' | 'audio';
+
+/** The loaded set's contents for the price prompt: counts by type, non-zero keys only. */
+export function ppvMediaCounts(
+    media: ReadonlyArray<{ type: PpvMediaType }>,
+): Partial<Record<PpvMediaType, number>> {
+    const out: Partial<Record<PpvMediaType, number>> = {};
+
+    for (const m of media) {
+        out[m.type] = (out[m.type] ?? 0) + 1;
+    }
+
+    return out;
+}
+
+const PLAN_WORDS: Record<string, string> = {
+    rapport_beat: 'a rapport beat',
+    qualifying_question: 'a qualifying question',
+    aftercare: 'aftercare',
+    goodbye_script: 'a goodbye',
+    manager_flag: 'a manager flag',
+};
+
+/** SSAI's saved plan (legacy `next_planned_move`) in words, for the "not ready" warning. */
+export function humanPlan(plan: string): string {
+    return PLAN_WORDS[plan] ?? plan.replace(/_/g, ' ');
+}
+
+export type PpvPriceSuggestionLike =
+    | { price: number; reason: string }
+    | { error: string };
+
+export type PriceSuggestionView =
+    | { kind: 'pricing' | 'none' }
+    | { kind: 'error'; error: string }
+    | { kind: 'agree' | 'offer'; price: number; reason: string };
+
+/**
+ * What the PPV strip shows beside the price chip. A Generate in flight always reads "pricing" —
+ * an older suggestion is for an older caption. The suggestion never changes the chip; only the
+ * chatter's "Use" does.
+ */
+export function priceSuggestionView(
+    s: PpvPriceSuggestionLike | null,
+    generating: boolean,
+    chipPrice: number,
+): PriceSuggestionView {
+    if (generating) {
+        return { kind: 'pricing' };
+    }
+
+    if (s === null) {
+        return { kind: 'none' };
+    }
+
+    if ('error' in s) {
+        return { kind: 'error', error: s.error };
+    }
+
+    return {
+        kind: s.price === chipPrice ? 'agree' : 'offer',
+        price: s.price,
+        reason: s.reason,
+    };
+}

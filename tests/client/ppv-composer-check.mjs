@@ -2,7 +2,14 @@
 // Run: node --experimental-strip-types tests/client/ppv-composer-check.mjs
 import assert from 'node:assert/strict';
 const mod = await import('../../resources/js/lib/ppvComposer.ts');
-const { parsePpvPriceInput, suggestionStillApplies, composerDirty } = mod;
+const {
+    parsePpvPriceInput,
+    suggestionStillApplies,
+    composerDirty,
+    ppvMediaCounts,
+    humanPlan,
+    priceSuggestionView,
+} = mod;
 
 // #1 — an empty/junk edit reverts to the previous price; 0 must be typed on purpose.
 assert.equal(parsePpvPriceInput('', 20), 20, 'empty → previous');
@@ -72,6 +79,43 @@ assert.equal(
     'a loaded set is dirty',
 );
 
+// #4 — set contents for the price prompt: counts by type, non-zero keys only.
+assert.deepEqual(
+    ppvMediaCounts([{ type: 'photo' }, { type: 'photo' }, { type: 'video' }]),
+    { photo: 2, video: 1 },
+);
+assert.deepEqual(ppvMediaCounts([]), {});
+
+// #5 — the saved plan, in words for the "not ready" warning.
+assert.equal(humanPlan('rapport_beat'), 'a rapport beat');
+assert.equal(humanPlan('qualifying_question'), 'a qualifying question');
+assert.equal(humanPlan('aftercare'), 'aftercare');
+assert.equal(humanPlan('goodbye_script'), 'a goodbye');
+assert.equal(humanPlan('manager_flag'), 'a manager flag');
+assert.equal(humanPlan('some_new_move'), 'some new move');
+
+// #6 — what the strip shows next to the price chip.
+assert.equal(priceSuggestionView(null, true, 20).kind, 'pricing');
+assert.equal(priceSuggestionView(null, false, 20).kind, 'none');
+assert.deepEqual(priceSuggestionView({ error: 'x' }, false, 20), {
+    kind: 'error',
+    error: 'x',
+});
+assert.deepEqual(priceSuggestionView({ price: 12, reason: 'r' }, false, 20), {
+    kind: 'offer',
+    price: 12,
+    reason: 'r',
+});
+assert.equal(
+    priceSuggestionView({ price: 20, reason: 'r' }, false, 20).kind,
+    'agree',
+);
+assert.equal(
+    priceSuggestionView({ price: 12, reason: 'r' }, true, 20).kind,
+    'pricing',
+    'a regenerate in flight hides the old suggestion',
+);
+
 console.log(
-    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check',
+    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view',
 );

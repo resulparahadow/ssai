@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { Film, Image as ImageIcon, Lock, Music, Tag, X } from '@lucide/vue';
+import {
+    Film,
+    Image as ImageIcon,
+    Lock,
+    Music,
+    Sparkles,
+    Tag,
+    X,
+} from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
-import { parsePpvPriceInput } from '@/lib/ppvComposer';
+import { parsePpvPriceInput, priceSuggestionView } from '@/lib/ppvComposer';
 import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
 
 /**
@@ -12,7 +20,11 @@ import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
  * validated against the vendor rule (free, or $3–$200) so Send stays disabled on a bad value
  * instead of paying for a vendor 422.
  */
-const props = defineProps<{ ppv: ComposerPpv; modelId: number }>();
+const props = defineProps<{
+    ppv: ComposerPpv;
+    modelId: number;
+    generating: boolean;
+}>();
 const emit = defineEmits<{ 'update:price': [value: number]; remove: [] }>();
 
 const MAX_TILES = 6;
@@ -22,6 +34,15 @@ const overflow = computed(() =>
     Math.max(0, props.ppv.media.length - MAX_TILES),
 );
 const priceOk = computed(() => isValidPpvPrice(props.ppv.price));
+
+// The AI's price read, beside the chip. Advice only: "Use" is the one way it reaches the price.
+const aiPrice = computed(() =>
+    priceSuggestionView(
+        props.ppv.priceSuggestion,
+        props.generating,
+        props.ppv.price,
+    ),
+);
 
 // Inline price editor: a chip that turns into a number input on click.
 const editing = ref(false);
@@ -127,6 +148,50 @@ function tileIcon(m: PpvSetMedia) {
             >
                 <X :size="14" />
             </button>
+        </div>
+
+        <div
+            v-if="aiPrice.kind !== 'none'"
+            class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px]"
+            data-testid="ppv-ai-price"
+        >
+            <Sparkles :size="11" class="shrink-0 text-ss-text-3" />
+            <span
+                v-if="aiPrice.kind === 'pricing'"
+                class="text-ss-text-3 italic"
+                >AI pricing…</span
+            >
+            <span
+                v-else-if="aiPrice.kind === 'error'"
+                class="text-ss-text-3"
+                :title="aiPrice.error"
+                >AI price unavailable</span
+            >
+            <template
+                v-else-if="aiPrice.kind === 'agree' || aiPrice.kind === 'offer'"
+            >
+                <span
+                    class="min-w-0 truncate text-ss-text-2"
+                    :title="aiPrice.reason"
+                >
+                    <b class="font-semibold text-ss-text">
+                        {{ aiPrice.kind === 'agree' ? 'AI agrees:' : 'AI:' }}
+                        {{ usd(aiPrice.price) }}
+                    </b>
+                    <template v-if="aiPrice.reason">
+                        · {{ aiPrice.reason }}</template
+                    >
+                </span>
+                <button
+                    v-if="aiPrice.kind === 'offer'"
+                    type="button"
+                    class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 font-semibold text-ss-accent-text hover:bg-ss-accent-soft"
+                    :title="`Set the price to ${usd(aiPrice.price)}`"
+                    @click="emit('update:price', aiPrice.price)"
+                >
+                    Use
+                </button>
+            </template>
         </div>
 
         <div class="flex items-center gap-1.5">

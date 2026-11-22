@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
+import { humanPlan } from '@/lib/ppvComposer';
 import type {
     ComposerAttachment,
     ComposerPpv,
@@ -315,6 +316,15 @@ function onKeydown(e: KeyboardEvent) {
                 Generating a draft…
             </p>
             <template v-else>
+                <!-- PPV caption only: SSAI's saved plan was a non-selling move (PpvReadiness). -->
+                <p
+                    v-if="props.ppv?.notReadyPlan"
+                    class="mb-1.5 rounded-lg border border-ss-warn/30 bg-ss-warn/10 px-2 py-1 text-[11px] leading-snug text-ss-warn"
+                    data-testid="ppv-not-ready"
+                >
+                    ⚠ SSAI planned {{ humanPlan(props.ppv.notReadyPlan) }} next.
+                    Caption written anyway, send only if he's ready to unlock.
+                </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"
                 >
@@ -427,6 +437,7 @@ function onKeydown(e: KeyboardEvent) {
             v-if="props.ppv"
             :ppv="props.ppv"
             :model-id="props.modelId"
+            :generating="props.generating"
             @update:price="setPpvPrice"
             @remove="emit('update:ppv', null)"
         />

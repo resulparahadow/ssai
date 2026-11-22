@@ -29,7 +29,11 @@ import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
-import { composerDirty, suggestionStillApplies } from '@/lib/ppvComposer';
+import {
+    composerDirty,
+    ppvMediaCounts,
+    suggestionStillApplies,
+} from '@/lib/ppvComposer';
 import {
     ensureSubscribed,
     onInboundMessage,
@@ -214,6 +218,11 @@ async function generate() {
     // composer's set changes while the engine runs, the result no longer applies and is dropped.
     const captionFor = st.ppv?.setId ?? null;
 
+    // A new caption gets a new price read: drop the last one now so the strip shows "pricing".
+    if (st.ppv) {
+        st.ppv = { ...st.ppv, priceSuggestion: null, notReadyPlan: null };
+    }
+
     try {
         // Use the cached thread for THIS chat, not whatever is on screen now.
         const thread =
@@ -246,6 +255,10 @@ async function generate() {
             // The set name is deliberately NOT put in `context` — any context text flips
             // the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
             sender: captionFor !== null ? 'ppv' : 'customer',
+            // What is in the set, so the price suggestion prices the real content (counts only).
+            ...(captionFor !== null && st.ppv
+                ? { ppvMedia: ppvMediaCounts(st.ppv.media) }
+                : {}),
         });
 
         if (!suggestionStillApplies(captionFor, st.ppv?.setId ?? null)) {
@@ -258,6 +271,16 @@ async function generate() {
             draft = data.draft || null;
             st.suggestion = draft;
             st.suggestionFor = captionFor;
+
+            // Merge into the CURRENT set, read after the await: a price the chatter edited while
+            // this ran must survive. The suggestion is advice next to the chip, never the price.
+            if (captionFor !== null && st.ppv) {
+                st.ppv = {
+                    ...st.ppv,
+                    priceSuggestion: data.ppvSuggestion ?? null,
+                    notReadyPlan: data.ppvNotReady ?? null,
+                };
+            }
 
             // A caption's strategy is legacy's forced `send_content` read — not the fan's
             // analysis. It never touches the local AI Intel/telemetry, so nothing can commit it.
@@ -984,6 +1007,8 @@ function loadPpvSet(set: PpvSet) {
         setName: set.name,
         price: set.price,
         media: set.media.map((pm) => ({ ...pm })),
+        priceSuggestion: null,
+        notReadyPlan: null,
     };
 }
 
