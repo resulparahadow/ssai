@@ -6,6 +6,7 @@ use App\Models\AichUsageEvent;
 use App\Models\CustomerProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
@@ -84,3 +85,63 @@ it('still records usage for a caption generate', function () {
 
     expect(AichUsageEvent::count())->toBe(1);
 });
+
+function fakeEngineWithSuggestion(array $suggestion): void
+{
+    // beforeEach already faked the engine; earlier stubs win, so start from a fresh factory.
+    Http::swap(new HttpFactory);
+    Http::fake([
+        'app.onlyfansapi.com/*' => Http::response(['data' => ['id' => 101, 'isSubscribed' => true]]),
+        '127.0.0.1:8787/*' => Http::response([
+            'draft' => 'i got a little carried away 🙈',
+            'strategy' => ['phase' => 'send_content'],
+            'telemetry' => null,
+            'ppvSuggestion' => $suggestion,
+            'usage' => [],
+        ]),
+    ]);
+}
+
+it('returns the clamped suggestion in caption mode', function () {
+    fakeEngineWithSuggestion(['price' => 250, 'reason' => 'whale']);
+
+    $this->actingAs($this->admin)->postJson($this->url, [
+        'messages' => [['from' => 'fan', 'text' => 'show me']],
+        'customer' => ['id' => '101'],
+        'sender' => 'ppv',
+    ])->assertOk()
+        ->assertJsonPath('ppvSuggestion.price', 200)
+        ->assertJsonPath('ppvSuggestion.reason', 'whale · capped at $200');
+});
+
+it('forwards ppvMedia counts in caption mode', function () {
+    captionGenerate(['sender' => 'ppv', 'ppvMedia' => ['photo' => 3, 'video' => 1]]);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '8787')
+        && data_get($r->data(), 'ppvMedia.photo') === 3
+        && data_get($r->data(), 'ppvMedia.video') === 1);
+});
+
+it('omits ppvSuggestion and ppvMedia on a reply', function () {
+    fakeEngineWithSuggestion(['price' => 14, 'reason' => 'x']);
+
+    $this->actingAs($this->admin)->postJson($this->url, [
+        'messages' => [['from' => 'fan', 'text' => 'hi']],
+        'customer' => ['id' => '101'],
+        'ppvMedia' => ['photo' => 3],
+    ])->assertOk()->assertJsonMissingPath('ppvSuggestion');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '8787') && data_get($r->data(), 'ppvMedia') === null);
+});
+
+it('rejects bad ppvMedia', function (array $media) {
+    $this->actingAs($this->admin)->postJson($this->url, [
+        'messages' => [['from' => 'fan', 'text' => 'hi']],
+        'customer' => ['id' => '101'],
+        'sender' => 'ppv',
+        'ppvMedia' => $media,
+    ])->assertStatus(422);
+})->with([
+    'negative' => [['photo' => -1]],
+    'over 40' => [['photo' => 41]],
+]);

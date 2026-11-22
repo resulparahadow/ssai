@@ -18,6 +18,7 @@ use App\Services\OnlyFans\FanMemoryLog;
 use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
+use App\Support\PpvPriceSuggestion;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
@@ -897,6 +898,13 @@ class OnlyFansChatController extends Controller
             // 'ppv' = legacy's PPV caption mode (the chatter is about to send paid content;
             // the engine writes ONE curiosity caption, no reply). See the skip rules below.
             'sender' => 'nullable|in:customer,ppv',
+            // What is in the loaded PPV set (counts by type), so the price suggestion prices the
+            // actual content. Caption mode only; never the set's name or preset price.
+            'ppvMedia' => 'nullable|array',
+            'ppvMedia.photo' => 'nullable|integer|min:0|max:40',
+            'ppvMedia.video' => 'nullable|integer|min:0|max:40',
+            'ppvMedia.gif' => 'nullable|integer|min:0|max:40',
+            'ppvMedia.audio' => 'nullable|integer|min:0|max:40',
         ]);
         $sender = $data['sender'] ?? 'customer';
         $captionMode = $sender === 'ppv';
@@ -921,6 +929,7 @@ class OnlyFansChatController extends Controller
                 'context' => $data['context'] ?? '',
                 'api' => $data['api'] ?? 'claude',
                 'sender' => $sender,
+                'ppvMedia' => $captionMode ? ($data['ppvMedia'] ?? null) : null,
                 // SESSION spend (this conversation), derived by LiveThreadMapper from the thread's
                 // opened PPVs + tips within the gap-based window. Lifetime spend still rides on
                 // _profile (below). Together these drive wall state + active-buyer/tier/tip logic.
@@ -1004,6 +1013,10 @@ class OnlyFansChatController extends Controller
             'strategy' => $out['strategy'] ?? null,
             'telemetry' => $out['telemetry'] ?? null,
             'generatedAt' => $generatedAt,
+            // Caption mode only: legacy's price suggestion, clamped to a sendable price.
+            ...($captionMode ? [
+                'ppvSuggestion' => PpvPriceSuggestion::normalize($out['ppvSuggestion'] ?? null),
+            ] : []),
         ]);
     }
 

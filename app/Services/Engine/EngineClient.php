@@ -85,6 +85,8 @@ class EngineClient
             ])->all(),
             'api' => $opts['api'] ?? 'claude',
             'sender' => $opts['sender'] ?? 'customer',
+            // PPV caption mode: the loaded set's media counts, appended to the price prompt.
+            'ppvMedia' => $opts['ppvMedia'] ?? null,
             'context' => $opts['context'] ?? '',
             // The clock legacy's "current time" prompt lines read (engine/zonedDate.js). Must
             // match the zone LiveThreadMapper stamped the messages in.
