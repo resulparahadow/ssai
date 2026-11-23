@@ -378,7 +378,7 @@ function fmtDuration(sec: number | null): string {
                 />
                 <template v-else>{{ chat.initials }}</template>
             </span>
-            <div class="min-w-0 flex-1">
+            <div class="min-w-16 flex-1">
                 <div class="flex items-center gap-1.5">
                     <span class="truncate text-sm font-semibold text-ss-text">
                         {{ chat.name }}
@@ -407,13 +407,17 @@ function fmtDuration(sec: number | null): string {
                 <Wallet :size="13" />
                 {{ usd(spend) }}
             </span>
-            <div class="relative flex items-center">
+            <!-- Shrinks before the fan's name does: a narrow column keeps who you're talking to. -->
+            <div
+                class="relative flex w-36 min-w-20 shrink items-center transition-[width] focus-within:w-48"
+            >
                 <Search :size="13" class="absolute left-2 text-ss-text-3" />
                 <input
                     v-model="query"
                     type="text"
                     placeholder="Search"
-                    class="h-8 w-36 rounded-lg border border-ss-border bg-ss-bg pr-6 pl-7 text-[12px] text-ss-text placeholder:text-ss-text-3 focus:w-48 focus:border-ss-accent focus:outline-none"
+                    aria-label="Search this conversation"
+                    class="h-8 w-full rounded-lg border border-ss-border bg-ss-bg pr-6 pl-7 text-[12px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
                     @keyup.enter="runSearch"
                 />
                 <button
@@ -507,6 +511,8 @@ function fmtDuration(sec: number | null): string {
                         @hidden="emit('hidden')"
                     />
                 </div>
+                <!-- Page-owned header actions (e.g. the side-panel toggle on narrow screens). -->
+                <slot name="header-actions" />
             </div>
         </div>
 

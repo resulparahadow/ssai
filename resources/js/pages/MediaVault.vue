@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, usePage } from '@inertiajs/vue3';
 import { Images, RefreshCw, Users } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import SsVaultGrid from '@/components/crm/vault/SsVaultGrid.vue';
 import SsVaultRail from '@/components/crm/vault/SsVaultRail.vue';
@@ -9,6 +9,13 @@ import { useCreatorContext } from '@/composables/useCreatorContext';
 import { can } from '@/crm/nav';
 import type { Role } from '@/types/auth';
 import type { OfVaultList, SidebarCreator } from '@/types/crm';
+
+// The creator selection lives in localStorage, which the server-side render can't read, so SSR
+// always rendered the "Select a creator" branch and hydration then reused that element's
+// classes for the real layout (broken, centered panels after a full reload).
+// Render a neutral placeholder until mounted so server and client agree.
+const hydrated = ref(false);
+onMounted(() => (hydrated.value = true));
 
 const page = usePage();
 const { selectedId } = useCreatorContext();
@@ -75,8 +82,9 @@ const reloadNonce = ref(0);
             </button>
         </div>
 
+        <div v-if="!hydrated" class="h-full" />
         <SsCreatorPrompt
-            v-if="!creators.length"
+            v-else-if="!creators.length"
             class="flex-1"
             :icon="Users"
             title="No creators assigned"
