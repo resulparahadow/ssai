@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
+    AlertTriangle,
     Check,
+    Images,
     MessageSquareText,
     Paperclip,
     RefreshCw,
@@ -12,6 +14,7 @@ import {
 } from '@lucide/vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
+import { humanPlan } from '@/lib/ppvComposer';
 import type {
     ComposerAttachment,
     ComposerPpv,
@@ -133,6 +136,12 @@ const sendLabel = computed(() => {
 function setPpvPrice(price: number) {
     if (props.ppv) {
         emit('update:ppv', { ...props.ppv, price });
+    }
+}
+
+function setPpvMedia(media: ComposerPpv['media']) {
+    if (props.ppv) {
+        emit('update:ppv', { ...props.ppv, media });
     }
 }
 
@@ -315,6 +324,26 @@ function onKeydown(e: KeyboardEvent) {
                 Generating a draft…
             </p>
             <template v-else>
+                <!-- PPV caption only: SSAI's saved plan was a non-selling move (PpvReadiness). -->
+                <p
+                    v-if="props.ppv?.notReadyPlan"
+                    class="mb-2 flex items-start gap-1.5 rounded-lg border border-ss-warn/30 bg-ss-warn/10 px-2 py-1.5 text-[12px] leading-snug text-ss-text"
+                    data-testid="ppv-not-ready"
+                >
+                    <AlertTriangle
+                        :size="13"
+                        class="mt-px shrink-0 text-ss-warn"
+                        aria-hidden="true"
+                    />
+                    <span>
+                        <b class="font-semibold"
+                            >SSAI planned
+                            {{ humanPlan(props.ppv.notReadyPlan) }} next.</b
+                        >
+                        Caption written anyway, send only if he's ready to
+                        unlock.
+                    </span>
+                </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"
                 >
@@ -427,7 +456,9 @@ function onKeydown(e: KeyboardEvent) {
             v-if="props.ppv"
             :ppv="props.ppv"
             :model-id="props.modelId"
+            :generating="props.generating"
             @update:price="setPpvPrice"
+            @update:media="setPpvMedia"
             @remove="emit('update:ppv', null)"
         />
 
@@ -557,67 +588,36 @@ function onKeydown(e: KeyboardEvent) {
             }}
         </p>
 
-        <!-- Typing bar -->
+        <!-- Typing bar: the message gets the full width; tools sit in a row beneath it, so a
+             narrow middle column never squeezes the textarea down to one word per line. -->
         <div
-            class="relative flex items-end gap-2"
+            class="@container relative rounded-xl border border-ss-border bg-ss-surface transition-colors focus-within:border-ss-accent"
+            :class="!props.canSend ? 'bg-ss-surface-2' : ''"
             @dragover.prevent="dragging = true"
             @dragleave.prevent="dragging = false"
             @drop.prevent="onDrop"
         >
             <div
                 v-if="dragging"
-                class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg border-2 border-dashed border-ss-accent bg-ss-accent-soft/90 text-[12px] font-semibold text-ss-accent-text"
+                class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-xl border-2 border-dashed border-ss-accent bg-ss-accent-soft/90 text-[12px] font-semibold text-ss-accent-text"
             >
                 Drop to attach
             </div>
-
-            <button
-                type="button"
-                :disabled="props.generating"
-                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ss-border text-ss-accent-text hover:bg-ss-surface-2 disabled:opacity-50"
-                :title="
-                    props.ppv
-                        ? 'Generate caption — SSAI writes the PPV pitch for this fan'
-                        : 'Generate an AI draft'
-                "
-                @click="emit('generate')"
-            >
-                <Sparkles
-                    :size="16"
-                    :class="props.generating ? 'animate-pulse' : ''"
-                />
-            </button>
-
-            <button
-                type="button"
-                class="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors"
-                :class="
-                    showContext
-                        ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
-                        : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
-                "
-                title="Guide the AI — tell SSAI what to focus on before generating"
-                @click="showContext = !showContext"
-            >
-                <MessageSquareText :size="16" />
-                <span
-                    v-if="props.context.trim().length > 0"
-                    class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-ss-surface bg-ss-accent"
-                    title="A directive is set for the next generate"
-                />
-            </button>
 
             <textarea
                 ref="textarea"
                 :value="props.draft"
                 :disabled="!props.canSend"
                 rows="1"
+                aria-label="Message"
                 :placeholder="
                     props.canSend
-                        ? 'Type a message… (Enter sends, Shift+Enter for a new line)'
+                        ? props.ppv
+                            ? 'Add a caption (optional)… Enter sends, Shift+Enter for a new line'
+                            : 'Type a message… Enter sends, Shift+Enter for a new line'
                         : 'Sending is disabled for this chat'
                 "
-                class="min-h-9 w-full flex-1 resize-none rounded-lg border border-ss-border bg-ss-surface px-3 py-2 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none disabled:opacity-50"
+                class="block min-h-10 w-full resize-none rounded-t-xl bg-transparent px-3 pt-2.5 pb-1 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:outline-none disabled:cursor-not-allowed"
                 @input="onInput"
                 @keydown="onKeydown"
             />
@@ -629,80 +629,137 @@ function onKeydown(e: KeyboardEvent) {
                 class="hidden"
                 @change="onFileChange"
             />
-            <button
-                type="button"
-                :disabled="!props.canSend || attachBusy"
-                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ss-border text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-40"
-                title="Attach a photo, video, or audio file"
-                @click="fileInput?.click()"
-            >
-                <Paperclip :size="16" />
-            </button>
-            <button
-                type="button"
-                :disabled="!props.canSend || attachBusy"
-                class="grid h-9 shrink-0 place-items-center rounded-lg border border-ss-border px-2 text-[11px] font-bold text-ss-text-2 hover:bg-ss-surface-2 disabled:opacity-40"
-                title="Attach from the OnlyFans vault"
-                @click="showVault = true"
-            >
-                VAULT
-            </button>
 
-            <!-- Emoji picker -->
-            <div class="relative shrink-0">
+            <div class="flex items-center gap-0.5 px-1.5 pb-1.5">
                 <button
                     type="button"
-                    :disabled="!props.canSend"
-                    class="grid h-9 w-9 place-items-center rounded-lg border transition-colors disabled:opacity-40"
-                    :class="
-                        showEmoji
-                            ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
-                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                    :disabled="props.generating"
+                    class="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold text-ss-accent-text transition-colors hover:bg-ss-accent-soft disabled:opacity-50"
+                    :title="
+                        props.ppv
+                            ? 'Generate caption — SSAI writes the PPV pitch for this fan'
+                            : 'Generate an AI draft'
                     "
-                    title="Insert an emoji"
-                    @click="showEmoji = !showEmoji"
+                    @click="emit('generate')"
                 >
-                    <Smile :size="16" />
+                    <Sparkles
+                        :size="16"
+                        :class="props.generating ? 'animate-pulse' : ''"
+                    />
+                    <span class="hidden @[26rem]:inline">{{
+                        props.generating
+                            ? 'Writing…'
+                            : props.ppv
+                              ? 'Caption'
+                              : 'Generate'
+                    }}</span>
                 </button>
-                <SsEmojiPicker
-                    v-if="showEmoji"
-                    @select="insertEmoji"
-                    @close="showEmoji = false"
-                />
-            </div>
 
-            <!-- GIF picker -->
-            <div class="relative shrink-0">
                 <button
                     type="button"
-                    :disabled="!props.canSend"
-                    class="grid h-9 w-11 place-items-center rounded-lg border text-[12px] font-bold transition-colors disabled:opacity-40"
+                    class="relative grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors"
                     :class="
-                        showPicker
-                            ? 'border-ss-accent bg-ss-accent-soft text-ss-accent-text'
-                            : 'border-ss-border text-ss-text-2 hover:bg-ss-surface-2'
+                        showContext
+                            ? 'bg-ss-accent-soft text-ss-accent-text'
+                            : 'text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text'
                     "
-                    title="Send a GIF"
-                    @click="showPicker = !showPicker"
+                    :aria-pressed="showContext"
+                    title="Guide the AI — tell SSAI what to focus on before generating"
+                    @click="showContext = !showContext"
                 >
-                    GIF
+                    <MessageSquareText :size="16" />
+                    <span
+                        v-if="props.context.trim().length > 0"
+                        class="absolute top-1 right-1 h-2 w-2 rounded-full border border-ss-surface bg-ss-accent"
+                        title="A directive is set for the next generate"
+                    />
                 </button>
-                <SsGifPicker
-                    v-if="showPicker"
-                    :model-id="props.modelId"
-                    @select="pickGif"
-                    @close="showPicker = false"
-                />
-            </div>
 
-            <button
-                type="button"
-                :disabled="!sendable"
-                class="flex shrink-0 items-center gap-1.5 rounded-lg bg-ss-accent px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
-                @click="emit('send')"
-            >
-                <Send :size="14" /> {{ sendLabel }}
-            </button>
+                <span
+                    class="mx-1 h-5 w-px shrink-0 bg-ss-border"
+                    aria-hidden="true"
+                />
+
+                <button
+                    type="button"
+                    :disabled="!props.canSend || attachBusy"
+                    class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ss-text-2 transition-colors hover:bg-ss-surface-2 hover:text-ss-text disabled:opacity-40"
+                    title="Attach a photo, video, or audio file"
+                    aria-label="Attach a file"
+                    @click="fileInput?.click()"
+                >
+                    <Paperclip :size="16" />
+                </button>
+                <button
+                    type="button"
+                    :disabled="!props.canSend || attachBusy"
+                    class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ss-text-2 transition-colors hover:bg-ss-surface-2 hover:text-ss-text disabled:opacity-40"
+                    title="Attach from the OnlyFans vault"
+                    aria-label="Attach from the vault"
+                    @click="showVault = true"
+                >
+                    <Images :size="16" />
+                </button>
+
+                <!-- Emoji picker -->
+                <div class="relative shrink-0">
+                    <button
+                        type="button"
+                        :disabled="!props.canSend"
+                        class="grid h-8 w-8 place-items-center rounded-lg transition-colors disabled:opacity-40"
+                        :class="
+                            showEmoji
+                                ? 'bg-ss-accent-soft text-ss-accent-text'
+                                : 'text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text'
+                        "
+                        title="Insert an emoji"
+                        aria-label="Insert an emoji"
+                        @click="showEmoji = !showEmoji"
+                    >
+                        <Smile :size="16" />
+                    </button>
+                    <SsEmojiPicker
+                        v-if="showEmoji"
+                        @select="insertEmoji"
+                        @close="showEmoji = false"
+                    />
+                </div>
+
+                <!-- GIF picker -->
+                <div class="relative shrink-0">
+                    <button
+                        type="button"
+                        :disabled="!props.canSend"
+                        class="grid h-8 place-items-center rounded-lg px-2 text-[11px] font-bold tracking-wide transition-colors disabled:opacity-40"
+                        :class="
+                            showPicker
+                                ? 'bg-ss-accent-soft text-ss-accent-text'
+                                : 'text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text'
+                        "
+                        title="Send a GIF"
+                        @click="showPicker = !showPicker"
+                    >
+                        GIF
+                    </button>
+                    <SsGifPicker
+                        v-if="showPicker"
+                        :model-id="props.modelId"
+                        @select="pickGif"
+                        @close="showPicker = false"
+                    />
+                </div>
+
+                <span class="min-w-1 flex-1" />
+
+                <button
+                    type="button"
+                    :disabled="!sendable"
+                    class="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-ss-accent px-3.5 text-[13px] font-semibold whitespace-nowrap text-white transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
+                    @click="emit('send')"
+                >
+                    <Send :size="14" /> {{ sendLabel }}
+                </button>
+            </div>
         </div>
 
         <SsVaultModal

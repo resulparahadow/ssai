@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { MessageSquare, Users } from '@lucide/vue';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { MessageSquare, PanelRight, Users, X } from '@lucide/vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import SsAiIntel from '@/components/crm/conversations/SsAiIntel.vue';
 import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
@@ -29,7 +29,11 @@ import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
-import { composerDirty, suggestionStillApplies } from '@/lib/ppvComposer';
+import {
+    composerDirty,
+    ppvMediaCounts,
+    suggestionStillApplies,
+} from '@/lib/ppvComposer';
 import {
     ensureSubscribed,
     onInboundMessage,
@@ -50,6 +54,13 @@ import type {
     PpvSet,
     SidebarCreator,
 } from '@/types/crm';
+
+// The creator selection lives in localStorage, which the server-side render can't read, so SSR
+// always rendered the "Select a creator" branch and hydration then reused that element's
+// classes for the real layout (broken, centered panels after a full reload).
+// Render a neutral placeholder until mounted so server and client agree.
+const hydrated = ref(false);
+onMounted(() => (hydrated.value = true));
 
 const props = defineProps<{
     sessionGapHours: number;
@@ -128,6 +139,11 @@ const fan = ref<OfFan | null>(null);
 
 // Right rail: Fan / AI Intel tabs.
 const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
+// When the page is narrower than 69rem (a 1440 screen with the sidebar open clears it, 1280
+// does not) the rail is a slide-over toggled from the chat header; wider, it is always shown
+// inline and this flag is ignored. Stays closed on auto-switches (e.g. after a generate) so it
+// never covers the composer uninvited.
+const railOpen = ref(false);
 const ppvStatusKey = ref(0); // bumped after a PPV send → SsPpvRail refreshes its pills
 
 // The open chat's composer state (draft / generating / AI strategy). Per-chat,
@@ -214,6 +230,11 @@ async function generate() {
     // composer's set changes while the engine runs, the result no longer applies and is dropped.
     const captionFor = st.ppv?.setId ?? null;
 
+    // A new caption gets a new price read: drop the last one now so the strip shows "pricing".
+    if (st.ppv) {
+        st.ppv = { ...st.ppv, priceSuggestion: null, notReadyPlan: null };
+    }
+
     try {
         // Use the cached thread for THIS chat, not whatever is on screen now.
         const thread =
@@ -246,6 +267,10 @@ async function generate() {
             // The set name is deliberately NOT put in `context` — any context text flips
             // the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
             sender: captionFor !== null ? 'ppv' : 'customer',
+            // What is in the set, so the price suggestion prices the real content (counts only).
+            ...(captionFor !== null && st.ppv
+                ? { ppvMedia: ppvMediaCounts(st.ppv.media) }
+                : {}),
         });
 
         if (!suggestionStillApplies(captionFor, st.ppv?.setId ?? null)) {
@@ -258,6 +283,16 @@ async function generate() {
             draft = data.draft || null;
             st.suggestion = draft;
             st.suggestionFor = captionFor;
+
+            // Merge into the CURRENT set, read after the await: a price the chatter edited while
+            // this ran must survive. The suggestion is advice next to the chip, never the price.
+            if (captionFor !== null && st.ppv) {
+                st.ppv = {
+                    ...st.ppv,
+                    priceSuggestion: data.ppvSuggestion ?? null,
+                    notReadyPlan: data.ppvNotReady ?? null,
+                };
+            }
 
             // A caption's strategy is legacy's forced `send_content` read — not the fan's
             // analysis. It never touches the local AI Intel/telemetry, so nothing can commit it.
@@ -984,7 +1019,11 @@ function loadPpvSet(set: PpvSet) {
         setName: set.name,
         price: set.price,
         media: set.media.map((pm) => ({ ...pm })),
+        priceSuggestion: null,
+        notReadyPlan: null,
     };
+    // Narrow screens: get the slide-over out of the way so the loaded set is visible.
+    railOpen.value = false;
 }
 
 function setPpv(value: ComposerPpv | null) {
@@ -1795,8 +1834,9 @@ onBeforeUnmount(() => {
 <template>
     <Head title="Conversations" />
 
+    <div v-if="!hydrated" class="h-full" />
     <SsCreatorPrompt
-        v-if="!creators.length"
+        v-else-if="!creators.length"
         class="h-full"
         :icon="Users"
         title="No creators assigned"
@@ -1811,7 +1851,7 @@ onBeforeUnmount(() => {
         hint="Creator selector · top of the sidebar"
     />
 
-    <div v-else class="flex h-full gap-4">
+    <div v-else class="@container relative flex h-full w-full gap-4">
         <SsConvoList
             :chats="chats"
             :loading="chatsLoading"
@@ -1886,12 +1926,38 @@ onBeforeUnmount(() => {
                         @remove-rejection="removeRejection"
                     />
                 </template>
+                <template #header-actions>
+                    <button
+                        type="button"
+                        class="grid h-8 w-8 place-items-center rounded-lg transition-colors @min-[69rem]:hidden"
+                        :class="
+                            railOpen
+                                ? 'bg-ss-accent-soft text-ss-accent-text'
+                                : 'text-ss-text-2 hover:bg-ss-surface-2'
+                        "
+                        :aria-pressed="railOpen"
+                        aria-controls="conversation-rail"
+                        title="Fan, AI Intel and PPV panel"
+                        @click="railOpen = !railOpen"
+                    >
+                        <PanelRight :size="16" />
+                    </button>
+                </template>
             </SsChatThread>
 
             <aside
-                class="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-ss-border bg-ss-surface"
+                id="conversation-rail"
+                class="w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-ss-border bg-ss-surface @min-[69rem]:flex"
+                :class="
+                    railOpen
+                        ? 'flex @max-[69rem]:absolute @max-[69rem]:inset-y-0 @max-[69rem]:right-0 @max-[69rem]:z-30 @max-[69rem]:shadow-[0_12px_40px_-8px_rgb(0_0_0/0.35)]'
+                        : 'hidden'
+                "
+                @keydown.esc="railOpen = false"
             >
-                <div class="flex shrink-0 border-b border-ss-border p-1.5">
+                <div
+                    class="flex shrink-0 items-center gap-1 border-b border-ss-border p-1.5"
+                >
                     <button
                         type="button"
                         class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
@@ -1927,6 +1993,14 @@ onBeforeUnmount(() => {
                         @click="rail = 'ppv'"
                     >
                         PPV
+                    </button>
+                    <button
+                        type="button"
+                        class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 @min-[69rem]:hidden"
+                        title="Close panel"
+                        @click="railOpen = false"
+                    >
+                        <X :size="14" />
                     </button>
                 </div>
                 <SsFanPanel

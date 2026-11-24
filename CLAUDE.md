@@ -145,8 +145,11 @@ engine uses its in-process copy. Provider keys live in the engine's env
   `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
   `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note),
   `node engine/ppv_caption_check.js` (`sender:'ppv'` → legacy's PPV CAPTION MODE on the generator, no
-  follow-up note, and NO `price_ppv` call — `runGenerate.js` short-circuits legacy's fire-and-forget
-  price suggestion because the engine never returns `_ppvSuggestion`, so it was a billed call thrown away).
+  follow-up note, exactly ONE `price_ppv` call; a reply makes none),
+  `node engine/ppv_price_check.js` (caption mode awaits legacy's fire-and-forget `fetchPpvSuggestion`
+  and returns `ppvSuggestion`; `ppvMedia` counts reach its prompt; a hung price call times out
+  without failing the caption; outside caption mode the `price_ppv` short-circuit stays — nothing
+  shows a pre-warmed price, so it would be a billed call thrown away).
 - **The creator spoke last → the AI writes a follow-up, not a reply (fixed 2026-09-26).** Legacy was
   only ever used to answer a fan message the chatter had just typed in, so its prompts take the
   newest line to be the fan's ("your analysis must reflect what the LAST customer message actually
@@ -554,8 +557,24 @@ engine uses its in-process copy. Provider keys live in the engine's env
     fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/
     {model}/{media}`, stored as the marker `local` and served by the private `thumb/{media}` route;
     other hosts → null. Guards: `tests/Feature/{PpvSetModelTest,PpvSetTest,OnlyFansChatSendPpvTest,
-    OnlyFansChatCaptionTest}.php`, `node engine/ppv_caption_check.js`. NOT in this slice: AI picking
-    the set / price suggestion, `previews`/`lockedText`, auto follow-up on unbought PPVs.
+    OnlyFansChatCaptionTest}.php`, `node engine/ppv_caption_check.js`.
+    **Slice 2 (2026-11-22, spec `docs/superpowers/specs/2026-11-22-ppv-price-suggestion-design.md`):**
+    a caption generate also returns **`ppvSuggestion`** — legacy's own price call, lifted in caption
+    mode only, told the set's media counts (request `ppvMedia` `{photo,video,gif,audio}`, never the
+    set name or preset price), clamped by `App\Support\PpvPriceSuggestion` to whole dollars in
+    $3–$200 (the reason says "capped"/"raised") — and **`ppvNotReady`**: `PpvReadiness` reads the
+    forward plan saved on the last Accept (`aich_chat_state.next_planned_move`, NOT `last_strategy.phase`,
+    which is the move the accepted draft made) and warns on `rapport_beat`/`qualifying_question`/
+    `aftercare`/`goodbye_script`/`manager_flag`, dropping the plan (no warning) after a
+    `session_gap_hours` gap, a PPV sent after the commit, or 2+ creator messages after it. Legacy's
+    own `ppvOverrodeBrain` almost never fires (PPV mode forces the phase first) and is ignored. Both
+    keys exist only in caption mode. Client: `SsPpvStrip` shows `AI: $12 · reason [Use]` beside the
+    chip — the suggestion NEVER changes the price, only Use does, and the response is merged into the
+    current `st.ppv` so an edit made while generating survives — and `SsComposer`'s draft card shows
+    the amber "SSAI planned … next" line (`lib/ppvComposer.ts` helpers, guard
+    `tests/client/ppv-composer-check.mjs`). Guards: `tests/Unit/{PpvPriceSuggestion,PpvReadiness}Test.php`,
+    `OnlyFansChatCaptionTest`, `node engine/ppv_price_check.js`. NOT yet: AI picking the set,
+    `previews`/`lockedText`, auto follow-up on unbought PPVs, pricing without a Generate.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.

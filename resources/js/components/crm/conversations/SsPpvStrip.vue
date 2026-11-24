@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { Film, Image as ImageIcon, Lock, Music, Tag, X } from '@lucide/vue';
+import {
+    AlertTriangle,
+    Film,
+    Image as ImageIcon,
+    Lock,
+    Music,
+    Sparkles,
+    Tag,
+    X,
+} from '@lucide/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
-import { parsePpvPriceInput } from '@/lib/ppvComposer';
+import { parsePpvPriceInput, priceSuggestionView } from '@/lib/ppvComposer';
 import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
 
 /**
@@ -12,8 +21,16 @@ import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
  * validated against the vendor rule (free, or $3–$200) so Send stays disabled on a bad value
  * instead of paying for a vendor 422.
  */
-const props = defineProps<{ ppv: ComposerPpv; modelId: number }>();
-const emit = defineEmits<{ 'update:price': [value: number]; remove: [] }>();
+const props = defineProps<{
+    ppv: ComposerPpv;
+    modelId: number;
+    generating: boolean;
+}>();
+const emit = defineEmits<{
+    'update:price': [value: number];
+    'update:media': [value: PpvSetMedia[]];
+    remove: [];
+}>();
 
 const MAX_TILES = 6;
 
@@ -22,6 +39,15 @@ const overflow = computed(() =>
     Math.max(0, props.ppv.media.length - MAX_TILES),
 );
 const priceOk = computed(() => isValidPpvPrice(props.ppv.price));
+
+// The AI's price read, beside the chip. Advice only: "Use" is the one way it reaches the price.
+const aiPrice = computed(() =>
+    priceSuggestionView(
+        props.ppv.priceSuggestion,
+        props.generating,
+        props.ppv.price,
+    ),
+);
 
 // Inline price editor: a chip that turns into a number input on click.
 const editing = ref(false);
@@ -53,6 +79,35 @@ function commit() {
 function cancel() {
     editing.value = false;
     draftPrice.value = String(props.ppv.price);
+}
+
+// Tiles whose thumbnail failed to load. Usually the item was deleted from the creator's vault
+// after the set was saved (verified live: the vault then 404s the id), so sending it would
+// fail too; a stale CDN link looks the same from here, hence "didn't load", not "deleted".
+const broken = ref(new Set<string>());
+
+watch(
+    () => props.ppv.setId,
+    () => (broken.value = new Set()),
+);
+
+function markBroken(id: string) {
+    broken.value = new Set(broken.value).add(id);
+}
+
+const brokenCount = computed(
+    () => props.ppv.media.filter((m) => broken.value.has(m.id)).length,
+);
+
+/** Drop the items that didn't load from THIS send only — the saved set is untouched. */
+function removeBroken() {
+    const kept = props.ppv.media.filter((m) => !broken.value.has(m.id));
+
+    if (kept.length === 0) {
+        emit('remove');
+    } else {
+        emit('update:media', kept);
+    }
 }
 
 function tileIcon(m: PpvSetMedia) {
@@ -129,19 +184,76 @@ function tileIcon(m: PpvSetMedia) {
             </button>
         </div>
 
+        <div
+            v-if="aiPrice.kind !== 'none'"
+            class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px]"
+            data-testid="ppv-ai-price"
+        >
+            <Sparkles :size="11" class="shrink-0 text-ss-text-3" />
+            <span
+                v-if="aiPrice.kind === 'pricing'"
+                class="text-ss-text-3 italic"
+                >AI pricing…</span
+            >
+            <span
+                v-else-if="aiPrice.kind === 'error'"
+                class="text-ss-text-3"
+                :title="aiPrice.error"
+                >AI price unavailable</span
+            >
+            <template
+                v-else-if="aiPrice.kind === 'agree' || aiPrice.kind === 'offer'"
+            >
+                <span
+                    class="min-w-0 truncate text-ss-text-2"
+                    :title="aiPrice.reason"
+                >
+                    <b class="font-semibold text-ss-text">
+                        {{ aiPrice.kind === 'agree' ? 'AI agrees:' : 'AI:' }}
+                        {{ usd(aiPrice.price) }}
+                    </b>
+                    <template v-if="aiPrice.reason">
+                        · {{ aiPrice.reason }}</template
+                    >
+                </span>
+                <button
+                    v-if="aiPrice.kind === 'offer'"
+                    type="button"
+                    class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 font-semibold text-ss-accent-text hover:bg-ss-accent-soft"
+                    :title="`Set the price to ${usd(aiPrice.price)}`"
+                    @click="emit('update:price', aiPrice.price)"
+                >
+                    Use
+                </button>
+            </template>
+        </div>
+
         <div class="flex items-center gap-1.5">
             <div
                 v-for="(m, i) in visible"
                 :key="m.id"
                 class="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-ss-surface"
+                :class="broken.has(m.id) ? 'ring-1 ring-ss-neg/50' : ''"
+                :title="
+                    broken.has(m.id)
+                        ? 'This item didn\'t load — it may have been deleted from the vault'
+                        : undefined
+                "
             >
                 <img
-                    v-if="m.thumb"
+                    v-if="m.thumb && !broken.has(m.id)"
                     :src="mediaSrc(props.modelId, m.thumb)"
                     alt=""
                     class="h-full w-full object-cover"
                     loading="lazy"
+                    @error="markBroken(m.id)"
                 />
+                <span
+                    v-else-if="broken.has(m.id)"
+                    class="grid h-full w-full place-items-center bg-ss-neg/10 text-ss-neg"
+                >
+                    <AlertTriangle :size="16" />
+                </span>
                 <span
                     v-else
                     class="grid h-full w-full place-items-center text-ss-text-3"
@@ -149,7 +261,7 @@ function tileIcon(m: PpvSetMedia) {
                     <component :is="tileIcon(m)" :size="16" />
                 </span>
                 <span
-                    v-if="m.type === 'video' && m.thumb"
+                    v-if="m.type === 'video' && m.thumb && !broken.has(m.id)"
                     class="absolute right-1 bottom-1 grid h-4 w-4 place-items-center rounded bg-black/60 text-white"
                 >
                     <Film :size="10" />
@@ -160,6 +272,27 @@ function tileIcon(m: PpvSetMedia) {
                     >+{{ overflow }}</span
                 >
             </div>
+        </div>
+
+        <div
+            v-if="brokenCount > 0"
+            class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ss-text"
+            data-testid="ppv-broken"
+        >
+            <AlertTriangle :size="13" class="shrink-0 text-ss-neg" />
+            <span class="min-w-0 flex-1">
+                {{ brokenCount }}
+                {{ brokenCount === 1 ? "item didn't" : "items didn't" }}
+                load. They may have been deleted from the vault.
+            </span>
+            <button
+                type="button"
+                class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 text-[11px] font-semibold text-ss-text-2 hover:bg-ss-surface hover:text-ss-text"
+                title="Send without them — the saved set is not changed"
+                @click="removeBroken"
+            >
+                Remove from this send
+            </button>
         </div>
 
         <p v-if="!priceOk" class="mt-1.5 text-[11px] text-ss-neg">

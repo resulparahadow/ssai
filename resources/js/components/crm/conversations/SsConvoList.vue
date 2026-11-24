@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
 
 <template>
     <aside
-        class="flex w-72 shrink-0 flex-col rounded-xl border border-ss-border bg-ss-surface"
+        class="flex w-64 shrink-0 flex-col rounded-xl border border-ss-border bg-ss-surface @min-[69rem]:w-72"
     >
         <div class="space-y-2 border-b border-ss-border p-3">
             <div class="flex items-center justify-between">
@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
                         <span class="min-w-0 flex-1 truncate">
                             <template v-if="chatDraft(c.id)">
                                 <span class="font-medium text-ss-neg"
-                                    >Draft:</span
+                                    >Draft:&nbsp;</span
                                 >
                                 <span class="text-ss-text-3">
                                     {{ chatDraft(c.id) }}</span

@@ -11,6 +11,7 @@ import type {
     OfMessage,
     OfPreviewKind,
     OfVaultList,
+    PpvPriceSuggestion,
     PpvSet,
     PpvSetMedia,
     PpvSetStatus,
@@ -393,6 +394,9 @@ export const ofApi = {
             strategy: AiStrategy | null;
             telemetry: Record<string, unknown> | null;
             generatedAt: string | null;
+            // Caption mode (sender 'ppv') only.
+            ppvSuggestion?: PpvPriceSuggestion | null;
+            ppvNotReady?: string | null;
         }>(`${base(m)}/chats/${chat}/generate`, payload),
     intel: (m: number, chat: string) =>
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(

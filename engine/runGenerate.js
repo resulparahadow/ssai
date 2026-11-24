@@ -70,15 +70,23 @@ async function generateDraft(input, opts = {}) {
     }
     // Legacy's PPV price suggestion (`fetchPpvSuggestion`, tag 'price_ppv') is fire-and-forget
     // after a generate — always in PPV caption mode, and as a pre-warm when the strategy lands
-    // on a sell phase. Its result only ever reached the legacy DOM modal; this engine never
-    // returns `_ppvSuggestion`, so the call would be billed and thrown away. Short-circuited
-    // here (legacy catches the empty answer as a failed suggestion). The next PPV slice can
-    // lift this and surface the price instead.
+    // on a sell phase. In CAPTION MODE we let it through, tell it what is in the set (media counts
+    // only — never the set's name or preset price, which would anchor it), keep its promise and
+    // await it below so `ppvSuggestion` rides back with the caption. Outside caption mode it stays
+    // short-circuited: nothing shows a pre-warmed price, so it would be billed and thrown away
+    // (legacy catches the empty answer as a failed suggestion).
+    const captionMode = input.sender === 'ppv';
+    const mediaBlock = captionMode ? ppvMediaBlock(input.ppvMedia) : '';
+    let pricePromise = null;
     const inner = transport.callApi;
     transport = {
         ...transport,
-        callApi: (sys, user, max, fmt, tag, ...rest) =>
-            String(tag) === 'price_ppv' ? Promise.resolve('') : inner(sys, user, max, fmt, tag, ...rest),
+        callApi: (sys, user, max, fmt, tag, ...rest) => {
+            if (String(tag) !== 'price_ppv') return inner(sys, user, max, fmt, tag, ...rest);
+            if (!captionMode) return Promise.resolve('');
+            pricePromise = inner(sys, typeof user === 'string' ? user + mediaBlock : user, max, fmt, tag, ...rest);
+            return pricePromise;
+        },
     };
     eng.set('callApi', transport.callApi);
     eng.set('callMistral', transport.callMistral);
@@ -91,6 +99,29 @@ async function generateDraft(input, opts = {}) {
 
     const s = eng.get('sessions')[sid];
     if (!s) throw new Error('engine: session was dropped during generate()');
+
+    // Wait (bounded) for the fire-and-forget price call, then one macrotask so legacy's
+    // continuation inside fetchPpvSuggestion writes `s._ppvSuggestion`. A timeout never fails the
+    // caption. NB a call that times out may still complete (and bill) later, after `usage` has been
+    // returned — that cost misses the AI Usage ledger.
+    let ppvSuggestion = null;
+    if (captionMode) {
+        if (pricePromise) {
+            const timeoutMs = opts.priceTimeoutMs ?? (Number(process.env.PPV_PRICE_TIMEOUT_MS) || 20000);
+            let timer;
+            await Promise.race([
+                pricePromise.catch(() => {}),
+                new Promise((r) => { timer = setTimeout(r, timeoutMs); }),
+            ]);
+            clearTimeout(timer);
+            await new Promise((r) => setImmediate(r));
+        }
+        const sug = s._ppvSuggestion;
+        if (!pricePromise) ppvSuggestion = { error: 'no price suggestion' };
+        else if (sug && typeof sug.price === 'number') ppvSuggestion = { price: sug.price, reason: String(sug.reason || '') };
+        else if (sug && sug.error) ppvSuggestion = { error: String(sug.error) };
+        else ppvSuggestion = { error: 'price suggestion timed out' };
+    }
 
     let strategy = s._lastStrategy || null;
     if (!strategy && s._lastStrategyRaw) {
@@ -120,9 +151,21 @@ async function generateDraft(input, opts = {}) {
             registerHits: s._registerHitsFirstPass ?? null,
             reasoningLeakStripped: s._reasoningLeakStripped ?? null,
         },
+        ppvSuggestion,
         usage,
         writes,
     };
+}
+
+/** "\n\nTHE PPV BEING SENT (…): 3 photos, 1 video" from `{photo, video, gif, audio}` counts, or ''. */
+function ppvMediaBlock(counts) {
+    if (!counts || typeof counts !== 'object') return '';
+    const names = { photo: ['photo', 'photos'], video: ['video', 'videos'], gif: ['GIF', 'GIFs'], audio: ['audio clip', 'audio clips'] };
+    const parts = Object.keys(names)
+        .map((k) => [k, Math.max(0, Math.floor(Number(counts[k]) || 0))])
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${names[k][n === 1 ? 0 : 1]}`);
+    return parts.length ? `\n\nTHE PPV BEING SENT (the content this price is for): ${parts.join(', ')}` : '';
 }
 
 module.exports = { generateDraft };

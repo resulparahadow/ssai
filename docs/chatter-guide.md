@@ -177,8 +177,14 @@ picker with the set's media already ticked; the × on a tile removes it).
    curiosity caption for *this* fan, in the creator's voice — it never
    describes what's in the content, and it does not answer or continue the
    fan's last message. **Accept** puts it in the box; **Accept & Send** sends.
-3. Check the price. Click the chip to change it — free, or $3–$200. Send is
-   disabled on anything else (OnlyFans would refuse it).
+3. Check the price. Under the chip SSAI shows its own price read, e.g.
+   `AI: $12 · cold lurker, first PPV must be low-risk [Use]` (`AI agrees: $20`
+   when it matches). It's a second opinion only — the set's price stays
+   unless you click **Use**. Click the chip to change the price by hand —
+   free, or $3–$200. Send is disabled on anything else (OnlyFans would refuse it).
+   If the caption card shows an amber line like **"SSAI planned a rapport beat
+   next"**, the last plan SSAI made for this fan was *not* to sell yet. The
+   caption is written anyway — send only if he's ready to unlock.
 4. **Send PPV $20** posts a locked message. The thread shows an amber
    `$20.00 · Unpaid` pill until he buys, then green `Paid`.
 
@@ -195,8 +201,9 @@ Notes:
 
 ## 8. Known limits (today)
 
-- **SSAI doesn't pick the set or suggest the price yet.** You choose the set and
-  keep or change its price; SSAI writes the caption. Tip requests are still
+- **SSAI suggests a price, but doesn't pick the set yet.** You choose the set;
+  SSAI writes the caption and offers a price you can Use or ignore. The price
+  read only appears after **Generate caption**. Tip requests are still
   not sendable from the CRM.
 - **Mass PPVs are handled automatically.** A locked mass message (MPPV) the fan
   hasn't bought shows a `· Mass` label on its pill and SSAI ignores it, so it no

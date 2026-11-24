@@ -148,10 +148,21 @@ function pillFor(set: PpvSet): Pill {
 
 // ---- card helpers -------------------------------------------------------------
 
+// Cover urls that failed to load (a stale CDN link, or the item was deleted from the vault):
+// the card falls back to its lock placeholder instead of a broken-image glyph.
+const failedCovers = ref(new Set<string>());
+
 function cover(set: PpvSet): string | null {
     const withThumb = set.media.find((m) => m.thumb);
+    const url = withThumb?.thumb
+        ? mediaSrc(props.modelId, withThumb.thumb)
+        : null;
 
-    return withThumb?.thumb ? mediaSrc(props.modelId, withThumb.thumb) : null;
+    return url && !failedCovers.value.has(url) ? url : null;
+}
+
+function coverFailed(url: string) {
+    failedCovers.value = new Set(failedCovers.value).add(url);
 }
 
 function counts(set: PpvSet) {
@@ -275,6 +286,7 @@ onBeforeUnmount(() => document.removeEventListener('click', closeMenu));
                         alt=""
                         class="h-full w-full object-cover"
                         loading="lazy"
+                        @error="coverFailed(cover(set)!)"
                     />
                     <span
                         v-else
