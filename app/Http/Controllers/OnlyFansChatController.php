@@ -7,8 +7,8 @@ use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
 use App\Models\AichModel;
-use App\Models\PpvSet;
-use App\Models\PpvSetSend;
+use App\Models\ScriptStep;
+use App\Models\ScriptStepSend;
 use App\Rules\PpvPrice;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
@@ -510,13 +510,13 @@ class OnlyFansChatController extends Controller
         $data = $this->validateJson($request, [
             'text' => 'nullable|string',
             'giphyId' => 'nullable|string',
-            // Up to a whole PPV set (PpvSetController::MAX_MEDIA) of vault/upload ids.
-            'mediaFiles' => 'nullable|array|max:'.PpvSetController::MAX_MEDIA,
+            // Up to a whole script step (ScriptController::MAX_MEDIA) of vault/upload ids.
+            'mediaFiles' => 'nullable|array|max:'.ScriptController::MAX_MEDIA,
             'mediaFiles.*' => 'string',
             // 0 (free) or $3–$200 — validated here so a bad price never costs a billed vendor 422.
             'price' => ['nullable', 'numeric', new PpvPrice],
-            // The PPV set this send came from, for the send ledger (rail Sent/Bought pill).
-            'ppvSetId' => 'nullable|integer',
+            // The script step this send came from, for the send ledger (Sent/Bought pill).
+            'scriptStepId' => 'nullable|integer',
         ]);
 
         $text = trim((string) ($data['text'] ?? ''));
@@ -533,13 +533,13 @@ class OnlyFansChatController extends Controller
             return response()->json(['error' => 'A price needs media attached.'], 422);
         }
 
-        // Resolve the set BEFORE the vendor call: a set id from another creator must fail
+        // Resolve the step BEFORE the vendor call: a step id from another creator must fail
         // cheaply, not after a billed send that then has nowhere to be recorded.
-        $set = null;
-        if (! empty($data['ppvSetId'])) {
-            $set = PpvSet::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['ppvSetId']);
-            if (! $set) {
-                return response()->json(['error' => 'PPV set not found for this creator.'], 422);
+        $step = null;
+        if (! empty($data['scriptStepId'])) {
+            $step = ScriptStep::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['scriptStepId']);
+            if (! $step) {
+                return response()->json(['error' => 'Script step not found for this creator.'], 422);
             }
         }
 
@@ -557,19 +557,21 @@ class OnlyFansChatController extends Controller
 
         // Send ledger (ids/price/time only — no text). A ledger failure must never fail a
         // send that already reached the fan.
-        if ($set) {
+        if ($step) {
             try {
-                PpvSetSend::create([
-                    'ppv_set_id' => $set->id,
+                ScriptStepSend::create([
+                    'script_step_id' => $step->id,
+                    'step_title' => mb_substr($step->title, 0, 120),
                     'creator_model' => $model->name,
                     'of_fan_id' => $chat,
                     'of_message_id' => isset($sent['id']) ? (string) $sent['id'] : null,
                     'price' => $price,
+                    'source' => 'send',
                     'user_id' => $request->user()?->id,
                     'sent_at' => now(),
                 ]);
             } catch (\Throwable $e) {
-                Log::warning('ppv.ledger_failed', ['set' => $set->id, 'chat' => $chat, 'error' => $e->getMessage()]);
+                Log::warning('script.ledger_failed', ['step' => $step->id, 'chat' => $chat, 'error' => $e->getMessage()]);
             }
         }
 
