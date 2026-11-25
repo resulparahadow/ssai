@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { intentLabel, intentLock } from '@/lib/chatCounters';
+import { intentLabel, intentLock, ppvChipLock } from '@/lib/chatCounters';
 import { usd } from '@/lib/money';
 import type { ChatCounters, IntentKey } from '@/types/crm';
 
@@ -19,7 +19,10 @@ const KEYS: IntentKey[] = ['ppv', 'repitch', 'reoffer_mppv'];
 
 const chips = computed(() =>
     KEYS.map((key) => {
-        const lock = intentLock(key, props.counters);
+        const lock =
+            key === 'ppv'
+                ? ppvChipLock(props.counters, props.mediaLoaded)
+                : intentLock(key, props.counters);
         let reason = lock.reason;
         let enabled = lock.enabled;
 

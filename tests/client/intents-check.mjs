@@ -4,6 +4,7 @@ import {
     effectiveTag,
     intentLabel,
     intentLock,
+    ppvChipLock,
     isHiddenMass,
 } from '../../resources/js/lib/chatCounters.ts';
 import { generationStillApplies } from '../../resources/js/lib/ppvComposer.ts';
@@ -164,5 +165,18 @@ assert.equal(
     true,
 );
 assert.equal(generationStillApplies(s, { ...s, intent: undefined }), false);
+
+// PPV chip: a loaded media step = caption it (no gate); nothing loaded = the 12/10/6 lock.
+{
+    const low = { total: 8, returning: false, sinceLastPpv: null };
+    assert.equal(
+        ppvChipLock(low, true).enabled,
+        true,
+        'loaded step ignores the lock',
+    );
+    assert.equal(ppvChipLock(low, false).enabled, false);
+    assert.equal(ppvChipLock(low, false).reason, '8 of 12 messages');
+    assert.equal(ppvChipLock({ ...low, total: 12 }, false).enabled, true);
+}
 
 console.log('intents-check: OK');

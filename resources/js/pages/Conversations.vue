@@ -520,6 +520,41 @@ function fireIntent(key: IntentKey) {
     void generate(key);
 }
 
+// A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.
+watch(
+    () => selected.value?.id ?? null,
+    (_now, was) => {
+        if (was) {
+            chatComposer(was).ppvPending = false;
+        }
+    },
+);
+
+/** The Scripts panel opened or closed. A PPV-chip open arms `ppvPending` (caption the step the
+ *  chatter loads); closing without a load, or any manual open, disarms it. */
+function onScriptsToggle(open: boolean, focusPpv: boolean) {
+    const st = cur.value;
+
+    if (st) {
+        st.ppvPending = open && focusPpv;
+    }
+}
+
+/** A step picked in the panel. After a PPV-chip open, a media step is captioned on its own. */
+function onScriptLoad(step: ScriptStep, close: () => void) {
+    const armed = cur.value?.ppvPending === true;
+
+    if (!loadStep(step)) {
+        return;
+    }
+
+    close();
+
+    if (armed && step.media.length > 0) {
+        void generate(null);
+    }
+}
+
 /** Persist the adopted generation's strategy so the next Generate builds on it.
  *  Fire-and-forget — a failed commit must never block the chatter. */
 function commitStrategyMemory(chatId: string) {
@@ -1133,6 +1168,7 @@ function loadStep(step: ScriptStep): boolean {
     st.intent = null;
     st.requestedIntent = undefined;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
+    st.ppvPending = false;
     st.stepLoads++; // a Generate still in flight was written before this step: drop it
     st.step = {
         stepId: step.id,
@@ -2071,6 +2107,7 @@ onBeforeUnmount(() => {
                         @generate="generate()"
                         @regenerate="generate(cur.intent)"
                         @intent="fireIntent"
+                        @scripts-toggle="onScriptsToggle"
                         @send="send"
                         @accept="acceptSuggestion"
                         @accept-send="acceptAndSend"
@@ -2078,13 +2115,14 @@ onBeforeUnmount(() => {
                         @reject="rejectDraft"
                         @remove-rejection="removeRejection"
                     >
-                        <template #scripts="{ close }">
+                        <template #scripts="{ close, focusPpv }">
                             <SsScriptsPanel
                                 :model-id="model.id"
                                 :chat-id="selected.id"
                                 :messages="messages"
                                 :status-key="scriptStatusKey"
-                                @load="(step) => loadStep(step) && close()"
+                                :focus-ppv="focusPpv"
+                                @load="(step) => onScriptLoad(step, close)"
                                 @close="close"
                             />
                         </template>

@@ -120,6 +120,14 @@ export function chatCounters(
     };
 }
 
+/** The PPV chip: with a media step already loaded its click captions that step (nothing to
+ *  unlock); with nothing loaded the click opens the picker, so the 12/10/6 lock applies. */
+export function ppvChipLock(c: ChatCounters, mediaLoaded: boolean): IntentLock {
+    return mediaLoaded
+        ? { enabled: true, lit: false, reason: null }
+        : intentLock('ppv', c);
+}
+
 export function intentLock(key: IntentKey, c: ChatCounters): IntentLock {
     if (key === 'ppv') {
         const need = c.returning ? PPV_MIN_RETURNING : PPV_MIN_NEW;

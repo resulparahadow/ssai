@@ -73,6 +73,7 @@ export interface ComposerState {
     intent: IntentKey | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
+    ppvPending: boolean; // the PPV chip opened the Scripts panel: caption the step the chatter loads (cleared on load / panel close / chat switch)
     stepLoads: number; // steps loaded so far; a Generate started before the latest load is dropped (lib/ppvComposer.ts)
     step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
@@ -99,6 +100,7 @@ export function chatComposer(chatId: string): ComposerState {
             gif: null,
             attachment: null,
             step: null,
+            ppvPending: false,
             stepLoads: 0,
             generating: false,
             sending: false,

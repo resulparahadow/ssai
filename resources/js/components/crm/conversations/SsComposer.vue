@@ -73,6 +73,8 @@ const emit = defineEmits<{
     generate: [];
     regenerate: [];
     intent: [key: IntentKey];
+    /** The Scripts panel opened (`focusPpv`: from the PPV chip) or closed. */
+    'scripts-toggle': [open: boolean, focusPpv: boolean];
     send: [];
     accept: [];
     'accept-send': [];
@@ -87,6 +89,7 @@ const showPicker = ref(false);
 // the top-right of the message box. The page fills the `scripts` slot (it owns the chat data
 // and `loadStep`); the composer owns open/close: the button, Esc, a click outside, a chat switch.
 const showScripts = ref(false);
+const focusPpv = ref(false); // opened by the PPV chip: the panel lands on the next unsent PPV step
 const scriptsBtn = ref<HTMLButtonElement | null>(null);
 const scriptsSheet = ref<HTMLElement | null>(null);
 
@@ -106,6 +109,31 @@ watch(
     () => props.chatId,
     () => closeScripts(),
 );
+watch(showScripts, (open) => {
+    if (!open) {
+        focusPpv.value = false;
+    }
+
+    emit('scripts-toggle', open, focusPpv.value);
+});
+
+/** The intent bar. PPV with nothing loaded opens the Scripts panel on the next PPV step; every
+ *  other chip (and PPV with a media step loaded = caption it) goes to the page. */
+function fireIntent(key: IntentKey) {
+    if (key === 'ppv' && mediaStep.value === null) {
+        focusPpv.value = true;
+        showScripts.value = true;
+
+        return;
+    }
+
+    emit('intent', key);
+}
+
+function toggleScripts() {
+    focusPpv.value = false;
+    showScripts.value = !showScripts.value;
+}
 
 function onDocPointer(e: PointerEvent) {
     const t = e.target as Node | null;
@@ -415,7 +443,11 @@ function onKeydown(e: KeyboardEvent) {
             ref="scriptsSheet"
             class="absolute inset-x-3 bottom-full z-20 mb-1"
         >
-            <slot name="scripts" :close="() => closeScripts()" />
+            <slot
+                name="scripts"
+                :close="() => closeScripts()"
+                :focus-ppv="focusPpv"
+            />
         </div>
 
         <!-- AI suggestion card (above the typing bar) -->
@@ -768,7 +800,7 @@ function onKeydown(e: KeyboardEvent) {
             :media-loaded="mediaStep !== null"
             :active-intent="props.intent"
             :generating-intent="props.requestedIntent"
-            @fire="emit('intent', $event)"
+            @fire="fireIntent"
         />
 
         <!-- Typing bar: the message gets the full width; tools sit in a row beneath it, so a
@@ -821,7 +853,7 @@ function onKeydown(e: KeyboardEvent) {
                 title="Scripts"
                 aria-label="Scripts"
                 data-testid="scripts-button"
-                @click="showScripts = !showScripts"
+                @click="toggleScripts"
             >
                 <ListOrdered :size="16" />
             </button>

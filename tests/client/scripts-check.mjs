@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 const { fillLabels, findScriptNote } =
     await import('../../resources/js/lib/scriptLabels.ts');
-const { scriptProgress, nextStepIndex } =
+const { scriptProgress, nextStepIndex, nextPpvTarget } =
     await import('../../resources/js/lib/scriptProgress.ts');
 const { stepSendExtras, captionStepId } =
     await import('../../resources/js/lib/ppvComposer.ts');
@@ -246,6 +246,56 @@ assert.deepEqual(
         'all sent',
     );
     assert.equal(nextStepIndex({ id: 2, steps: [] }, {}), null, 'no steps');
+}
+
+// nextPpvTarget: where the PPV chip opens the panel.
+{
+    const ppv = (id, extra = {}) => ({
+        id,
+        kind: 'ppv',
+        needsMedia: false,
+        ...extra,
+    });
+    const A = { id: 1, steps: [{ id: 10, kind: 'text' }, ppv(11)] };
+    const B = { id: 2, steps: [ppv(20), ppv(21)] };
+    const C = { id: 3, steps: [ppv(30, { needsMedia: true })] };
+    assert.deepEqual(
+        nextPpvTarget([A, B], {}, 2),
+        { scriptId: 2, stepIndex: 0 },
+        'remembered folder wins',
+    );
+    assert.deepEqual(
+        nextPpvTarget([A, B], {}, null),
+        { scriptId: 1, stepIndex: 1 },
+        'first folder with an unsent PPV',
+    );
+    assert.deepEqual(
+        nextPpvTarget([A, B], {}, 99),
+        { scriptId: 1, stepIndex: 1 },
+        'stale remembered id falls back',
+    );
+    assert.deepEqual(
+        nextPpvTarget([C, A], {}, 3),
+        { scriptId: 1, stepIndex: 1 },
+        'remembered folder with only needs-media falls back',
+    );
+    assert.deepEqual(
+        nextPpvTarget([B], { 20: [{}] }, null),
+        { scriptId: 2, stepIndex: 1 },
+        'sent step skipped',
+    );
+    assert.deepEqual(
+        nextPpvTarget([A, B], { 11: [{}] }, 1),
+        { scriptId: 2, stepIndex: 0 },
+        'remembered folder fully sent falls to next',
+    );
+    assert.equal(
+        nextPpvTarget([B], { 20: [{}], 21: [{}] }, null),
+        null,
+        'all sent → null',
+    );
+    assert.equal(nextPpvTarget([C], {}, null), null, 'needs-media only → null');
+    assert.equal(nextPpvTarget([], {}, null), null, 'no folders → null');
 }
 
 console.log('scripts-check: all passed');
