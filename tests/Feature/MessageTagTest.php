@@ -72,3 +72,17 @@ it('lets an assigned chatter tag', function () {
     $this->putJson("{$this->base}/messages/m1/tag", ['tag' => 'chat_ppv'])->assertOk();
     $this->getJson("{$this->base}/tags")->assertOk()->assertJson(['tags' => ['m1' => 'chat_ppv']]);
 });
+
+it('404s an over-long chat or message id', function () {
+    $this->actingAs(User::factory()->admin()->create());
+    $long = str_repeat('9', 65);
+
+    $this->putJson("{$this->base}/messages/{$long}/tag", ['tag' => 'mppv'])->assertNotFound();
+    $this->deleteJson("{$this->base}/messages/{$long}/tag")->assertNotFound();
+    $this->getJson("/onlyfans/{$this->model->id}/chats/{$long}/tags")->assertNotFound();
+    $this->putJson("/onlyfans/{$this->model->id}/chats/{$long}/messages/m1/tag", ['tag' => 'mppv'])->assertNotFound();
+    expect(AichMessageTag::withoutGlobalScopes()->count())->toBe(0);
+
+    // 64 chars is still fine.
+    $this->putJson("{$this->base}/messages/".str_repeat('9', 64).'/tag', ['tag' => 'mppv'])->assertOk();
+});

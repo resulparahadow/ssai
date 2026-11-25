@@ -312,10 +312,10 @@ since the page loaded.
   read only appears after you Generate on a media script. Tip requests are still
   not sendable from the CRM.
 - **Mass PPVs are handled automatically.** A locked mass message (MPPV) the fan
-  hasn't bought shows a `· Mass` label on its pill and SSAI ignores it, so it no
-  longer paces as if you'd already pitched him. A bought one counts as a real
-  purchase. If it ever looks wrong, the context box still wins:
-  `the locked message was a mass PPV, not ours`.
+  hasn't bought carries the **Mass · auto** tag chip on its bubble (§7b) and SSAI
+  ignores it, so it no longer paces as if you'd already pitched him. A bought one
+  counts as a real purchase. If SSAI guessed wrong, click the chip and pick the
+  right tag (**Chat PPV** / **Mass** / **Free preview**).
 - **It only sees the loaded page** (~last 100 messages). Ancient history lives
   in the memory log — keep it good.
 - **One draft at a time, per chat.** Generating again replaces the pending draft.

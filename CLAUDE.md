@@ -670,7 +670,13 @@ engine uses its in-process copy. Provider keys live in the engine's env
     from the AI) and returns thread + `droppedMass`; tags are looked up SERVER-side in `generate`, so every chatter's generate
     uses the stored set. **Counters (§5c):** `lib/chatCounters.ts` MIRRORS the mapper rule client-side (`effectiveTag`,
     `chatCounters`, `intentLock`, `ppvChipLock`) — keep the two in step. PPV locks below 12 msgs (10 for a returning fan) or
-    <6 since the last chat PPV; Re-pitch needs an unpaid PPV >= 5 messages back (lit then); Re-offer needs an unbought mass PPV.
+    <6 since the last PPV the fan can see (any chat PPV or mass PPV, including an OPENED mass PPV; hidden unbought mass PPVs
+    don't count); Re-pitch needs an unpaid PPV >= 5 messages back (lit then); Re-offer needs an unbought mass PPV. The 12/10/6
+    and >=5 rules are CLIENT UI locks only — the server checks just that the target exists (`IntentUnavailable` otherwise).
+    Intent chips are also disabled while a send is in flight for that chat ("Sending…"), since the pending bubble rides in
+    the generate payload. `generate()` takes a per-run token (`ComposerState.generateSeq`, `generationOutcome` in
+    `lib/ppvComposer.ts`): a newer generate supersedes an older one (dropped silently), Dismiss/send drop silently, and only a
+    step load/change shows "the script changed".
     Hidden mass PPVs, optimistic and failed bubbles don't count; tips do; `hasMore` reads as 100+. The bubble's tag chip lives in
     `SsPayPill` (replaces `· Mass`; shows "· auto" without an override; per-message re-tags are sequenced so a fast double
     change can't land out of order) and the rail PPV tab (`lib/sentPpvs.ts`) follows tags. Guards: `tests/Feature/{MessageTagTest,

@@ -34,7 +34,7 @@ import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     captionStepId,
     composerDirty,
-    generationStillApplies,
+    generationOutcome,
     ppvMediaCounts,
     sendClearsComposer,
     stepAfterAccept,
@@ -246,9 +246,15 @@ async function generate(intent: IntentKey | null = null) {
 
     const chatId = chat.id;
     const st = chatComposer(chatId);
+    // This run's token. A Generate started while this one runs takes a newer token and owns the
+    // composer: this run's result, error and `finally` are then ignored (generationOutcome).
+    const seq = ++st.generateSeq;
     st.generating = true;
     st.error = null;
     let draft: string | null = null;
+    // Dropped without a word: superseded by a newer run, or ended by the chatter's own
+    // Dismiss / send. No error, no "draft ready/failed" toast.
+    let silent = false;
     // What this draft is FOR, decided now: a caption for the loaded media step, or a reply (a
     // Text step is a normal reply). If that changes while the engine runs, the result no longer
     // applies and is dropped.
@@ -305,22 +311,24 @@ async function generate(intent: IntentKey | null = null) {
                 : {}),
         });
 
-        if (
-            !generationStillApplies(
-                { captionFor, loads: loadsAtStart, intent },
-                {
-                    captionFor: captionStepId(st.step),
-                    loads: st.stepLoads,
-                    intent: st.requestedIntent,
-                },
-            )
-        ) {
+        const outcome = generationOutcome(
+            { seq, captionFor, loads: loadsAtStart, intent },
+            {
+                seq: st.generateSeq,
+                captionFor: captionStepId(st.step),
+                loads: st.stepLoads,
+                intent: st.requestedIntent,
+            },
+        );
+
+        if (outcome === 'superseded' || outcome === 'invalidated') {
+            silent = true;
+        } else if (outcome === 'script-changed') {
             // A reply landed with a media step loaded (it would be sent as the caption), a
             // caption landed for a step no longer loaded, or any step was loaded while this ran
             // (its confirm promised to replace the pending draft). None may reach the fan.
             st.error =
                 'Draft discarded: the script changed while it was generating. Generate again.';
-            draft = null;
         } else {
             draft = data.draft || null;
             st.suggestion = draft;
@@ -360,13 +368,22 @@ async function generate(intent: IntentKey | null = null) {
             }
         }
     } catch (e) {
-        st.error = e instanceof Error ? e.message : String(e);
+        if (seq === st.generateSeq) {
+            st.error = e instanceof Error ? e.message : String(e);
+        } else {
+            silent = true; // a newer run owns the composer; this run's failure is moot
+        }
     } finally {
-        st.generating = false;
-
-        if (st.requestedIntent === intent) {
+        // Only the latest run may end the composer's generating state: an older one landing
+        // must not flip the spinner off (or clear requestedIntent) under the newer run.
+        if (seq === st.generateSeq) {
+            st.generating = false;
             st.requestedIntent = undefined;
         }
+    }
+
+    if (silent) {
+        return;
     }
 
     // However it ended, tell a chatter who has moved on (another chat, page or tab) —
@@ -523,7 +540,9 @@ async function fetchTags(chatId: string) {
 function fireIntent(key: IntentKey) {
     const st = cur.value;
 
-    if (!st || st.generating) {
+    // While a send is in flight its pending bubble is in the generate payload — a Re-pitch could
+    // target the PPV still on its way out (the bar shows these chips disabled: "Sending…").
+    if (!st || st.generating || st.sending) {
         return;
     }
 

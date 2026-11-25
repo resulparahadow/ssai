@@ -7,8 +7,10 @@ import type {
 } from '@/types/crm';
 
 // Client mirror of the server rules in App\Services\OnlyFans\LiveThreadMapper (effective tag,
-// hidden mass PPV, session start) and App\Support\AgentIntents::unpaidPpv. The SERVER enforces
-// every intent; this only decides which buttons look enabled. Keep the two in step.
+// hidden mass PPV, session start) and App\Support\AgentIntents::unpaidPpv. Keep the two in step.
+// The server checks only that an intent has a target (an unpaid PPV for Re-pitch, an unbought
+// mass PPV for Re-offer); the 12/10/6 PPV unlock and the since>=5 Re-pitch wait are CLIENT UI
+// locks enforced nowhere else — they only decide which buttons are enabled.
 
 const TAGS: MessageTag[] = ['chat_ppv', 'mppv', 'free_preview'];
 

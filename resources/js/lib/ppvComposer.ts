@@ -78,6 +78,58 @@ export function generationStillApplies(
 }
 
 /**
+ * What to do with a Generate's result when it lands. `seq` is the run's token
+ * (`ComposerState.generateSeq` taken at start) against the composer's latest token:
+ * - `superseded`: a newer Generate started meanwhile; it owns the composer — drop silently.
+ * - `script-changed`: a step was loaded, or the loaded step's caption target changed — drop
+ *   and tell the chatter (they asked for this draft and the payload moved under it).
+ * - `invalidated`: the chatter's own Dismiss / composer-clearing send ended it — drop silently.
+ * - `apply`: show it.
+ */
+export type GenerationOutcome =
+    | 'apply'
+    | 'superseded'
+    | 'script-changed'
+    | 'invalidated';
+
+export function generationOutcome(
+    started: {
+        seq: number;
+        captionFor: number | null;
+        loads: number;
+        intent: IntentKey | null;
+    },
+    now: {
+        seq: number;
+        captionFor: number | null;
+        loads: number;
+        intent: IntentKey | null | undefined;
+    },
+): GenerationOutcome {
+    if (started.seq !== now.seq) {
+        return 'superseded';
+    }
+
+    if (generationStillApplies(started, now)) {
+        return 'apply';
+    }
+
+    if (started.loads !== now.loads) {
+        return 'script-changed';
+    }
+
+    // Dismiss / a composer-clearing send clear `requestedIntent`; a send also clears the step,
+    // so this must be checked BEFORE the caption target (sending the loaded media step while
+    // its caption is in flight is the chatter's own move, not a script change). Removing the
+    // step (×) leaves `requestedIntent` alone, so it still reads as a script change below.
+    if (now.intent === undefined) {
+        return 'invalidated';
+    }
+
+    return 'script-changed';
+}
+
+/**
  * What a send adds for the loaded step: `scriptStepId` whenever a step is loaded (the ledger
  * row that drives per-fan progress), and its vault media + price only when it has media. A
  * Text step is sent as plain text.

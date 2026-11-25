@@ -7,6 +7,9 @@ import type { ChatCounters, IntentKey } from '@/types/crm';
 const props = defineProps<{
     counters: ChatCounters;
     busy: boolean;
+    // A send is in flight for this chat: its pending bubble rides in the generate payload, so a
+    // Re-pitch could target the PPV still on its way out. Chips wait for the send to settle.
+    sending: boolean;
     mediaLoaded: boolean; // a PPV/media step is loaded in the composer
     activeIntent: IntentKey | null; // what the pending suggestion was generated for
     generatingIntent: IntentKey | null; // the intent being generated right now
@@ -30,6 +33,11 @@ const chips = computed(() =>
         if (key !== 'ppv' && props.mediaLoaded) {
             enabled = false;
             reason = 'Remove the loaded PPV first';
+        }
+
+        if (enabled && props.sending) {
+            enabled = false;
+            reason = 'Sending…';
         }
 
         return {

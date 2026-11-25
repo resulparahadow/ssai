@@ -6,6 +6,7 @@ const {
     parsePpvPriceInput,
     suggestionStillApplies,
     generationStillApplies,
+    generationOutcome,
     composerDirty,
     ppvMediaCounts,
     humanPlan,
@@ -104,6 +105,61 @@ assert.equal(
     'only the intent changed -> dropped',
 );
 
+// #3c — a per-generate token: a newer run supersedes the older (silent drop), a step load
+// or caption change says "script changed", the chatter's own dismiss/send drops silently.
+// No default param: an explicit `undefined` (composer released) must stay undefined.
+const run = (seq, captionFor, loads, ...intent) => ({
+    seq,
+    captionFor,
+    loads,
+    intent: intent.length > 0 ? intent[0] : null,
+});
+assert.equal(
+    generationOutcome(run(1, null, 0), run(1, null, 0)),
+    'apply',
+    'nothing changed → apply',
+);
+assert.equal(
+    generationOutcome(run(1, null, 0), run(2, 9, 1)),
+    'superseded',
+    'plain G1 superseded by caption G2 (armed PPV load) → silent',
+);
+assert.equal(
+    generationOutcome(run(2, 9, 1), run(2, 9, 1)),
+    'apply',
+    'caption G2 still applies after G1 landed (the old null===null finally bug)',
+);
+assert.equal(
+    generationOutcome(run(1, null, 0), run(1, null, 1, undefined)),
+    'script-changed',
+    'step loaded mid-generate (no new run) → script changed',
+);
+assert.equal(
+    generationOutcome(run(1, 7, 2), run(1, null, 2)),
+    'script-changed',
+    'loaded media step removed mid-caption → script changed',
+);
+assert.equal(
+    generationOutcome(run(1, null, 2, 'repitch'), run(1, null, 2, undefined)),
+    'invalidated',
+    'dismissed / sent mid-generate → silent',
+);
+assert.equal(
+    generationOutcome(run(1, 7, 2, null), run(1, null, 2, undefined)),
+    'invalidated',
+    'chatter sent the loaded media step while its caption ran → silent',
+);
+assert.equal(
+    generationOutcome(run(1, null, 2, null), run(1, 9, 2, null)),
+    'script-changed',
+    'reply in flight, media step now loaded without a load count change → script changed',
+);
+assert.equal(
+    generationOutcome(run(3, 7, 2), run(4, null, 3)),
+    'superseded',
+    'superseded wins over every other cause',
+);
+
 // #3 — loading a step while a generate is in flight counts as dirty.
 const base = {
     draft: '',
@@ -195,5 +251,5 @@ assert.equal(
 );
 
 console.log(
-    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view, send clear guard, accept drops Text step',
+    '✓ ppv-composer-check: price edits, suggestion ownership, generate token outcome, dirty check, media counts, plan wording, price suggestion view, send clear guard, accept drops Text step',
 );

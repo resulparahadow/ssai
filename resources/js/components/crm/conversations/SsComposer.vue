@@ -119,8 +119,16 @@ watch(showScripts, (open) => {
 
 /** The intent bar. PPV with nothing loaded opens the Scripts panel on the next PPV step; every
  *  other chip (and PPV with a media step loaded = caption it) goes to the page. */
-function fireIntent(key: IntentKey) {
+async function fireIntent(key: IntentKey) {
     if (key === 'ppv' && mediaStep.value === null) {
+        // Already open (e.g. the chatter browsed into a folder): close it first and let it
+        // unmount, so the reopen is a fresh PPV open — it re-lands on the next PPV step and
+        // the page re-arms `ppvPending`. Toggling within one tick would change nothing.
+        if (showScripts.value) {
+            showScripts.value = false;
+            await nextTick();
+        }
+
         focusPpv.value = true;
         showScripts.value = true;
 
@@ -797,6 +805,7 @@ function onKeydown(e: KeyboardEvent) {
         <SsIntentBar
             :counters="props.counters"
             :busy="props.generating"
+            :sending="props.sending"
             :media-loaded="mediaStep !== null"
             :active-intent="props.intent"
             :generating-intent="props.requestedIntent"

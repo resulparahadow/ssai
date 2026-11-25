@@ -83,10 +83,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('chats/{chat}/scripts/status', [ScriptController::class, 'status'])->name('scripts.status');
         Route::post('chats/{chat}/scripts/steps/{step}/mark', [ScriptController::class, 'mark'])->whereNumber('step')->name('scripts.mark');
         Route::delete('chats/{chat}/scripts/steps/{step}/mark', [ScriptController::class, 'unmark'])->whereNumber('step')->name('scripts.unmark');
-        // Per-message PPV-kind tags (agent intents). Local metadata, no OnlyFans call.
-        Route::get('chats/{chat}/tags', [MessageTagController::class, 'index'])->name('tags');
-        Route::put('chats/{chat}/messages/{message}/tag', [MessageTagController::class, 'update'])->name('tags.set');
-        Route::delete('chats/{chat}/messages/{message}/tag', [MessageTagController::class, 'destroy'])->name('tags.clear');
+        // Per-message PPV-kind tags (agent intents). Local metadata, no OnlyFans call. Ids are
+        // capped at the columns' 64 chars (OnlyFans ids are numeric; tests use `m1`), so an
+        // over-long id 404s instead of failing the insert.
+        Route::get('chats/{chat}/tags', [MessageTagController::class, 'index'])
+            ->where('chat', '[A-Za-z0-9_-]{1,64}')->name('tags');
+        Route::put('chats/{chat}/messages/{message}/tag', [MessageTagController::class, 'update'])
+            ->where(['chat' => '[A-Za-z0-9_-]{1,64}', 'message' => '[A-Za-z0-9_-]{1,64}'])->name('tags.set');
+        Route::delete('chats/{chat}/messages/{message}/tag', [MessageTagController::class, 'destroy'])
+            ->where(['chat' => '[A-Za-z0-9_-]{1,64}', 'message' => '[A-Za-z0-9_-]{1,64}'])->name('tags.clear');
         Route::get('giphy/trending', [OnlyFansChatController::class, 'giphyTrending'])->name('giphy.trending');
         Route::get('giphy/search', [OnlyFansChatController::class, 'giphySearch'])->name('giphy.search');
 

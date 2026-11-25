@@ -75,6 +75,7 @@ export interface ComposerState {
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
     ppvPending: boolean; // the PPV chip opened the Scripts panel: caption the step the chatter loads (cleared on load / panel close / chat switch)
     stepLoads: number; // steps loaded so far; a Generate started before the latest load is dropped (lib/ppvComposer.ts)
+    generateSeq: number; // token of the latest Generate: an older run's result, error and finally are ignored (generationOutcome)
     step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
@@ -102,6 +103,7 @@ export function chatComposer(chatId: string): ComposerState {
             step: null,
             ppvPending: false,
             stepLoads: 0,
+            generateSeq: 0,
             generating: false,
             sending: false,
             error: null,
