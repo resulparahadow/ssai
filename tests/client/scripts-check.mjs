@@ -5,6 +5,8 @@ const { fillLabels, findScriptNote } =
     await import('../../resources/js/lib/scriptLabels.ts');
 const { scriptProgress } =
     await import('../../resources/js/lib/scriptProgress.ts');
+const { stepSendExtras, captionStepId } =
+    await import('../../resources/js/lib/ppvComposer.ts');
 
 const jake = { fanName: 'Jake', customName: '' };
 
@@ -81,5 +83,47 @@ const all = scriptProgress(script, { 1: [sent], 2: [sent], 3: [sent] });
 assert.equal(all.sent, 3);
 assert.equal(all.nextStepId, null);
 assert.equal(scriptProgress(script, {}).nextStepId, 1);
+
+// stepSendExtras — what a send adds for the loaded step
+const textStep = {
+    stepId: 5,
+    title: 'MS 1.1',
+    price: 0,
+    media: [],
+    priceSuggestion: null,
+    notReadyPlan: null,
+};
+const ppvStep = {
+    ...textStep,
+    stepId: 6,
+    price: 12,
+    media: [
+        { id: 'a', type: 'photo', thumb: null },
+        { id: 'b', type: 'video', thumb: null },
+    ],
+};
+const freeStep = { ...ppvStep, stepId: 7, price: 0 };
+assert.deepEqual(stepSendExtras(null), {}, 'no step → nothing extra');
+assert.deepEqual(
+    stepSendExtras(textStep),
+    { scriptStepId: 5 },
+    'text step → logged only, no media or price',
+);
+assert.deepEqual(stepSendExtras(ppvStep), {
+    scriptStepId: 6,
+    price: 12,
+    mediaFiles: ['a', 'b'],
+});
+assert.deepEqual(
+    stepSendExtras(freeStep),
+    { scriptStepId: 7, price: 0, mediaFiles: ['a', 'b'] },
+    'free media step still sends its media + price 0',
+);
+
+// captionStepId — only a media step puts Generate in caption mode
+assert.equal(captionStepId(null), null);
+assert.equal(captionStepId(textStep), null, 'a text step is a normal reply');
+assert.equal(captionStepId(ppvStep), 6);
+assert.equal(captionStepId(freeStep), 7);
 
 console.log('scripts-check: all passed');

@@ -12,7 +12,12 @@ const props = defineProps<{
     chatId: string;
     current: string;
 }>();
-const emit = defineEmits<{ close: []; renamed: [name: string] }>();
+const emit = defineEmits<{
+    close: [];
+    // `name` = the row label; `customName` = the custom name alone ('' when cleared), kept
+    // apart so a script's {Custom Name} label fills with the new value.
+    renamed: [name: string, customName: string];
+}>();
 
 const text = ref(props.current);
 const saving = ref(false);
@@ -25,9 +30,13 @@ async function save() {
     const next = text.value.trim();
 
     try {
-        const r = await ofApi.rename(props.modelId, props.chatId, next === '' ? null : next);
+        const r = await ofApi.rename(
+            props.modelId,
+            props.chatId,
+            next === '' ? null : next,
+        );
         // Prefer OnlyFans' own echo; fall back to what we sent.
-        emit('renamed', r.name ?? next);
+        emit('renamed', r.name ?? next, next);
         emit('close');
     } catch (e) {
         error.value = e instanceof Error ? e.message : String(e);

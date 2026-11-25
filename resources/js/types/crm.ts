@@ -83,8 +83,8 @@ export type OfChatOrder = 'recent' | 'old';
 export interface OfChat {
     id: string; // fan user id (= chat id)
     name: string;
-    fanName?: string; // the fan's real OnlyFans name ('' when absent)
-    customName?: string; // the team's rename ('' when unset)
+    fanName: string; // the fan's real OnlyFans name ('' when absent)
+    customName: string; // the team's rename ('' when unset)
     username: string | null;
     avatar: string | null;
     initials: string;
@@ -168,7 +168,6 @@ export type PpvSetStatus = Record<
     { sentAt: string; messageId: string | null; price: number }[]
 >;
 
-/** A PPV set loaded into the composer for the next send (exclusive with gif/attachment). */
 /** The AI's price for a PPV caption (legacy fetchPpvSuggestion, clamped server-side to $3–$200). */
 export type PpvPriceSuggestion =
     | { price: number; reason: string }
@@ -214,17 +213,6 @@ export interface ComposerStep {
     media: ScriptStepMedia[];
     priceSuggestion: PpvPriceSuggestion | null;
     notReadyPlan: string | null;
-}
-
-export interface ComposerPpv {
-    setId: number;
-    setName: string;
-    price: number; // editable; validated by isValidPpvPrice before Send
-    media: PpvSetMedia[];
-    // From the last caption Generate for this set; both reset when a set is (re)loaded. The
-    // suggestion never changes `price` — only the chatter's "Use" does.
-    priceSuggestion: PpvPriceSuggestion | null;
-    notReadyPlan: string | null; // SSAI's saved non-selling plan (e.g. 'rapport_beat'), else null
 }
 
 /** One media item attached to the next send: an upload in flight, or a vault pick. */

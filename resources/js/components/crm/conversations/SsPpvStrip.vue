@@ -13,50 +13,52 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
 import { parsePpvPriceInput, priceSuggestionView } from '@/lib/ppvComposer';
-import type { ComposerPpv, PpvSetMedia } from '@/types/crm';
+import type { ComposerStep, ScriptStepMedia } from '@/types/crm';
 
 /**
- * The loaded PPV set, shown above the typing bar: set name, media tiles, and the editable
- * "Price to View" chip (CreatorHero's composer, which the team is used to). Price edits are
+ * A loaded script step WITH media, shown above the typing bar: step title, media tiles, and
+ * the editable "Price to View" chip (CreatorHero's composer, which the team is used to). Price edits are
  * validated against the vendor rule (free, or $3–$200) so Send stays disabled on a bad value
  * instead of paying for a vendor 422.
  */
 const props = defineProps<{
-    ppv: ComposerPpv;
+    step: ComposerStep;
     modelId: number;
     generating: boolean;
 }>();
 const emit = defineEmits<{
     'update:price': [value: number];
-    'update:media': [value: PpvSetMedia[]];
+    'update:media': [value: ScriptStepMedia[]];
     remove: [];
 }>();
 
 const MAX_TILES = 6;
 
-const visible = computed(() => props.ppv.media.slice(0, MAX_TILES));
+const visible = computed(() => props.step.media.slice(0, MAX_TILES));
 const overflow = computed(() =>
-    Math.max(0, props.ppv.media.length - MAX_TILES),
+    Math.max(0, props.step.media.length - MAX_TILES),
 );
-const priceOk = computed(() => isValidPpvPrice(props.ppv.price));
+const priceOk = computed(() => isValidPpvPrice(props.step.price));
 
 // The AI's price read, beside the chip. Advice only: "Use" is the one way it reaches the price.
+// A free step is captioned without a price read (its suggestion is discarded), so it never
+// shows "AI pricing…" either.
 const aiPrice = computed(() =>
     priceSuggestionView(
-        props.ppv.priceSuggestion,
-        props.generating,
-        props.ppv.price,
+        props.step.priceSuggestion,
+        props.generating && props.step.price > 0,
+        props.step.price,
     ),
 );
 
 // Inline price editor: a chip that turns into a number input on click.
 const editing = ref(false);
 // NB: Vue casts v-model on a type=number input to a number, so this holds string | number.
-const draftPrice = ref<string | number>(String(props.ppv.price));
+const draftPrice = ref<string | number>(String(props.step.price));
 const input = ref<HTMLInputElement | null>(null);
 
 watch(
-    () => props.ppv.price,
+    () => props.step.price,
     (p) => {
         if (!editing.value) {
             draftPrice.value = String(p);
@@ -65,29 +67,32 @@ watch(
 );
 
 function startEdit() {
-    draftPrice.value = String(props.ppv.price);
+    draftPrice.value = String(props.step.price);
     editing.value = true;
     nextTick(() => input.value?.select());
 }
 
 function commit() {
     // An empty/junk edit reverts to the previous price — never to free (lib/ppvComposer.ts).
-    emit('update:price', parsePpvPriceInput(draftPrice.value, props.ppv.price));
+    emit(
+        'update:price',
+        parsePpvPriceInput(draftPrice.value, props.step.price),
+    );
     editing.value = false;
 }
 
 function cancel() {
     editing.value = false;
-    draftPrice.value = String(props.ppv.price);
+    draftPrice.value = String(props.step.price);
 }
 
 // Tiles whose thumbnail failed to load. Usually the item was deleted from the creator's vault
-// after the set was saved (verified live: the vault then 404s the id), so sending it would
+// after the step was saved (verified live: the vault then 404s the id), so sending it would
 // fail too; a stale CDN link looks the same from here, hence "didn't load", not "deleted".
 const broken = ref(new Set<string>());
 
 watch(
-    () => props.ppv.setId,
+    () => props.step.stepId,
     () => (broken.value = new Set()),
 );
 
@@ -96,12 +101,12 @@ function markBroken(id: string) {
 }
 
 const brokenCount = computed(
-    () => props.ppv.media.filter((m) => broken.value.has(m.id)).length,
+    () => props.step.media.filter((m) => broken.value.has(m.id)).length,
 );
 
-/** Drop the items that didn't load from THIS send only — the saved set is untouched. */
+/** Drop the items that didn't load from THIS send only — the saved step is untouched. */
 function removeBroken() {
-    const kept = props.ppv.media.filter((m) => !broken.value.has(m.id));
+    const kept = props.step.media.filter((m) => !broken.value.has(m.id));
 
     if (kept.length === 0) {
         emit('remove');
@@ -110,7 +115,7 @@ function removeBroken() {
     }
 }
 
-function tileIcon(m: PpvSetMedia) {
+function tileIcon(m: ScriptStepMedia) {
     return m.type === 'video' ? Film : m.type === 'audio' ? Music : ImageIcon;
 }
 </script>
@@ -125,7 +130,7 @@ function tileIcon(m: PpvSetMedia) {
                 class="inline-flex items-center gap-1 rounded-full bg-ss-warn/15 px-2 py-0.5 text-[11px] font-semibold text-ss-warn"
             >
                 <Lock :size="11" />
-                PPV set · {{ props.ppv.setName }}
+                Script · {{ props.step.title }}
             </span>
 
             <span class="flex-1" />
@@ -159,7 +164,7 @@ function tileIcon(m: PpvSetMedia) {
                 :class="
                     !priceOk
                         ? 'bg-ss-neg/15 text-ss-neg'
-                        : props.ppv.price === 0
+                        : props.step.price === 0
                           ? 'bg-ss-warn/15 text-ss-warn'
                           : 'bg-ss-accent-soft text-ss-accent-text'
                 "
@@ -168,16 +173,16 @@ function tileIcon(m: PpvSetMedia) {
             >
                 <Tag :size="11" />
                 {{
-                    props.ppv.price === 0
+                    props.step.price === 0
                         ? 'Free'
-                        : `Price to View: ${usd(props.ppv.price)}`
+                        : `Price to View: ${usd(props.step.price)}`
                 }}
             </button>
 
             <button
                 type="button"
                 class="grid h-7 w-7 shrink-0 place-items-center rounded text-ss-text-3 hover:bg-ss-surface hover:text-ss-text-2"
-                title="Remove the PPV set"
+                title="Remove the script step (media and price go with it)"
                 @click="emit('remove')"
             >
                 <X :size="14" />
@@ -288,7 +293,7 @@ function tileIcon(m: PpvSetMedia) {
             <button
                 type="button"
                 class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 text-[11px] font-semibold text-ss-text-2 hover:bg-ss-surface hover:text-ss-text"
-                title="Send without them — the saved set is not changed"
+                title="Send without them — the saved step is not changed"
                 @click="removeBroken"
             >
                 Remove from this send

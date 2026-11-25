@@ -30,8 +30,10 @@ import { activeRejections } from '@/lib/draftRejections';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
+    captionStepId,
     composerDirty,
     ppvMediaCounts,
+    stepSendExtras,
     suggestionStillApplies,
 } from '@/lib/ppvComposer';
 import {
@@ -40,10 +42,11 @@ import {
     setActiveChat,
 } from '@/lib/realtimeInbound';
 import type { InboundPayload } from '@/lib/realtimeInbound';
+import { fillLabels } from '@/lib/scriptLabels';
 import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
-    ComposerPpv,
+    ComposerStep,
     OfChat,
     OfChatFilter,
     OfChatOrder,
@@ -51,7 +54,7 @@ import type {
     OfMedia,
     OfGif,
     OfMessage,
-    PpvSet,
+    ScriptStep,
     SidebarCreator,
 } from '@/types/crm';
 
@@ -138,13 +141,13 @@ const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
 
 // Right rail: Fan / AI Intel tabs.
-const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
+const rail = ref<'fan' | 'ai' | 'scripts'>('fan');
 // When the page is narrower than 69rem (a 1440 screen with the sidebar open clears it, 1280
 // does not) the rail is a slide-over toggled from the chat header; wider, it is always shown
 // inline and this flag is ignored. Stays closed on auto-switches (e.g. after a generate) so it
 // never covers the composer uninvited.
 const railOpen = ref(false);
-const ppvStatusKey = ref(0); // bumped after a PPV send → SsPpvRail refreshes its pills
+const scriptStatusKey = ref(0); // bumped after a step send → the Scripts rail re-reads progress
 
 // The open chat's composer state (draft / generating / AI strategy). Per-chat,
 // so loading + results stay attached to the chat they belong to and drafts are
@@ -226,13 +229,16 @@ async function generate() {
     st.generating = true;
     st.error = null;
     let draft: string | null = null;
-    // What this draft is FOR, decided now: a caption for the loaded set, or a reply. If the
-    // composer's set changes while the engine runs, the result no longer applies and is dropped.
-    const captionFor = st.ppv?.setId ?? null;
+    // What this draft is FOR, decided now: a caption for the loaded media step, or a reply (a
+    // Text step is a normal reply). If that changes while the engine runs, the result no longer
+    // applies and is dropped.
+    const captionFor = captionStepId(st.step);
+    // A free step is captioned too, but its price read is thrown away (there is nothing to price).
+    const pricedCaption = captionFor !== null && (st.step?.price ?? 0) > 0;
 
     // A new caption gets a new price read: drop the last one now so the strip shows "pricing".
-    if (st.ppv) {
-        st.ppv = { ...st.ppv, priceSuggestion: null, notReadyPlan: null };
+    if (captionFor !== null && st.step) {
+        st.step = { ...st.step, priceSuggestion: null, notReadyPlan: null };
     }
 
     try {
@@ -263,33 +269,35 @@ async function generate() {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
-            // A loaded PPV set → legacy's caption mode: ONE curiosity caption, not a reply.
-            // The set name is deliberately NOT put in `context` — any context text flips
-            // the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
+            // A loaded media step → legacy's caption mode: ONE curiosity caption, not a reply.
+            // The step's title/text is deliberately NOT put in `context` — any context text
+            // flips the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
             sender: captionFor !== null ? 'ppv' : 'customer',
-            // What is in the set, so the price suggestion prices the real content (counts only).
-            ...(captionFor !== null && st.ppv
-                ? { ppvMedia: ppvMediaCounts(st.ppv.media) }
+            // What is in the step, so the price suggestion prices the real content (counts only).
+            ...(captionFor !== null && st.step
+                ? { ppvMedia: ppvMediaCounts(st.step.media) }
                 : {}),
         });
 
-        if (!suggestionStillApplies(captionFor, st.ppv?.setId ?? null)) {
-            // A reply landed with a set loaded (it would be sent as the caption), or a caption
-            // landed for a set no longer loaded. Neither may reach the fan.
+        if (!suggestionStillApplies(captionFor, captionStepId(st.step))) {
+            // A reply landed with a media step loaded (it would be sent as the caption), or a
+            // caption landed for a step no longer loaded. Neither may reach the fan.
             st.error =
-                'Draft discarded: the PPV set changed while it was generating. Generate again.';
+                'Draft discarded: the script step changed while it was generating. Generate again.';
             draft = null;
         } else {
             draft = data.draft || null;
             st.suggestion = draft;
             st.suggestionFor = captionFor;
 
-            // Merge into the CURRENT set, read after the await: a price the chatter edited while
+            // Merge into the CURRENT step, read after the await: a price the chatter edited while
             // this ran must survive. The suggestion is advice next to the chip, never the price.
-            if (captionFor !== null && st.ppv) {
-                st.ppv = {
-                    ...st.ppv,
-                    priceSuggestion: data.ppvSuggestion ?? null,
+            if (captionFor !== null && st.step) {
+                st.step = {
+                    ...st.step,
+                    priceSuggestion: pricedCaption
+                        ? (data.ppvSuggestion ?? null)
+                        : null,
                     notReadyPlan: data.ppvNotReady ?? null,
                 };
             }
@@ -506,8 +514,10 @@ async function send(override?: string) {
     // A ready attachment is sendable on its own (no caption required) — mirrors
     // SsComposer's `sendable` computed, which enables Send once the attachment is 'ready'.
     const att = st.attachment?.status === 'ready' ? st.attachment : null;
-    // A loaded PPV set: vault ids + price ride on this send (exclusive with gif/attachment).
-    const ppv = st.ppv;
+    // A loaded script step: its id always rides on this send (the per-fan progress ledger);
+    // a media step also brings its vault ids + price (exclusive with gif/attachment).
+    const step = st.step;
+    const ppv: ComposerStep | null = step && step.media.length ? step : null;
 
     if (!text && !gif && !att && !ppv) {
         return;
@@ -546,7 +556,7 @@ async function send(override?: string) {
           ]
         : [];
 
-    // The PPV set's tiles, mapped to renderable media (stored thumbs are onlyfans CDN urls,
+    // The media step's tiles, mapped to renderable media (stored thumbs are onlyfans CDN urls,
     // so they go through the proxy; a null thumb renders as a locked placeholder).
     const ppvMedia: OfMessage['media'] = ppv
         ? ppv.media.map((pm) => ({
@@ -612,13 +622,14 @@ async function send(override?: string) {
     }
 
     try {
+        const { mediaFiles, ...extra } = stepSendExtras(step);
         const res = await ofApi.send(
             m.id,
             chatId,
             text,
             gif?.id ?? undefined,
-            ppv ? ppv.media.map((pm) => pm.id) : att?.id ? [att.id] : undefined,
-            ppv ? { price: ppv.price, ppvSetId: ppv.setId } : {},
+            mediaFiles ?? (att?.id ? [att.id] : undefined),
+            extra,
         );
         const sent = (res.message as OfMessage) ?? {
             ...optimistic,
@@ -636,7 +647,7 @@ async function send(override?: string) {
         // file URLs (isReady:false) — which the thread would otherwise paint as a "Locked"
         // tile. Keep the local blob preview we already showed; reconcileSentMedia() swaps in
         // the real (proxied) media once OnlyFans finishes, then frees the blob. The same
-        // applies to a PPV set's vault media echoed back without files.
+        // applies to a media step's vault media echoed back without files.
         const attPending = (!!att || !!ppv) && !mediaRenderable(sent);
 
         if (attPending) {
@@ -653,7 +664,7 @@ async function send(override?: string) {
                 x.id === tempId ? sent : x,
             );
 
-            if (rail.value !== 'ppv') {
+            if (rail.value !== 'scripts') {
                 rail.value = 'fan'; // the turn is done — back to the fan view
             }
         }
@@ -661,18 +672,19 @@ async function send(override?: string) {
         st.draft = '';
         st.suggestion = null;
 
-        // Only clear the attachment / PPV set that was actually sent — the user may have
-        // replaced it with a new pick while this send was in flight.
+        // Only clear the attachment / step that was actually sent — the user may have
+        // replaced it with a new pick while this send was in flight. A Text step's chip goes
+        // too: left behind, it would log the next, unrelated message as that step.
         if (st.attachment === att) {
             st.attachment = null;
         }
 
-        if (ppv && st.ppv === ppv) {
-            st.ppv = null;
+        if (step && st.step === step) {
+            st.step = null;
         }
 
-        if (ppv) {
-            ppvStatusKey.value++; // the rail's Sent/Bought pill re-reads the ledger
+        if (step) {
+            scriptStatusKey.value++; // the rail's progress + Sent/Bought re-read the ledger
         }
 
         // Free the blob now if the media was already renderable; otherwise defer to
@@ -742,7 +754,7 @@ async function reconcileSentMedia(
     modelId: number,
     chatId: string,
     msgId: string,
-    att: ComposerAttachment | null, // null for a PPV set (vault media: nothing to revoke)
+    att: ComposerAttachment | null, // null for a media step (vault media: nothing to revoke)
 ) {
     for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, i === 0 ? 800 : 1500));
@@ -813,7 +825,7 @@ async function onPickFile(file: File) {
         return;
     }
 
-    if (!confirmReplacePpv(cur)) {
+    if (!confirmReplaceStep(cur)) {
         return;
     }
 
@@ -918,7 +930,7 @@ function onPickVault(item: OfMedia) {
 
     const cur = chatComposer(chat.id);
 
-    if (!confirmReplacePpv(cur)) {
+    if (!confirmReplaceStep(cur)) {
         return;
     }
 
@@ -961,7 +973,7 @@ function setAttachment(value: ComposerAttachment | null) {
 function setGif(value: OfGif | null) {
     const cur = cur_();
 
-    if (!cur || (value && !confirmReplacePpv(cur))) {
+    if (!cur || (value && !confirmReplaceStep(cur))) {
         return;
     }
 
@@ -973,30 +985,35 @@ function cur_(): ComposerState | null {
 }
 
 const REPLACE_MSG =
-    'Replace current message? This replaces your text, media and price with the set.';
+    'Replace current message? This replaces your text, media and price with the script step.';
 
-/** Attaching a file/GIF/vault pick while a PPV set is loaded drops the set (they are exclusive). */
-function confirmReplacePpv(st: ComposerState): boolean {
-    if (!st.ppv) {
+/** Attaching a file/GIF/vault pick while a script step is loaded drops the step (they are exclusive). */
+function confirmReplaceStep(st: ComposerState): boolean {
+    if (!st.step) {
         return true;
     }
 
-    if (!window.confirm('Remove the loaded PPV set and attach this instead?')) {
+    if (
+        !window.confirm(
+            'Remove the loaded script step and attach this instead?',
+        )
+    ) {
         return false;
     }
 
-    st.ppv = null;
+    st.step = null;
 
     return true;
 }
 
 /**
- * Load a saved PPV set into the composer (the CreatorHero "copy to message box" move): the
- * whole send payload — text, media, GIF, price, pending suggestion — is replaced atomically,
- * after a confirm when anything is already there, so Accept can never pair old text with new
- * media or a stale price.
+ * Load a script step into the composer (the CreatorHero "copy to message box" move): the whole
+ * send payload — text, media, GIF, price, pending suggestion — is replaced atomically, after a
+ * confirm when anything is already there, so Accept can never pair old text with new media or
+ * a stale price. Name labels are filled in now, so the chatter sees and can edit the final text.
  */
-function loadPpvSet(set: PpvSet) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- mounted by the Scripts rail (next commit)
+function loadStep(step: ScriptStep) {
     const chat = selected.value;
 
     if (!chat) {
@@ -1009,28 +1026,37 @@ function loadPpvSet(set: PpvSet) {
         return;
     }
 
+    // The chat row carries both names (and is patched on rename). A row built client-side from
+    // a live inbound has neither yet, so only then fall back to the loaded fan detail.
+    const detail = fan.value?.id === chat.id ? fan.value : null;
+    const names =
+        chat.fanName === '' && chat.customName === '' && detail
+            ? { fanName: detail.fanName, customName: detail.customName }
+            : { fanName: chat.fanName, customName: chat.customName };
+
     revokeAttachment(st.attachment);
     st.attachment = null;
     st.gif = null;
     st.suggestion = null;
-    st.draft = set.caption ?? '';
-    st.ppv = {
-        setId: set.id,
-        setName: set.name,
-        price: set.price,
-        media: set.media.map((pm) => ({ ...pm })),
+    st.suggestionFor = null;
+    st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
+    st.step = {
+        stepId: step.id,
+        title: step.title,
+        price: step.price,
+        media: step.media.map((pm) => ({ ...pm })),
         priceSuggestion: null,
         notReadyPlan: null,
     };
-    // Narrow screens: get the slide-over out of the way so the loaded set is visible.
+    // Narrow screens: get the slide-over out of the way so the loaded step is visible.
     railOpen.value = false;
 }
 
-function setPpv(value: ComposerPpv | null) {
+function setStep(value: ComposerStep | null) {
     const cur = cur_();
 
     if (cur) {
-        cur.ppv = value;
+        cur.step = value;
     }
 }
 
@@ -1148,6 +1174,8 @@ async function restoreOpenChat(m: SidebarCreator, allowFetch: boolean) {
         openChat({
             id,
             name,
+            fanName: f.fanName,
+            customName: f.customName,
             username: f.username,
             avatar: f.avatar,
             initials: deriveInitials(name),
@@ -1575,8 +1603,8 @@ function openChat(chat: OfChat) {
     syncChatUrl(chat.id);
 
     // Show AI Intel if this chat already has a generated strategy, else the Fan tab. A chatter
-    // working the PPV tab stays on it across chats (that is how sets get sent fan after fan).
-    if (rail.value !== 'ppv') {
+    // working the Scripts tab stays on it across chats (that is how steps get sent fan after fan).
+    if (rail.value !== 'scripts') {
         rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
     }
 
@@ -1750,6 +1778,9 @@ function applyToChatList(
     chats.value.unshift({
         id: chatId,
         name,
+        // The webhook's fan carries no custom name; loadStep falls back to the fan detail.
+        fanName: '',
+        customName: '',
         username: fan.username ?? null,
         avatar: fan.avatar ?? null,
         initials: deriveInitials(name),
@@ -1902,7 +1933,7 @@ onBeforeUnmount(() => {
                         :suggestion="cur.suggestion"
                         :attached-gif="cur.gif"
                         :attachment="cur.attachment"
-                        :ppv="cur.ppv"
+                        :step="cur.step"
                         :generating="cur.generating"
                         :sending="cur.sending"
                         :error="cur.error"
@@ -1914,7 +1945,7 @@ onBeforeUnmount(() => {
                         @update:context="cur.context = $event"
                         @update:attached-gif="setGif"
                         @update:attachment="setAttachment"
-                        @update:ppv="setPpv"
+                        @update:step="setStep"
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
                         @generate="generate"
@@ -1937,7 +1968,7 @@ onBeforeUnmount(() => {
                         "
                         :aria-pressed="railOpen"
                         aria-controls="conversation-rail"
-                        title="Fan, AI Intel and PPV panel"
+                        title="Fan, AI Intel and Scripts panel"
                         @click="railOpen = !railOpen"
                     >
                         <PanelRight :size="16" />
@@ -1986,13 +2017,13 @@ onBeforeUnmount(() => {
                         type="button"
                         class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
                         :class="
-                            rail === 'ppv'
+                            rail === 'scripts'
                                 ? 'bg-ss-surface-2 text-ss-text'
                                 : 'text-ss-text-3 hover:text-ss-text-2'
                         "
-                        @click="rail = 'ppv'"
+                        @click="rail = 'scripts'"
                     >
-                        PPV
+                        Scripts
                     </button>
                     <button
                         type="button"
@@ -2014,13 +2045,12 @@ onBeforeUnmount(() => {
                     :generated-at="cur?.strategyGeneratedAt ?? null"
                 />
                 <SsPpvRail
-                    v-if="rail === 'ppv'"
+                    v-if="rail === 'scripts'"
                     :model-id="model.id"
                     :chat-id="selected?.id ?? null"
                     :messages="messages"
                     :can-manage="canManage"
-                    :status-key="ppvStatusKey"
-                    @load="loadPpvSet"
+                    :status-key="scriptStatusKey"
                 />
             </aside>
         </template>

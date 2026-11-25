@@ -542,7 +542,10 @@ function fmtDuration(sec: number | null): string {
             :chat-id="chat.id"
             :current="chat.name"
             @close="showRename = false"
-            @renamed="emit('chat-changed', { name: $event })"
+            @renamed="
+                (name: string, customName: string) =>
+                    emit('chat-changed', { name, customName })
+            "
         />
 
         <!-- Thread -->

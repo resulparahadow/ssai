@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 import type {
     AiStrategy,
     ComposerAttachment,
-    ComposerPpv,
+    ComposerStep,
     DraftRejection,
     OfChat,
     OfChatFilter,
@@ -60,13 +60,14 @@ export interface ComposerState {
     draft: string; // what's in the typing bar (unsent) — drives the list "Draft:" badge
     context: string; // agent directive for the next generate ("he just tipped $50", etc.) — steers the AI, not sent to the fan
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
-    // What `suggestion` was generated for: null = a normal reply, else the PPV set id whose
-    // caption it is. Accept commits strategy memory only for a reply, and a draft whose
-    // mode/set no longer matches the composer is dropped (lib/ppvComposer.ts).
+    // What `suggestion` was generated for: null = a normal reply (also with a Text step loaded),
+    // else the media step id whose caption it is. Accept commits strategy memory only for a
+    // reply, and a draft whose mode/step no longer matches the composer is dropped
+    // (lib/ppvComposer.ts).
     suggestionFor: number | null;
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
-    ppv: ComposerPpv | null; // a loaded PPV set: vault media + price for the next send (excl. with gif/attachment)
+    step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -88,7 +89,7 @@ export function chatComposer(chatId: string): ComposerState {
             suggestionFor: null,
             gif: null,
             attachment: null,
-            ppv: null,
+            step: null,
             generating: false,
             sending: false,
             error: null,

@@ -25,40 +25,40 @@ assert.equal(
     'out-of-rule values pass through (validation disables Send)',
 );
 
-// #3 — a draft belongs to the mode/set it was generated for.
+// #3 — a draft belongs to the mode/step it was generated for (captionStepId values).
 assert.equal(
     suggestionStillApplies(null, null),
     true,
-    'reply generated, no set loaded now',
+    'reply generated, no media step loaded now',
 );
 assert.equal(
     suggestionStillApplies(null, 7),
     false,
-    'reply generated, set loaded meanwhile → drop',
+    'reply generated, media step loaded meanwhile → drop',
 );
 assert.equal(
     suggestionStillApplies(7, 7),
     true,
-    'caption for set 7, still set 7',
+    'caption for step 7, still step 7',
 );
 assert.equal(
     suggestionStillApplies(7, 9),
     false,
-    'caption for set 7, set 9 loaded now → drop',
+    'caption for step 7, step 9 loaded now → drop',
 );
 assert.equal(
     suggestionStillApplies(7, null),
     false,
-    'caption for set 7, set removed → drop',
+    'caption for step 7, step removed → drop',
 );
 
-// #3 — loading a set while a generate is in flight counts as dirty.
+// #3 — loading a step while a generate is in flight counts as dirty.
 const base = {
     draft: '',
     suggestion: null,
     gif: null,
     attachment: null,
-    ppv: null,
+    step: null,
     generating: false,
 };
 assert.equal(composerDirty(base), false, 'empty composer is clean');
@@ -74,12 +74,12 @@ assert.equal(
     'suggestion is dirty',
 );
 assert.equal(
-    composerDirty({ ...base, ppv: { setId: 1 } }),
+    composerDirty({ ...base, step: { stepId: 1 } }),
     true,
-    'a loaded set is dirty',
+    'a loaded step is dirty',
 );
 
-// #4 — set contents for the price prompt: counts by type, non-zero keys only.
+// #4 — step media for the price prompt: counts by type, non-zero keys only.
 assert.deepEqual(
     ppvMediaCounts([{ type: 'photo' }, { type: 'photo' }, { type: 'video' }]),
     { photo: 2, video: 1 },
