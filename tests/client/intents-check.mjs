@@ -8,7 +8,20 @@ import {
     isHiddenMass,
     tagChipLabel,
 } from '../../resources/js/lib/chatCounters.ts';
-import { generationStillApplies } from '../../resources/js/lib/ppvComposer.ts';
+import {
+    sameIntent,
+    intentRefLabel,
+    isServerIntent,
+    intentCatalogue,
+    AD_HOC_STEP_ID,
+} from '../../resources/js/lib/intents.ts';
+import {
+    generationStillApplies,
+    stepSendExtras,
+    captionStepId,
+} from '../../resources/js/lib/ppvComposer.ts';
+
+const RP = { key: 'repitch', option: null };
 
 const NOW = Date.parse('2026-11-26T12:00:00Z');
 let n = 0;
@@ -142,7 +155,7 @@ assert.equal(c.total, 2);
 
 // stale-draft
 const s = { captionFor: null, loads: 0, intent: null };
-assert.equal(generationStillApplies(s, { ...s, intent: 'repitch' }), false);
+assert.equal(generationStillApplies(s, { ...s, intent: RP }), false);
 assert.equal(generationStillApplies(s, { ...s }), true);
 
 // labels
@@ -152,17 +165,11 @@ assert.equal(intentLabel('ppv'), 'PPV');
 
 // an invalidated request (requestedIntent undefined) never applies, even for the same intent
 assert.equal(
-    generationStillApplies(
-        { ...s, intent: 'repitch' },
-        { ...s, intent: undefined },
-    ),
+    generationStillApplies({ ...s, intent: RP }, { ...s, intent: undefined }),
     false,
 );
 assert.equal(
-    generationStillApplies(
-        { ...s, intent: 'repitch' },
-        { ...s, intent: 'repitch' },
-    ),
+    generationStillApplies({ ...s, intent: RP }, { ...s, intent: RP }),
     true,
 );
 assert.equal(generationStillApplies(s, { ...s, intent: undefined }), false);
@@ -186,5 +193,74 @@ assert.equal(tagChipLabel('mppv', false), 'Mass');
 assert.equal(tagChipLabel('chat_ppv', true), 'Chat PPV · auto');
 assert.equal(tagChipLabel('chat_ppv', false), 'Chat PPV');
 assert.equal(tagChipLabel('free_preview', false), 'Free preview');
+
+// ---- intent refs (slice 2) ----
+{
+    const a = { key: 'objection', option: 'expensive' };
+    assert.equal(
+        sameIntent(a, { key: 'objection', option: 'expensive' }),
+        true,
+    );
+    assert.equal(sameIntent(a, { key: 'objection', option: 'no_time' }), false);
+    assert.equal(sameIntent(a, { key: 'repitch', option: null }), false);
+    assert.equal(sameIntent(null, null), true);
+    assert.equal(sameIntent(undefined, undefined), true);
+    assert.equal(sameIntent(undefined, null), false);
+    assert.equal(sameIntent(null, undefined), false);
+    assert.equal(sameIntent(a, null), false);
+
+    assert.equal(
+        intentRefLabel(a),
+        'Objection \u2013 Too expensive / discount',
+    );
+    assert.equal(intentRefLabel({ key: 'repitch', option: null }), 'Re-pitch');
+    assert.equal(
+        intentRefLabel({ key: 'cta', option: 'cta1' }),
+        'CTA \u2013 CTA 1',
+    );
+
+    assert.equal(isServerIntent('repitch'), true);
+    assert.equal(isServerIntent('ppv'), false);
+    assert.equal(isServerIntent('free_picture'), false);
+
+    // option change alone drops a draft
+    const base = { captionFor: null, loads: 0 };
+    assert.equal(
+        generationStillApplies(
+            { ...base, intent: a },
+            { ...base, intent: { key: 'objection', option: 'no_time' } },
+        ),
+        false,
+    );
+    assert.equal(
+        generationStillApplies(
+            { ...base, intent: a },
+            { ...base, intent: { ...a } },
+        ),
+        true,
+    );
+
+    // ad-hoc media step
+    assert.equal(AD_HOC_STEP_ID, 0);
+    const adHoc = {
+        stepId: AD_HOC_STEP_ID,
+        title: 'Media',
+        price: 0,
+        media: [
+            { id: 'v1', type: 'photo', thumb: null },
+            { id: 'v2', type: 'photo', thumb: null },
+        ],
+        priceSuggestion: null,
+        notReadyPlan: null,
+    };
+    assert.deepEqual(stepSendExtras(adHoc), { mediaFiles: ['v1', 'v2'] });
+    assert.equal(captionStepId(adHoc), 0);
+
+    for (const i of intentCatalogue()) {
+        if (i.server && i.options.length > 0) {
+            assert.ok(i.options.length >= 2, `${i.key} has >=2 options`);
+        }
+    }
+}
 
 console.log('intents-check: OK');

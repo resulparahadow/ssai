@@ -152,7 +152,8 @@ export interface GeneratePayload {
     api: string;
     context: string;
     sender: 'customer' | 'ppv';
-    intent?: Exclude<IntentKey, 'ppv'>;
+    intent?: IntentKey;
+    intentOption?: string;
     ppvMedia?: object;
 }
 

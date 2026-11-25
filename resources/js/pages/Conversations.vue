@@ -29,6 +29,7 @@ import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
 import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
+import { isServerIntent } from '@/lib/intents';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
@@ -52,6 +53,7 @@ import type {
     ComposerAttachment,
     ComposerStep,
     IntentKey,
+    IntentRef,
     MessageTag,
     OfChat,
     OfChatFilter,
@@ -236,7 +238,7 @@ function dropChat() {
 
 /** `intent`: null = a plain reply (or the loaded media step's caption); repitch / reoffer_mppv
  *  = an agent intent. Only those two reach the server. */
-async function generate(intent: IntentKey | null = null) {
+async function generate(intent: IntentRef | null = null) {
     const m = model.value;
     const chat = selected.value;
 
@@ -298,8 +300,13 @@ async function generate(intent: IntentKey | null = null) {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
-            ...(intent === 'repitch' || intent === 'reoffer_mppv'
-                ? { intent }
+            ...(intent !== null && isServerIntent(intent.key)
+                ? {
+                      intent: intent.key,
+                      ...(intent.option !== null
+                          ? { intentOption: intent.option }
+                          : {}),
+                  }
                 : {}),
             // A loaded media step → legacy's caption mode: ONE curiosity caption, not a reply.
             // The step's title/text is deliberately NOT put in `context` — any context text
@@ -554,7 +561,7 @@ function fireIntent(key: IntentKey) {
         return;
     }
 
-    void generate(key);
+    void generate({ key, option: null });
 }
 
 // A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.

@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { intentLabel, intentLock, ppvChipLock } from '@/lib/chatCounters';
 import { usd } from '@/lib/money';
-import type { ChatCounters, IntentKey } from '@/types/crm';
+import type { ChatCounters, IntentKey, IntentRef } from '@/types/crm';
 
 const props = defineProps<{
     counters: ChatCounters;
@@ -11,8 +11,8 @@ const props = defineProps<{
     // Re-pitch could target the PPV still on its way out. Chips wait for the send to settle.
     sending: boolean;
     mediaLoaded: boolean; // a PPV/media step is loaded in the composer
-    activeIntent: IntentKey | null; // what the pending suggestion was generated for
-    generatingIntent: IntentKey | null; // the intent being generated right now
+    activeIntent: IntentRef | null; // what the pending suggestion was generated for
+    generatingIntent: IntentRef | null; // the intent being generated right now
 }>();
 
 const emit = defineEmits<{ fire: [key: IntentKey] }>();
@@ -46,8 +46,8 @@ const chips = computed(() =>
             enabled: enabled && !props.busy,
             lit: key !== 'ppv' && lock.lit && enabled,
             reason: enabled ? null : reason,
-            active: props.activeIntent === key && !props.busy,
-            spinning: props.busy && props.generatingIntent === key,
+            active: props.activeIntent?.key === key && !props.busy,
+            spinning: props.busy && props.generatingIntent?.key === key,
         };
     }),
 );

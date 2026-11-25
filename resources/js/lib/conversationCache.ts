@@ -4,7 +4,7 @@ import type {
     ComposerAttachment,
     ComposerStep,
     DraftRejection,
-    IntentKey,
+    IntentRef,
     MessageTag,
     OfChat,
     OfChatFilter,
@@ -69,8 +69,8 @@ export interface ComposerState {
     suggestionFor: number | null;
     // The intent of the generate in flight; undefined = no generate owns the composer (dismiss, send or
     // step load invalidated it), so a landing result is dropped (generationStillApplies).
-    requestedIntent: IntentKey | null | undefined;
-    intent: IntentKey | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
+    requestedIntent: IntentRef | null | undefined;
+    intent: IntentRef | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
     ppvPending: boolean; // the PPV chip opened the Scripts panel: caption the step the chatter loads (cleared on load / panel close / chat switch)

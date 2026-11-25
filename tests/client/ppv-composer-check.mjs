@@ -100,7 +100,10 @@ assert.equal(
 );
 
 assert.equal(
-    generationStillApplies(at(null, 2, null), at(null, 2, 'repitch')),
+    generationStillApplies(
+        at(null, 2, null),
+        at(null, 2, { key: 'repitch', option: null }),
+    ),
     false,
     'only the intent changed -> dropped',
 );

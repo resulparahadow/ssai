@@ -767,7 +767,31 @@ export interface OfFanProfile {
 /** Per-message PPV tag (mirror of the server's chat_ppv / mppv / free_preview). */
 export type MessageTag = 'chat_ppv' | 'mppv' | 'free_preview';
 
-export type IntentKey = 'ppv' | 'repitch' | 'reoffer_mppv';
+// Every key of lib/intent-catalogue.json (the single source of truth, shared with the server).
+export type IntentKey =
+    | 'ppv'
+    | 'repitch'
+    | 'cta'
+    | 'objection'
+    | 'chitchat'
+    | 'sexting'
+    | 'tip_ask'
+    | 'goodbye'
+    | 'reoffer_mppv'
+    | 'promise'
+    | 'post_purchase'
+    | 'post_tip'
+    | 'free_picture'
+    | 'breadcrumb'
+    | 'hook'
+    | 'follow_up'
+    | 'aftersale';
+
+/** A chosen agent intent: the key plus, for intents that have them, one option key. */
+export interface IntentRef {
+    key: IntentKey;
+    option: string | null;
+}
 
 export interface ChatCounters {
     total: number;

@@ -21,7 +21,7 @@ import {
     ref,
     watch,
 } from 'vue';
-import { intentLabel } from '@/lib/chatCounters';
+import { intentRefLabel } from '@/lib/intents';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
@@ -31,6 +31,7 @@ import type {
     ComposerStep,
     DraftRejection,
     IntentKey,
+    IntentRef,
     OfGif,
     OfMedia,
 } from '@/types/crm';
@@ -58,8 +59,8 @@ const props = defineProps<{
     rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
     rejecting: boolean;
     counters: ChatCounters;
-    intent: IntentKey | null; // the intent shown on the card: the one generating, else the pending suggestion's
-    requestedIntent: IntentKey | null; // the intent being generated right now (spinner on its chip)
+    intent: IntentRef | null; // the intent shown on the card: the one generating, else the pending suggestion's
+    requestedIntent: IntentRef | null; // the intent being generated right now (spinner on its chip)
 }>();
 
 const emit = defineEmits<{
@@ -506,7 +507,7 @@ function onKeydown(e: KeyboardEvent) {
                     v-if="props.requestedIntent"
                     class="font-semibold"
                     data-testid="intent-label"
-                    >Intent: {{ intentLabel(props.requestedIntent) }}</span
+                    >Intent: {{ intentRefLabel(props.requestedIntent) }}</span
                 >
             </p>
             <template v-else>
@@ -535,7 +536,7 @@ function onKeydown(e: KeyboardEvent) {
                     class="mb-1 text-[11px] font-semibold text-ss-text-3"
                     data-testid="intent-label"
                 >
-                    Intent: {{ intentLabel(props.intent) }}
+                    Intent: {{ intentRefLabel(props.intent) }}
                 </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"

@@ -2,7 +2,8 @@
  * Pure decisions behind the PPV composer, kept out of the components so they can be checked
  * without a browser (the repo has no TS unit runner; `engine/`-style node checks cover them).
  */
-import type { ComposerStep, IntentKey } from '@/types/crm';
+import type { ComposerStep, IntentRef } from '@/types/crm';
+import { AD_HOC_STEP_ID, sameIntent } from './intents.ts';
 
 /**
  * Parse a Price-to-View edit. An empty or unparseable edit REVERTS to the previous price —
@@ -61,19 +62,19 @@ export function generationStillApplies(
     started: {
         captionFor: number | null;
         loads: number;
-        intent: IntentKey | null;
+        intent: IntentRef | null;
     },
     now: {
         captionFor: number | null;
         loads: number;
         // undefined = nothing owns the composer any more (dismissed / sent / step loaded).
-        intent: IntentKey | null | undefined;
+        intent: IntentRef | null | undefined;
     },
 ): boolean {
     return (
         suggestionStillApplies(started.captionFor, now.captionFor) &&
         started.loads === now.loads &&
-        started.intent === now.intent
+        sameIntent(started.intent, now.intent)
     );
 }
 
@@ -97,13 +98,13 @@ export function generationOutcome(
         seq: number;
         captionFor: number | null;
         loads: number;
-        intent: IntentKey | null;
+        intent: IntentRef | null;
     },
     now: {
         seq: number;
         captionFor: number | null;
         loads: number;
-        intent: IntentKey | null | undefined;
+        intent: IntentRef | null | undefined;
     },
 ): GenerationOutcome {
     if (started.seq !== now.seq) {
@@ -145,6 +146,12 @@ export function stepSendExtras(step: ComposerStep | null): {
 
     if (step.media.length === 0) {
         return { scriptStepId: step.stepId };
+    }
+
+    // An ad-hoc media step (picked from the vault, no script_steps row) has no ledger id and
+    // no step price: the send carries the media only.
+    if (step.stepId === AD_HOC_STEP_ID) {
+        return { mediaFiles: step.media.map((m) => m.id) };
     }
 
     return {
