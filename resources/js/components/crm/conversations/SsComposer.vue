@@ -530,7 +530,7 @@ function onKeydown(e: KeyboardEvent) {
                 title="This send counts as the script step. Remove it if what you send is no longer the step."
             >
                 <ListOrdered :size="11" class="shrink-0" />
-                <span class="truncate">Script: {{ textStep.title }}</span>
+                <span class="truncate">Script · {{ textStep.title }}</span>
                 <button
                     type="button"
                     class="grid h-4 w-4 shrink-0 place-items-center rounded-full hover:bg-ss-accent/20"

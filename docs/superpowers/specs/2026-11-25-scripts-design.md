@@ -220,7 +220,7 @@ Changed: `send` takes `scriptStepId` (was `ppvSetId`; resolved against this crea
 `{stepId, title, price, media}`; `media` may be empty.
 - Media step → today's strip: tiles, price chip (Free when 0), Generate reads "Generate
   caption", Send reads "Send PPV $12" / "Send free media".
-- Text step → no strip; a small chip **Script: MS 1.1 ×** above the input so the send is
+- Text step → no strip; a small chip **Script · MS 1.1 ×** above the input so the send is
   logged. Removing the chip keeps the text and stops the logging.
 - Loading fills labels, then sets `draft`.
 

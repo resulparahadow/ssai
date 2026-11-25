@@ -171,7 +171,7 @@ function progressClass(id: number): string {
 
     return p.sent >= p.total
         ? 'bg-ss-pos/15 text-ss-pos'
-        : 'bg-ss-warn/15 text-ss-warn';
+        : 'bg-ss-accent-soft text-ss-accent-text';
 }
 
 const openedIds = computed(
@@ -204,7 +204,11 @@ function pillFor(step: ScriptStep): Pill {
 
     return bought
         ? { label: 'Bought', cls: 'bg-ss-pos/15 text-ss-pos', title }
-        : { label: 'Sent', cls: 'bg-ss-warn/15 text-ss-warn', title };
+        : {
+              label: 'Sent',
+              cls: 'border border-ss-border text-ss-text-2',
+              title,
+          };
 }
 
 function hasManualMark(step: ScriptStep): boolean {
@@ -247,8 +251,8 @@ function kindClass(step: ScriptStep): string {
     }
 
     return step.kind === 'free'
-        ? 'bg-ss-warn/15 text-ss-warn'
-        : 'bg-ss-surface text-ss-text-3';
+        ? 'border border-ss-border text-ss-text-2'
+        : 'text-ss-text-3';
 }
 
 // ---- writes -----------------------------------------------------------------------
@@ -453,7 +457,7 @@ const MENU_DANGER =
             </div>
 
             <div
-                v-else-if="!scripts.length && !creatingScript"
+                v-else-if="!scripts.length && !creatingScript && !error"
                 class="px-2 py-8 text-center text-[12px] text-ss-text-3"
             >
                 <p>No scripts yet.</p>
@@ -599,23 +603,26 @@ const MENU_DANGER =
                     </div>
 
                     <!-- Steps -->
-                    <div v-if="open.has(script.id)" class="px-1.5 pb-1.5">
+                    <div
+                        v-if="open.has(script.id)"
+                        class="border-t border-ss-border"
+                    >
                         <p
                             v-if="!script.steps.length"
-                            class="px-1 py-2 text-[11px] text-ss-text-3"
+                            class="px-3 py-2.5 text-[11px] text-ss-text-3"
                         >
                             No steps yet.
                         </p>
-                        <ol v-else class="space-y-1">
+                        <ol v-else class="divide-y divide-ss-border">
                             <li
                                 v-for="(step, ti) in script.steps"
                                 :key="step.id"
-                                class="relative cursor-pointer rounded-lg border bg-ss-surface p-2 transition-colors hover:border-ss-accent/50"
+                                class="relative cursor-pointer px-2.5 py-2 transition-colors"
                                 :class="
                                     progress.get(script.id)?.nextStepId ===
                                         step.id && props.chatId
-                                        ? 'border-ss-accent'
-                                        : 'border-ss-border'
+                                        ? 'bg-ss-accent-soft/50 hover:bg-ss-accent-soft'
+                                        : 'hover:bg-ss-surface'
                                 "
                                 :title="`Load “${step.title}” into the composer`"
                                 :data-testid="`step-${step.id}`"
@@ -625,7 +632,12 @@ const MENU_DANGER =
                                     <!-- The keyboard way in; the whole card is the mouse target. -->
                                     <button
                                         type="button"
-                                        class="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-ss-text focus:outline-none focus-visible:underline"
+                                        class="min-w-0 flex-1 truncate text-left text-[12px] font-semibold focus:outline-none focus-visible:underline"
+                                        :class="
+                                            isSent(step)
+                                                ? 'text-ss-text-2'
+                                                : 'text-ss-text'
+                                        "
                                         @click.stop="emit('load', step)"
                                     >
                                         {{ step.title }}
@@ -636,7 +648,7 @@ const MENU_DANGER =
                                                 ?.nextStepId === step.id &&
                                             props.chatId
                                         "
-                                        class="shrink-0 rounded-full border border-ss-accent px-1.5 text-[10px] leading-4 font-semibold text-ss-accent-text"
+                                        class="shrink-0 rounded-full bg-ss-accent px-1.5 text-[10px] leading-4 font-semibold text-white"
                                         data-testid="next-marker"
                                         >Next</span
                                     >
@@ -773,10 +785,12 @@ const MENU_DANGER =
                                 </div>
 
                                 <p
-                                    class="mt-1 flex items-center gap-2 text-[10px] text-ss-text-3"
+                                    class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-ss-text-3"
                                 >
+                                    <!-- Text steps carry no badge: no media, no price is the default. -->
                                     <span
-                                        class="rounded px-1 py-px font-semibold"
+                                        v-if="step.kind !== 'text'"
+                                        class="shrink-0 rounded px-1 py-px font-semibold"
                                         :class="kindClass(step)"
                                         data-testid="kind-badge"
                                         >{{ kindLabel(step) }}</span
@@ -799,13 +813,12 @@ const MENU_DANGER =
                                         ><Music :size="10" />
                                         {{ counts(step).audio }}</span
                                     >
-                                </p>
-
-                                <p
-                                    v-if="step.text"
-                                    class="mt-1 line-clamp-2 text-[11px] leading-snug whitespace-pre-line text-ss-text-3"
-                                >
-                                    {{ step.text }}
+                                    <span
+                                        v-if="step.text"
+                                        class="min-w-0 flex-1 truncate text-[11px]"
+                                        :title="step.text"
+                                        >{{ step.text }}</span
+                                    >
                                 </p>
                             </li>
                         </ol>
@@ -813,7 +826,7 @@ const MENU_DANGER =
                         <button
                             v-if="props.canManage"
                             type="button"
-                            class="mt-1 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-ss-border py-1 text-[11px] font-semibold text-ss-text-3 transition-colors hover:border-ss-accent hover:text-ss-accent-text"
+                            class="flex w-full items-center gap-1 rounded-b-xl border-t border-ss-border px-2.5 py-1.5 text-[11px] font-semibold text-ss-text-3 transition-colors hover:bg-ss-surface hover:text-ss-accent-text"
                             @click="
                                 editor = { step: null, scriptId: script.id }
                             "

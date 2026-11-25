@@ -204,8 +204,8 @@ tagged **Next**.
 5. **Send**. A PPV posts a locked message; the thread shows an amber
    `$20.00 · Unpaid` pill until he buys, then green `Paid`.
 
-**The "Script: …" chip.** A text step shows a small chip above the box,
-`Script: {title} ×`. It means "when I send this, count it as that step". It
+**The "Script · …" chip.** A text step shows a small chip above the box,
+`Script · {title} ×`. It means "when I send this, count it as that step". It
 stays while you edit or generate, and goes away if you accept an AI reply
 instead (see step 3). Click **×** to remove it if you've gone off
 script and don't want the send to tick the step off (the text stays). It clears

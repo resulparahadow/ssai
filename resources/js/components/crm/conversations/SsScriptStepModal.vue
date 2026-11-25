@@ -22,13 +22,24 @@ const props = defineProps<{
 const emit = defineEmits<{ saved: []; close: [] }>();
 
 const MAX_MEDIA = 40;
-const LABELS = [
-    '{Fan Name}',
-    '{FAN NAME}',
-    '{fan name}',
-    '{Custom Name}',
-    '{CUSTOM NAME}',
-    '{custom name}',
+// The six tokens fillLabels understands, grouped by source; each button shows the case it inserts.
+const LABEL_GROUPS = [
+    {
+        name: 'Fan name',
+        labels: [
+            { token: '{Fan Name}', sample: 'Jake' },
+            { token: '{FAN NAME}', sample: 'JAKE' },
+            { token: '{fan name}', sample: 'jake' },
+        ],
+    },
+    {
+        name: 'Custom name',
+        labels: [
+            { token: '{Custom Name}', sample: 'Big J' },
+            { token: '{CUSTOM NAME}', sample: 'BIG J' },
+            { token: '{custom name}', sample: 'big j' },
+        ],
+    },
 ];
 
 const title = ref(props.step?.title ?? '');
@@ -217,17 +228,28 @@ async function save() {
                         placeholder="What the chatter sends. Notes in [brackets] are flagged before sending."
                         class="w-full resize-y rounded-lg border border-ss-border bg-ss-surface-2 px-2.5 py-1.5 text-[13px] leading-snug text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
                     />
-                    <div class="mt-1 flex flex-wrap gap-1">
-                        <button
-                            v-for="label in LABELS"
-                            :key="label"
-                            type="button"
-                            class="rounded-full border border-ss-border px-2 py-0.5 font-mono text-[10px] text-ss-text-2 transition-colors hover:border-ss-accent hover:text-ss-accent-text"
-                            :title="`Insert ${label} — filled with the fan's name when the step loads`"
-                            @click="insertLabel(label)"
+                    <div
+                        class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-ss-text-3"
+                    >
+                        <span>Insert name:</span>
+                        <span
+                            v-for="group in LABEL_GROUPS"
+                            :key="group.name"
+                            class="inline-flex items-center gap-1"
                         >
-                            {{ label }}
-                        </button>
+                            <span class="text-ss-text-2">{{ group.name }}</span>
+                            <button
+                                v-for="label in group.labels"
+                                :key="label.token"
+                                type="button"
+                                class="rounded-md border border-ss-border px-1.5 py-px text-[11px] text-ss-text-2 transition-colors hover:border-ss-accent hover:text-ss-accent-text focus-visible:border-ss-accent focus-visible:outline-none"
+                                :title="`Insert ${label.token} — filled with the ${group.name.toLowerCase()} when the step loads`"
+                                :aria-label="`Insert ${label.token}`"
+                                @click="insertLabel(label.token)"
+                            >
+                                {{ label.sample }}
+                            </button>
+                        </span>
                     </div>
                 </div>
 

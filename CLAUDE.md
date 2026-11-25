@@ -556,7 +556,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `Conversations.vue` replaces the WHOLE send payload (text/media/GIF/price/pending suggestion,
     confirm when dirty) with `ComposerState.step`. **The step chip:** a media step shows `SsPpvStrip`
     (tiles + the editable **Price to View** chip, `isValidPpvPrice` mirrors `App\Rules\PpvPrice`); a
-    Text step shows a "Script: {title} ×" chip (× drops the step, keeps the text). The chip survives
+    Text step shows a "Script · {title} ×" chip (× drops the step, keeps the text). The chip survives
     editing, Generate and Dismiss, and is cleared after a successful send (else it would log the
     next, unrelated message) — unless a step was loaded while that send was in flight
     (`sendClearsComposer`, the `stepLoads` counter: the new step's text and chip stay). **Accepting an
