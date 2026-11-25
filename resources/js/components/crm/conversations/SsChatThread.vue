@@ -31,7 +31,13 @@ import SsRenameModal from '@/components/crm/conversations/SsRenameModal.vue';
 import { usd } from '@/lib/money';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { Role } from '@/types/auth';
-import type { OfChat, OfFan, OfMedia, OfMessage } from '@/types/crm';
+import type {
+    MessageTag,
+    OfChat,
+    OfFan,
+    OfMedia,
+    OfMessage,
+} from '@/types/crm';
 
 const props = defineProps<{
     modelId: number;
@@ -47,6 +53,8 @@ const props = defineProps<{
     loadingMore: boolean;
     loadMoreError: string | null;
     spend: number | null; // fan's live lifetime spend; null while loading
+    /** Stored PPV tag overrides for this chat, by message id. */
+    tags: Record<string, MessageTag>;
 }>();
 
 const emit = defineEmits<{
@@ -58,6 +66,8 @@ const emit = defineEmits<{
     'chat-changed': [patch: Partial<OfChat>];
     /** The chat was hidden on OnlyFans and should leave the list. */
     hidden: [];
+    /** Re-tag a PPV bubble; null = back to Auto. */
+    tag: [messageId: string, tag: MessageTag | null];
 }>();
 
 // ---- search (server, with client-filter fallback) ----
@@ -723,7 +733,11 @@ function fmtDuration(sec: number | null): string {
                     </div>
                 </div>
                 <!-- price + paid/unpaid (PPV) or tip; renders nothing for free messages -->
-                <SsPayPill :message="m" />
+                <SsPayPill
+                    :message="m"
+                    :tags="tags"
+                    @tag="(t) => m.id && emit('tag', m.id, t)"
+                />
                 <span
                     class="mt-1 flex items-center gap-1 px-1 text-[10px] text-ss-text-3"
                 >

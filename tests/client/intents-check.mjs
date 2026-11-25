@@ -6,6 +6,7 @@ import {
     intentLock,
     ppvChipLock,
     isHiddenMass,
+    tagChipLabel,
 } from '../../resources/js/lib/chatCounters.ts';
 import { generationStillApplies } from '../../resources/js/lib/ppvComposer.ts';
 
@@ -178,5 +179,12 @@ assert.equal(generationStillApplies(s, { ...s, intent: undefined }), false);
     assert.equal(ppvChipLock(low, false).reason, '8 of 12 messages');
     assert.equal(ppvChipLock({ ...low, total: 12 }, false).enabled, true);
 }
+
+// ---- tag chip label ----
+assert.equal(tagChipLabel('mppv', true), 'Mass · auto');
+assert.equal(tagChipLabel('mppv', false), 'Mass');
+assert.equal(tagChipLabel('chat_ppv', true), 'Chat PPV · auto');
+assert.equal(tagChipLabel('chat_ppv', false), 'Chat PPV');
+assert.equal(tagChipLabel('free_preview', false), 'Free preview');
 
 console.log('intents-check: OK');

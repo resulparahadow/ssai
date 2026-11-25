@@ -1809,6 +1809,56 @@ async function fetchIntel(chatId: string) {
     }
 }
 
+/** Re-tag a PPV bubble (null = Auto). Optimistic on `tags` + `tagsCache`, so the counters and
+ *  intent bar react at once; rolled back if the server refuses. */
+async function onTag(messageId: string, tag: MessageTag | null) {
+    const m = model.value;
+    const chatId = selected.value?.id;
+
+    if (!m || !chatId) {
+        return;
+    }
+
+    const before = tagsCache.get(chatId) ?? tags.value;
+    const next = { ...before };
+
+    if (tag === null) {
+        delete next[messageId];
+    } else {
+        next[messageId] = tag;
+    }
+
+    const apply = (v: Record<string, MessageTag>) => {
+        tagsCache.set(chatId, v);
+
+        if (selected.value?.id === chatId) {
+            tags.value = v;
+        }
+    };
+
+    apply(next);
+
+    try {
+        if (tag === null) {
+            await ofApi.clearTag(m.id, chatId, messageId);
+        } else {
+            await ofApi.setTag(m.id, chatId, messageId, tag);
+        }
+    } catch (e) {
+        // Roll back only this message, so a tag set meanwhile on another bubble survives.
+        const cur = { ...(tagsCache.get(chatId) ?? {}) };
+
+        if (before[messageId] === undefined) {
+            delete cur[messageId];
+        } else {
+            cur[messageId] = before[messageId];
+        }
+
+        apply(cur);
+        alert(e instanceof Error ? e.message : String(e));
+    }
+}
+
 async function onLike(m: OfMessage) {
     if (!model.value || !selected.value || !m.id || m.liking) {
         return;
@@ -2061,6 +2111,8 @@ onBeforeUnmount(() => {
                 :loading-more="msgsLoadingMore"
                 :load-more-error="msgsMoreError"
                 :spend="fan?.totalSpent ?? null"
+                :tags="tags"
+                @tag="onTag"
                 @like="onLike"
                 @delete="onDelete"
                 @resend="resend"

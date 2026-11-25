@@ -183,3 +183,20 @@ const INTENT_LABELS: Record<IntentKey, string> = {
 export function intentLabel(key: IntentKey): string {
     return INTENT_LABELS[key];
 }
+
+const TAG_LABELS: Record<MessageTag, string> = {
+    chat_ppv: 'Chat PPV',
+    mppv: 'Mass',
+    free_preview: 'Free preview',
+};
+
+export const MESSAGE_TAGS = TAGS;
+
+export function tagLabel(tag: MessageTag): string {
+    return TAG_LABELS[tag];
+}
+
+/** The bubble chip's text: the tag, plus "· auto" while no override is stored. */
+export function tagChipLabel(tag: MessageTag, auto: boolean): string {
+    return auto ? `${TAG_LABELS[tag]} · auto` : TAG_LABELS[tag];
+}
