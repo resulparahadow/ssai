@@ -15,6 +15,7 @@ import {
     intentCatalogue,
     AD_HOC_STEP_ID,
     INTENT_KEYS,
+    barLayout,
 } from '../../resources/js/lib/intents.ts';
 import {
     generationStillApplies,
@@ -270,3 +271,22 @@ assert.deepEqual(
 }
 
 console.log('intents-check: OK');
+
+// barLayout: catalogue order, split by group
+{
+    const l = barLayout(intentCatalogue());
+    assert.deepEqual(l.bar.slice(0, 8), [
+        'ppv',
+        'repitch',
+        'cta',
+        'objection',
+        'chitchat',
+        'sexting',
+        'tip_ask',
+        'goodbye',
+    ]);
+    assert.ok(l.more.includes('aftersale') && l.more.includes('free_picture'));
+    assert.equal(l.bar.length + l.more.length, INTENT_KEYS.length);
+    assert.ok(!l.bar.includes('aftersale'));
+    console.log('barLayout ok');
+}

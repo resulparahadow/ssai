@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { intentLabel, intentLock, ppvChipLock } from '@/lib/chatCounters';
+import { ChevronDown } from '@lucide/vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { intentLock, ppvChipLock } from '@/lib/chatCounters';
+import { barLayout, findIntent, intentCatalogue } from '@/lib/intents';
 import { usd } from '@/lib/money';
 import type { ChatCounters, IntentKey, IntentRef } from '@/types/crm';
 
@@ -15,42 +17,191 @@ const props = defineProps<{
     generatingIntent: IntentRef | null; // the intent being generated right now
 }>();
 
-const emit = defineEmits<{ fire: [key: IntentKey] }>();
+const emit = defineEmits<{ fire: [ref: IntentRef] }>();
 
-// Slice 1: PPV · Re-pitch · Re-offer MPPV, in that order.
-const KEYS: IntentKey[] = ['ppv', 'repitch', 'reoffer_mppv'];
+const layout = barLayout(intentCatalogue());
 
-const chips = computed(() =>
-    KEYS.map((key) => {
-        const lock =
-            key === 'ppv'
-                ? ppvChipLock(props.counters, props.mediaLoaded)
-                : intentLock(key, props.counters);
-        let reason = lock.reason;
-        let enabled = lock.enabled;
+interface Chip {
+    key: IntentKey;
+    label: string;
+    options: { key: string; label: string }[];
+    enabled: boolean;
+    lit: boolean;
+    reason: string | null;
+    active: boolean;
+    spinning: boolean;
+}
 
-        // A loaded PPV is what the chatter is about to send; a re-pitch/re-offer would fight it.
-        if (key !== 'ppv' && props.mediaLoaded) {
-            enabled = false;
-            reason = 'Remove the loaded PPV first';
-        }
+function chipFor(key: IntentKey): Chip {
+    const intent = findIntent(key);
+    let lock: { enabled: boolean; lit: boolean; reason: string | null };
 
-        if (enabled && props.sending) {
-            enabled = false;
-            reason = 'Sending…';
-        }
+    if (key === 'ppv') {
+        lock = ppvChipLock(props.counters, props.mediaLoaded);
+    } else if (key === 'repitch' || key === 'reoffer_mppv') {
+        lock = intentLock(key, props.counters);
+    } else {
+        lock = { enabled: true, lit: false, reason: null };
+    }
 
-        return {
-            key,
-            label: intentLabel(key),
-            enabled: enabled && !props.busy,
-            lit: key !== 'ppv' && lock.lit && enabled,
-            reason: enabled ? null : reason,
-            active: props.activeIntent?.key === key && !props.busy,
-            spinning: props.busy && props.generatingIntent?.key === key,
-        };
-    }),
-);
+    let reason = lock.reason;
+    let enabled = lock.enabled;
+
+    // A loaded PPV is what the chatter is about to send; any other intent (except the
+    // client-side Free picture) would fight it.
+    if (key !== 'ppv' && key !== 'free_picture' && props.mediaLoaded) {
+        enabled = false;
+        reason = 'Remove the loaded PPV first';
+    }
+
+    if (enabled && props.sending) {
+        enabled = false;
+        reason = 'Sending…';
+    }
+
+    return {
+        key,
+        label: intent?.label ?? key,
+        options: intent?.options ?? [],
+        enabled: enabled && !props.busy,
+        lit: key !== 'ppv' && lock.lit && enabled,
+        reason: enabled ? null : reason,
+        active: props.activeIntent?.key === key && !props.busy,
+        spinning: props.busy && props.generatingIntent?.key === key,
+    };
+}
+
+const barChips = computed(() => layout.bar.map(chipFor));
+const moreChips = computed(() => layout.more.map(chipFor));
+const moreActive = computed(() => moreChips.value.some((c) => c.active));
+const moreSpinning = computed(() => moreChips.value.some((c) => c.spinning));
+
+// One menu open at a time: a chip key (its options) or 'more'. In More, an intent with options
+// expands its options inline beneath it.
+const openMenu = ref<string | null>(null);
+const expanded = ref<IntentKey | null>(null);
+const root = ref<HTMLElement | null>(null);
+
+function menuItems(): HTMLButtonElement[] {
+    return Array.from(
+        root.value?.querySelectorAll<HTMLButtonElement>(
+            '[role="menu"] [role="menuitem"]:not(:disabled)',
+        ) ?? [],
+    );
+}
+
+function trigger(id: string): HTMLButtonElement | null {
+    return (
+        root.value?.querySelector<HTMLButtonElement>(
+            `[data-trigger="${id}"]`,
+        ) ?? null
+    );
+}
+
+function outside(e: PointerEvent) {
+    if (!root.value?.contains(e.target as Node)) {
+        close(false);
+    }
+}
+
+async function toggle(id: string) {
+    if (openMenu.value === id) {
+        close(true);
+
+        return;
+    }
+
+    openMenu.value = id;
+    expanded.value = null;
+    document.addEventListener('pointerdown', outside);
+    await nextTick();
+    menuItems()[0]?.focus();
+}
+
+function close(refocus: boolean) {
+    const id = openMenu.value;
+    openMenu.value = null;
+    expanded.value = null;
+    document.removeEventListener('pointerdown', outside);
+
+    if (refocus && id) {
+        trigger(id)?.focus();
+    }
+}
+
+onBeforeUnmount(() => document.removeEventListener('pointerdown', outside));
+
+function fire(key: IntentKey, option: string | null) {
+    close(true);
+    emit('fire', { key, option });
+}
+
+function onChip(c: Chip) {
+    if (c.options.length > 0) {
+        void toggle(c.key);
+
+        return;
+    }
+
+    fire(c.key, null);
+}
+
+async function onMoreItem(c: Chip) {
+    if (c.options.length === 0) {
+        fire(c.key, null);
+
+        return;
+    }
+
+    expanded.value = expanded.value === c.key ? null : c.key;
+
+    // The options open below the row, which may be past the menu's scroll edge.
+    if (expanded.value) {
+        await nextTick();
+        root.value
+            ?.querySelector(
+                `[data-testid^="intent-option-${c.key}-"]:last-of-type`,
+            )
+            ?.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function onKey(e: KeyboardEvent) {
+    if (openMenu.value === null) {
+        return;
+    }
+
+    if (e.key === 'Escape') {
+        e.stopPropagation();
+        close(true);
+
+        return;
+    }
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const list = menuItems();
+        const i = list.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+            (i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+        list[next]?.focus();
+    }
+}
+
+const CHIP =
+    'inline-flex h-7 items-center rounded-full border px-2.5 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45';
+const MENU =
+    'absolute bottom-full left-0 z-30 mb-1 flex max-h-72 min-w-[11rem] flex-col overflow-y-auto rounded-lg border border-ss-border bg-ss-surface p-1 shadow-lg';
+const ITEM =
+    'flex items-center justify-between gap-3 rounded px-2 py-1 text-left text-[12px] text-ss-text hover:bg-ss-surface-2 focus:bg-ss-surface-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45';
+
+function chipClass(c: Chip): string {
+    return c.active
+        ? 'border-ss-accent bg-ss-accent text-white'
+        : c.lit
+          ? 'border-ss-accent/60 bg-ss-accent-soft text-ss-accent-text hover:bg-ss-accent/20'
+          : 'border-ss-border bg-ss-surface text-ss-text-2 hover:bg-ss-surface-2';
+}
 
 const summary = computed(() => {
     const c = props.counters;
@@ -70,36 +221,144 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-1.5" data-testid="intent-bar">
-        <button
-            v-for="c in chips"
-            :key="c.key"
-            type="button"
-            :disabled="!c.enabled"
-            :title="c.reason ?? undefined"
-            :aria-describedby="c.reason ? `intent-why-${c.key}` : undefined"
-            :data-testid="`intent-${c.key}`"
-            class="inline-flex h-7 items-center rounded-full border px-2.5 text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
-            :class="
-                c.active
-                    ? 'border-ss-accent bg-ss-accent text-white'
-                    : c.lit
-                      ? 'border-ss-accent/60 bg-ss-accent-soft text-ss-accent-text hover:bg-ss-accent/20'
-                      : 'border-ss-border bg-ss-surface text-ss-text-2 hover:bg-ss-surface-2'
-            "
-            @click="emit('fire', c.key)"
-        >
+    <div
+        ref="root"
+        class="flex flex-wrap items-center gap-1.5"
+        data-testid="intent-bar"
+        @keydown="onKey"
+    >
+        <span v-for="c in barChips" :key="c.key" class="relative inline-flex">
+            <button
+                type="button"
+                :disabled="!c.enabled"
+                :title="c.reason ?? undefined"
+                :aria-describedby="c.reason ? `intent-why-${c.key}` : undefined"
+                :aria-haspopup="c.options.length ? 'menu' : undefined"
+                :aria-expanded="
+                    c.options.length ? openMenu === c.key : undefined
+                "
+                :data-testid="`intent-${c.key}`"
+                :data-trigger="c.key"
+                :class="[CHIP, chipClass(c)]"
+                @click="onChip(c)"
+            >
+                <span
+                    v-if="c.spinning"
+                    class="mr-1.5 h-3 w-3 animate-spin rounded-full border-2 border-ss-accent/30 border-t-ss-accent"
+                    data-testid="intent-spinner"
+                    aria-hidden="true"
+                />
+                {{ c.label }}
+                <ChevronDown
+                    v-if="c.options.length"
+                    :size="11"
+                    class="ml-0.5"
+                    aria-hidden="true"
+                />
+                <span
+                    v-if="c.reason"
+                    :id="`intent-why-${c.key}`"
+                    class="sr-only"
+                    >{{ c.reason }}</span
+                >
+            </button>
             <span
-                v-if="c.spinning"
-                class="mr-1.5 h-3 w-3 animate-spin rounded-full border-2 border-ss-accent/30 border-t-ss-accent"
-                data-testid="intent-spinner"
-                aria-hidden="true"
-            />
-            {{ c.label }}
-            <span v-if="c.reason" :id="`intent-why-${c.key}`" class="sr-only">{{
-                c.reason
-            }}</span>
-        </button>
+                v-if="openMenu === c.key"
+                role="menu"
+                :aria-label="`${c.label} options`"
+                :class="MENU"
+                :data-testid="`intent-menu-${c.key}`"
+            >
+                <button
+                    v-for="o in c.options"
+                    :key="o.key"
+                    type="button"
+                    role="menuitem"
+                    :class="ITEM"
+                    :data-testid="`intent-option-${c.key}-${o.key}`"
+                    @click="fire(c.key, o.key)"
+                >
+                    {{ o.label }}
+                </button>
+            </span>
+        </span>
+
+        <span class="relative inline-flex">
+            <button
+                type="button"
+                aria-haspopup="menu"
+                :aria-expanded="openMenu === 'more'"
+                data-testid="intent-more"
+                data-trigger="more"
+                :class="[
+                    CHIP,
+                    moreActive
+                        ? 'border-ss-accent bg-ss-accent text-white'
+                        : 'border-ss-border bg-ss-surface text-ss-text-2 hover:bg-ss-surface-2',
+                ]"
+                @click="toggle('more')"
+            >
+                <span
+                    v-if="moreSpinning"
+                    class="mr-1.5 h-3 w-3 animate-spin rounded-full border-2 border-ss-accent/30 border-t-ss-accent"
+                    data-testid="intent-spinner"
+                    aria-hidden="true"
+                />
+                More
+                <ChevronDown :size="11" class="ml-0.5" aria-hidden="true" />
+            </button>
+            <span
+                v-if="openMenu === 'more'"
+                role="menu"
+                aria-label="More intents"
+                :class="MENU"
+                data-testid="intent-menu-more"
+            >
+                <template v-for="c in moreChips" :key="c.key">
+                    <button
+                        type="button"
+                        role="menuitem"
+                        :disabled="!c.enabled"
+                        :title="c.reason ?? undefined"
+                        :aria-haspopup="c.options.length ? 'menu' : undefined"
+                        :aria-expanded="
+                            c.options.length ? expanded === c.key : undefined
+                        "
+                        :data-testid="`intent-${c.key}`"
+                        :class="ITEM"
+                        @click="onMoreItem(c)"
+                    >
+                        <span class="flex flex-col items-start">
+                            {{ c.label }}
+                            <span
+                                v-if="c.reason"
+                                class="text-[10px] text-ss-text-3"
+                                >{{ c.reason }}</span
+                            >
+                        </span>
+                        <span
+                            v-if="c.options.length"
+                            class="text-ss-text-3"
+                            aria-hidden="true"
+                            >{{ expanded === c.key ? '▾' : '▸' }}</span
+                        >
+                    </button>
+                    <template v-if="expanded === c.key">
+                        <button
+                            v-for="o in c.options"
+                            :key="o.key"
+                            type="button"
+                            role="menuitem"
+                            :class="[ITEM, 'ml-3']"
+                            :data-testid="`intent-option-${c.key}-${o.key}`"
+                            @click="fire(c.key, o.key)"
+                        >
+                            {{ o.label }}
+                        </button>
+                    </template>
+                </template>
+            </span>
+        </span>
         <span class="min-w-0 truncate text-[11px] text-ss-text-3">{{
             summary
         }}</span>

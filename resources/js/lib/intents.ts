@@ -91,3 +91,14 @@ export function intentRefLabel(r: IntentRef): string {
 
     return `${base} – ${opt?.label ?? r.option}`;
 }
+
+/** Which keys the bar shows inline and which sit under More, both in catalogue order. */
+export function barLayout(items: CatalogueIntent[]): {
+    bar: IntentKey[];
+    more: IntentKey[];
+} {
+    return {
+        bar: items.filter((i) => i.group === 'bar').map((i) => i.key),
+        more: items.filter((i) => i.group === 'more').map((i) => i.key),
+    };
+}

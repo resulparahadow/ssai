@@ -52,7 +52,6 @@ import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
     ComposerStep,
-    IntentKey,
     IntentRef,
     MessageTag,
     OfChat,
@@ -341,6 +340,7 @@ async function generate(intent: IntentRef | null = null) {
             st.suggestion = draft;
             st.suggestionFor = captionFor;
             st.intent = intent;
+            st.noteDropped = data.noteDropped === true;
 
             // Merge into the CURRENT step, read after the await: a price the chatter edited while
             // this ran must survive. The suggestion is advice next to the chip, never the price.
@@ -544,7 +544,7 @@ async function fetchTags(chatId: string) {
 
 /** An intent chip. Re-pitch / Re-offer generate through the server's intent path; PPV with a
  *  media step loaded is the existing caption flow (picking a step for the chatter comes later). */
-function fireIntent(key: IntentKey) {
+function fireIntent(ref: IntentRef) {
     const st = cur.value;
 
     // While a send is in flight its pending bubble is in the generate payload — a Re-pitch could
@@ -553,7 +553,12 @@ function fireIntent(key: IntentKey) {
         return;
     }
 
-    if (key === 'ppv') {
+    // Free picture's flow lands in a later task; the chip is already on the bar.
+    if (ref.key === 'free_picture') {
+        return;
+    }
+
+    if (ref.key === 'ppv') {
         if (captionStepId(st.step) !== null) {
             void generate(null);
         }
@@ -561,7 +566,7 @@ function fireIntent(key: IntentKey) {
         return;
     }
 
-    void generate({ key, option: null });
+    void generate(ref);
 }
 
 // A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.
@@ -636,6 +641,7 @@ function acceptSuggestion() {
     st.draft = st.suggestion;
     st.suggestion = null;
     st.intent = null;
+    st.noteDropped = false;
 }
 
 /** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
@@ -656,6 +662,7 @@ async function acceptAndSend() {
     const text = st.suggestion;
     st.suggestion = null;
     st.intent = null;
+    st.noteDropped = false;
     await send(text);
 }
 
@@ -664,6 +671,7 @@ function dismissSuggestion() {
         cur.value.suggestion = null;
         cur.value.suggestionFor = null;
         cur.value.intent = null;
+        cur.value.noteDropped = false;
         cur.value.requestedIntent = undefined;
     }
 }
@@ -847,6 +855,7 @@ async function send(override?: string) {
             st.suggestion = null;
             st.suggestionFor = null;
             st.intent = null;
+            st.noteDropped = false;
             st.requestedIntent = undefined;
             st.step = null;
         }
@@ -1210,6 +1219,7 @@ function loadStep(step: ScriptStep): boolean {
     st.suggestion = null;
     st.suggestionFor = null;
     st.intent = null;
+    st.noteDropped = false;
     st.requestedIntent = undefined;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
     st.ppvPending = false;
@@ -2229,6 +2239,7 @@ onBeforeUnmount(() => {
                                 ? (cur.requestedIntent ?? null)
                                 : cur.intent
                         "
+                        :note-dropped="cur.noteDropped && !cur.generating"
                         :requested-intent="
                             cur.generating
                                 ? (cur.requestedIntent ?? null)

@@ -425,6 +425,9 @@ export const ofApi = {
             ppvNotReady?: string | null;
             // Echoed when the request carried an agent intent.
             intent?: ServerIntentKey | null;
+            intentOption?: string | null;
+            // True only when typed override text was dropped (Aftersale ignores it).
+            noteDropped?: boolean;
         }>(`${base(m)}/chats/${chat}/generate`, payload),
     intel: (m: number, chat: string) =>
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(
