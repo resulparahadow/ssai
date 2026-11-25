@@ -168,38 +168,44 @@ export function recallOpenChat(modelId: number): string | null {
 }
 
 // ---------------------------------------------------------------------------------------
-// Which scripts are expanded in the Scripts rail, per creator. Per TAB (sessionStorage), like
-// the open chat above; ids only. A convenience — any storage failure just collapses them all.
-const SCRIPTS_OPEN_KEY = 'ss_scripts_open';
+// Which script the composer's Scripts panel last had open, per creator, so it reopens on the
+// same script fan after fan. Per TAB (sessionStorage), like the open chat above; ids only. A
+// convenience — any storage failure just opens on the script list.
+const SCRIPT_OPEN_KEY = 'ss_script_open';
 
-function readScriptsOpen(): Record<string, number[]> {
+function readScriptOpen(): Record<string, number> {
     try {
         const parsed = JSON.parse(
-            sessionStorage.getItem(SCRIPTS_OPEN_KEY) ?? 'null',
+            sessionStorage.getItem(SCRIPT_OPEN_KEY) ?? 'null',
         );
 
         return parsed && typeof parsed === 'object'
-            ? (parsed as Record<string, number[]>)
+            ? (parsed as Record<string, number>)
             : {};
     } catch {
         return {};
     }
 }
 
-/** The script ids expanded in the rail for a creator. */
-export function recallScriptsOpen(modelId: number): number[] {
-    const ids = readScriptsOpen()[modelId];
+/** The script the panel last had open for a creator (null = the script list). */
+export function recallOpenScript(modelId: number): number | null {
+    const id = readScriptOpen()[modelId];
 
-    return Array.isArray(ids) ? ids.filter((id) => Number.isInteger(id)) : [];
+    return Number.isInteger(id) ? id : null;
 }
 
-export function rememberScriptsOpen(modelId: number, ids: number[]): void {
-    const map = readScriptsOpen();
-    map[modelId] = ids;
+export function rememberOpenScript(modelId: number, id: number | null): void {
+    const map = readScriptOpen();
+
+    if (id === null) {
+        delete map[modelId];
+    } else {
+        map[modelId] = id;
+    }
 
     try {
-        sessionStorage.setItem(SCRIPTS_OPEN_KEY, JSON.stringify(map));
+        sessionStorage.setItem(SCRIPT_OPEN_KEY, JSON.stringify(map));
     } catch {
-        // See readScriptsOpen.
+        // See readScriptOpen.
     }
 }

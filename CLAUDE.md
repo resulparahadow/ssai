@@ -547,8 +547,21 @@ engine uses its in-process copy. Provider keys live in the engine's env
     fallback name, else the token is removed and the gap tidied. **Bracket guard:** `findScriptNote`
     detects `[script notes]` still in the text and `SsComposer` asks `confirm` before Send / Enter /
     Accept & Send (Cancel selects the note; Accept & Send's Cancel accepts the draft into the typing
-    bar first; a failed-bubble `resend` is exempt). **Progress:** the rail (`SsScriptsRail`, right-rail
-    **Scripts** tab) shows a per-open-fan `sent/total` pill per script (`lib/scriptProgress.ts`), a
+    bar first; a failed-bubble `resend` is exempt). **Where scripts are USED (revised 2026-11-26, CreatorHero's layout):**
+    a **Scripts** button at the top-right of the message box toggles `SsScriptsPanel` — a sheet over
+    the bottom of the thread, full composer width (the composer owns open/close via its `scripts`
+    slot: the button, Esc, a click outside, a chat switch; the page fills the slot). Levels: scripts
+    with progress → one script's steps → a step preview with `‹ n/N ›` and **Use**; arrows + Enter;
+    it reopens on the last script (`rememberOpenScript`, sessionStorage). Picking a step calls the
+    page's `loadStep`, which returns false on a cancelled replace confirm, so the panel closes only on
+    a real load. **A `needsMedia` step** ("Needs media" badge, "Ask a manager to add media") is never
+    loadable — check `needsMedia` BEFORE `kind` (such a step reads `'text'` server-side). The right
+    rail is **Fan · AI Intel · PPV**: the PPV tab (`SsSentPpvs`, `lib/sentPpvs.ts`) lists every priced
+    creator message WITH media in the loaded thread (not the ledger, so CreatorHero/OnlyFans sends
+    show), newest first, Bought/Not bought off `isOpened`, `· Mass` off `fromQueue`, optimistic
+    bubbles excluded; a card click scrolls the thread there (`SsChatThread` exposes `jumpTo`). The
+    old Scripts rail tab and its "don't auto-switch to AI Intel" exceptions are gone. **Progress:** the
+    panel shows a per-open-fan `sent/total` pill per script (`lib/scriptProgress.ts`), a
     **Sent / Bought** pill per step (ledger joined with the loaded thread's `isOpened`; Bought is PPV
     only; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to vault ids,
     hence **Mark sent** / **Unmark**, which write/delete the `manual` row only — a step sent from SSAI

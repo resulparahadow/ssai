@@ -7,10 +7,10 @@ import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
 import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
-import SsScriptsRail from '@/components/crm/conversations/SsScriptsRail.vue';
+import SsScriptsPanel from '@/components/crm/conversations/SsScriptsPanel.vue';
+import SsSentPpvs from '@/components/crm/conversations/SsSentPpvs.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
-import { can } from '@/crm/nav';
 import {
     chatComposer,
     chatListView,
@@ -142,14 +142,15 @@ const msgsLoadingMore = ref(false);
 const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
 
-// Right rail: Fan / AI Intel tabs.
-const rail = ref<'fan' | 'ai' | 'scripts'>('fan');
+// Right rail: Fan / AI Intel / PPV (PPVs sent to this fan) tabs.
+const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
 // When the page is narrower than 69rem (a 1440 screen with the sidebar open clears it, 1280
 // does not) the rail is a slide-over toggled from the chat header; wider, it is always shown
 // inline and this flag is ignored. Stays closed on auto-switches (e.g. after a generate) so it
 // never covers the composer uninvited.
 const railOpen = ref(false);
-const scriptStatusKey = ref(0); // bumped after a step send → the Scripts rail re-reads progress
+const scriptStatusKey = ref(0); // bumped after a step send → the Scripts panel re-reads progress
+const thread = ref<InstanceType<typeof SsChatThread> | null>(null);
 
 // The open chat's composer state (draft / generating / AI strategy). Per-chat,
 // so loading + results stay attached to the chat they belong to and drafts are
@@ -176,7 +177,6 @@ const role = computed<Role>(
         (page.props.auth as { user?: { role?: Role } })?.user?.role ??
         'chatter',
 );
-const canManage = computed(() => can(role.value, 'manageTeam'));
 
 /**
  * Patch the open chat's row after a server action. `selected` is a live reference into
@@ -326,10 +326,7 @@ async function generate() {
             } else if (
                 data.strategy &&
                 selected.value?.id === chatId &&
-                captionFor === null &&
-                // A chatter working the Scripts tab stays on it (a Text step's reply lands
-                // here too); AI Intel is one click away.
-                rail.value !== 'scripts'
+                captionFor === null
             ) {
                 rail.value = 'ai'; // surface intel only if this chat is still open
             }
@@ -683,9 +680,7 @@ async function send(override?: string) {
                 x.id === tempId ? sent : x,
             );
 
-            if (rail.value !== 'scripts') {
-                rail.value = 'fan'; // the turn is done — back to the fan view
-            }
+            rail.value = 'fan'; // the turn is done — back to the fan view
         }
 
         // A step loaded while this send was in flight replaced the payload: keep its text,
@@ -704,7 +699,7 @@ async function send(override?: string) {
         }
 
         if (step) {
-            scriptStatusKey.value++; // the rail's progress + Sent/Bought re-read the ledger
+            scriptStatusKey.value++; // the panel's progress + Sent/Bought re-read the ledger
         }
 
         // Free the blob now if the media was already renderable; otherwise defer to
@@ -1032,17 +1027,18 @@ function confirmReplaceStep(st: ComposerState): boolean {
  * confirm when anything is already there, so Accept can never pair old text with new media or
  * a stale price. Name labels are filled in now, so the chatter sees and can edit the final text.
  */
-function loadStep(step: ScriptStep) {
+function loadStep(step: ScriptStep): boolean {
     const chat = selected.value;
 
-    if (!chat) {
-        return;
+    // A needs-media step can't be sent (the server 422s it), so it never reaches the composer.
+    if (!chat || step.needsMedia) {
+        return false;
     }
 
     const st = chatComposer(chat.id);
 
     if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
-        return;
+        return false;
     }
 
     // The chat row carries both names (and is patched on rename). A row built client-side from
@@ -1070,6 +1066,18 @@ function loadStep(step: ScriptStep) {
     };
     // Narrow screens: get the slide-over out of the way so the loaded step is visible.
     railOpen.value = false;
+
+    return true;
+}
+
+/** PPV tab → scroll the thread to that message (narrow screens: the slide-over would hide it). */
+function jumpToMessage(id: string) {
+    const m = messages.value.find((x) => String(x.id) === id);
+
+    if (m) {
+        railOpen.value = false;
+        thread.value?.jumpTo(m);
+    }
 }
 
 function setStep(value: ComposerStep | null) {
@@ -1622,11 +1630,8 @@ function openChat(chat: OfChat) {
     urlChat.value = null; // consumed — from here the URL follows the user's clicks
     syncChatUrl(chat.id);
 
-    // Show AI Intel if this chat already has a generated strategy, else the Fan tab. A chatter
-    // working the Scripts tab stays on it across chats (that is how steps get sent fan after fan).
-    if (rail.value !== 'scripts') {
-        rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
-    }
+    // Show AI Intel if this chat already has a generated strategy, else the Fan tab.
+    rail.value = chatComposer(chat.id).strategy ? 'ai' : 'fan';
 
     // Load-older cursor: restore instantly from cache (revalidated by fetchMessages).
     msgsNext.value = nextCache.get(chat.id) ?? null;
@@ -1925,6 +1930,7 @@ onBeforeUnmount(() => {
 
         <template v-if="selected && model">
             <SsChatThread
+                ref="thread"
                 :model-id="model.id"
                 :creator="model.name"
                 :chat="selected"
@@ -1948,6 +1954,7 @@ onBeforeUnmount(() => {
                     <SsComposer
                         :creator="model.name"
                         :model-id="model.id"
+                        :chat-id="selected.id"
                         :draft="cur.draft"
                         :context="cur.context"
                         :suggestion="cur.suggestion"
@@ -1975,7 +1982,18 @@ onBeforeUnmount(() => {
                         @dismiss="dismissSuggestion"
                         @reject="rejectDraft"
                         @remove-rejection="removeRejection"
-                    />
+                    >
+                        <template #scripts="{ close }">
+                            <SsScriptsPanel
+                                :model-id="model.id"
+                                :chat-id="selected.id"
+                                :messages="messages"
+                                :status-key="scriptStatusKey"
+                                @load="(step) => loadStep(step) && close()"
+                                @close="close"
+                            />
+                        </template>
+                    </SsComposer>
                 </template>
                 <template #header-actions>
                     <button
@@ -1988,7 +2006,7 @@ onBeforeUnmount(() => {
                         "
                         :aria-pressed="railOpen"
                         aria-controls="conversation-rail"
-                        title="Fan, AI Intel and Scripts panel"
+                        title="Fan, AI Intel and PPV panel"
                         @click="railOpen = !railOpen"
                     >
                         <PanelRight :size="16" />
@@ -2037,13 +2055,13 @@ onBeforeUnmount(() => {
                         type="button"
                         class="flex-1 rounded-lg py-1.5 text-[12px] font-semibold transition-colors"
                         :class="
-                            rail === 'scripts'
+                            rail === 'ppv'
                                 ? 'bg-ss-surface-2 text-ss-text'
                                 : 'text-ss-text-3 hover:text-ss-text-2'
                         "
-                        @click="rail = 'scripts'"
+                        @click="rail = 'ppv'"
                     >
-                        Scripts
+                        PPV
                     </button>
                     <button
                         type="button"
@@ -2064,14 +2082,11 @@ onBeforeUnmount(() => {
                     :strategy="cur?.strategy ?? null"
                     :generated-at="cur?.strategyGeneratedAt ?? null"
                 />
-                <SsScriptsRail
-                    v-if="rail === 'scripts'"
+                <SsSentPpvs
+                    v-if="rail === 'ppv'"
                     :model-id="model.id"
-                    :chat-id="selected?.id ?? null"
                     :messages="messages"
-                    :can-manage="canManage"
-                    :status-key="scriptStatusKey"
-                    @load="loadStep"
+                    @jump="jumpToMessage"
                 />
             </aside>
         </template>

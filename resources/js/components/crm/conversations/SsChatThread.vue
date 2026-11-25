@@ -259,6 +259,9 @@ function jumpTo(m: OfMessage) {
     });
 }
 
+// The page's PPV rail tab scrolls the thread to a message with the same highlight.
+defineExpose({ jumpTo });
+
 async function togglePin(m: OfMessage) {
     if (!m.id || m.pinning) {
         return;

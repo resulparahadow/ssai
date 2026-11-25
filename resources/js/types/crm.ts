@@ -164,7 +164,8 @@ export interface ScriptStep {
     fallbackName: string | null;
     price: number; // 0 = free, else 3..200
     media: ScriptStepMedia[];
-    kind: 'text' | 'free' | 'ppv';
+    kind: 'text' | 'free' | 'ppv'; // NB a needs-media step reads 'text' — check needsMedia first
+    needsMedia: boolean; // waiting for a manager to add its media: shown, never loadable
     sortOrder: number;
 }
 

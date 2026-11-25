@@ -13,7 +13,14 @@ import {
     ThumbsDown,
     X,
 } from '@lucide/vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
@@ -32,6 +39,7 @@ import SsVaultModal from './SsVaultModal.vue';
 const props = defineProps<{
     creator: string;
     modelId: number;
+    chatId: string; // the open chat — a switch closes the Scripts panel
     draft: string;
     context: string;
     suggestion: string | null;
@@ -65,6 +73,59 @@ const emit = defineEmits<{
 }>();
 
 const showPicker = ref(false);
+
+// Scripts panel (CreatorHero's): a sheet over the bottom of the thread, toggled by the button at
+// the top-right of the message box. The page fills the `scripts` slot (it owns the chat data
+// and `loadStep`); the composer owns open/close: the button, Esc, a click outside, a chat switch.
+const showScripts = ref(false);
+const scriptsBtn = ref<HTMLButtonElement | null>(null);
+const scriptsSheet = ref<HTMLElement | null>(null);
+
+function closeScripts(refocus = false) {
+    if (!showScripts.value) {
+        return;
+    }
+
+    showScripts.value = false;
+
+    if (refocus) {
+        scriptsBtn.value?.focus();
+    }
+}
+
+watch(
+    () => props.chatId,
+    () => closeScripts(),
+);
+
+function onDocPointer(e: PointerEvent) {
+    const t = e.target as Node | null;
+
+    if (
+        showScripts.value &&
+        t &&
+        !scriptsSheet.value?.contains(t) &&
+        !scriptsBtn.value?.contains(t)
+    ) {
+        closeScripts();
+    }
+}
+
+function onDocKey(e: KeyboardEvent) {
+    if (showScripts.value && e.key === 'Escape') {
+        e.preventDefault();
+        closeScripts(true);
+    }
+}
+
+onMounted(() => {
+    document.addEventListener('pointerdown', onDocPointer);
+    document.addEventListener('keydown', onDocKey);
+});
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onDocPointer);
+    document.removeEventListener('keydown', onDocKey);
+});
 // Reject with feedback: the reason box under the suggestion. Reset whenever the draft changes,
 // so a half-typed reason never gets attached to a different draft.
 const showReject = ref(false);
@@ -338,7 +399,16 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-    <div class="space-y-2 border-t border-ss-border p-3">
+    <div class="relative space-y-2 border-t border-ss-border p-3">
+        <!-- Scripts panel: over the thread's bottom, full composer width (CreatorHero's sheet) -->
+        <div
+            v-if="showScripts && $slots.scripts"
+            ref="scriptsSheet"
+            class="absolute inset-x-3 bottom-full z-20 mb-1"
+        >
+            <slot name="scripts" :close="() => closeScripts()" />
+        </div>
+
         <!-- AI suggestion card (above the typing bar) -->
         <div
             v-if="props.suggestion || props.generating"
@@ -698,10 +768,31 @@ function onKeydown(e: KeyboardEvent) {
                             : 'Type a message… Enter sends, Shift+Enter for a new line'
                         : 'Sending is disabled for this chat'
                 "
-                class="block min-h-10 w-full resize-none rounded-t-xl bg-transparent px-3 pt-2.5 pb-1 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:outline-none disabled:cursor-not-allowed"
+                class="block min-h-10 w-full resize-none rounded-t-xl bg-transparent pt-2.5 pr-11 pb-1 pl-3 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:outline-none disabled:cursor-not-allowed"
                 @input="onInput"
                 @keydown="onKeydown"
             />
+
+            <!-- Scripts: top-right of the message box, where CreatorHero puts it -->
+            <button
+                v-if="$slots.scripts"
+                ref="scriptsBtn"
+                type="button"
+                class="absolute top-1.5 right-1.5 grid h-8 w-8 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none"
+                :class="
+                    showScripts
+                        ? 'bg-ss-accent-soft text-ss-accent-text'
+                        : 'text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text'
+                "
+                :aria-expanded="showScripts"
+                aria-haspopup="dialog"
+                title="Scripts"
+                aria-label="Scripts"
+                data-testid="scripts-button"
+                @click="showScripts = !showScripts"
+            >
+                <ListOrdered :size="16" />
+            </button>
 
             <input
                 ref="fileInput"
