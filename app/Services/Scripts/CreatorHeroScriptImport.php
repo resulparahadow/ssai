@@ -11,6 +11,8 @@ class CreatorHeroScriptImport
 {
     public const MAX_TITLE = 120;
 
+    public const MAX_NAME = 120;
+
     public const MAX_TEXT = 2000;
 
     public const MAX_FALLBACK = 60;
@@ -58,9 +60,16 @@ class CreatorHeroScriptImport
                 continue;
             }
 
+            if (mb_strlen($category) > self::MAX_NAME) {
+                $category = mb_substr($category, 0, self::MAX_NAME);
+                $warnings[] = "\"{$title}\": category was longer than ".self::MAX_NAME.' characters and was cut.';
+            }
+
             $text = trim($cell($row, 'message'));
             $fallback = trim($cell($row, 'fallback'));
-            $rawPrice = (float) trim($cell($row, 'price'));
+            $priceCell = trim($cell($row, 'price'));
+            $badPrice = $priceCell !== '' && ! is_numeric($priceCell);
+            $rawPrice = $badPrice ? 0.0 : (float) $priceCell;
 
             foreach ([['title', &$title, self::MAX_TITLE], ['message', &$text, self::MAX_TEXT], ['fallback', &$fallback, self::MAX_FALLBACK]] as [$label, &$value, $max]) {
                 if (mb_strlen($value) > $max) {
@@ -76,7 +85,11 @@ class CreatorHeroScriptImport
                 $price = 0.0;
             }
 
-            $needsMedia = $rawPrice > 0 || preg_match(self::NEEDS_MEDIA_TITLE, $title) === 1;
+            if ($badPrice) {
+                $warnings[] = "\"{$title}\": price \"{$priceCell}\" is not a number, so it was imported as free and needs media.";
+            }
+
+            $needsMedia = $badPrice || $rawPrice > 0 || preg_match(self::NEEDS_MEDIA_TITLE, $title) === 1;
 
             if ($text === '' && ! $needsMedia) {
                 $warnings[] = "\"{$title}\": no message and no media, so it was skipped.";

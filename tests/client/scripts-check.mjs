@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 const { fillLabels, findScriptNote } =
     await import('../../resources/js/lib/scriptLabels.ts');
-const { scriptProgress } =
+const { scriptProgress, nextStepIndex } =
     await import('../../resources/js/lib/scriptProgress.ts');
 const { stepSendExtras, captionStepId } =
     await import('../../resources/js/lib/ppvComposer.ts');
@@ -233,5 +233,19 @@ assert.deepEqual(
     [],
     'pending/failed sends are excluded',
 );
+
+// nextStepIndex: the cursor target for a panel opened straight into a script.
+{
+    const sc = { id: 1, steps: [{ id: 10 }, { id: 11 }, { id: 12 }] };
+    assert.equal(nextStepIndex(sc, {}), 0, 'nothing sent → first step');
+    assert.equal(nextStepIndex(sc, { 10: [{}], 11: [{}] }), 2, 'first unsent');
+    assert.equal(nextStepIndex(sc, { 10: [{}], 12: [{}] }), 1, 'gap → the gap');
+    assert.equal(
+        nextStepIndex(sc, { 10: [{}], 11: [{}], 12: [{}] }),
+        null,
+        'all sent',
+    );
+    assert.equal(nextStepIndex({ id: 2, steps: [] }, {}), null, 'no steps');
+}
 
 console.log('scripts-check: all passed');

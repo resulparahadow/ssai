@@ -28,3 +28,14 @@ export function scriptProgress(
         sentIds,
     };
 }
+
+/** Index of a script's Next step (the first unsent one), or null when all are sent / no status yet. */
+export function nextStepIndex(
+    script: Script,
+    status: ScriptStatus,
+): number | null {
+    const next = scriptProgress(script, status).nextStepId;
+    const i = script.steps.findIndex((s) => s.id === next);
+
+    return next === null || i < 0 ? null : i;
+}

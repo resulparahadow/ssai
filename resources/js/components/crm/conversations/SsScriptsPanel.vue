@@ -22,7 +22,7 @@ import {
 import { relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
-import { scriptProgress } from '@/lib/scriptProgress';
+import { nextStepIndex, scriptProgress } from '@/lib/scriptProgress';
 import type { OfMessage, Script, ScriptStatus, ScriptStep } from '@/types/crm';
 
 /**
@@ -57,6 +57,10 @@ const root = ref<HTMLElement | null>(null);
 let scriptsToken = 0;
 let lastScript: number | null = openId.value; // where level 1's cursor lands on Back
 let statusToken = 0;
+// The panel opened straight into a remembered script (level 2): its status isn't known yet, so
+// the cursor sits on step 1. Once the first status read lands, move it to the Next step —
+// unless the user already moved the cursor (arrows / hover) in the meantime.
+let pendingNextCursor = openId.value !== null;
 
 async function loadScripts() {
     const mine = ++scriptsToken;
@@ -99,12 +103,28 @@ async function loadStatus() {
 
         if (mine === statusToken) {
             status.value = res.status ?? {};
+            landOnNext();
         }
     } catch {
         // Progress is advisory; a failed read just shows nothing sent.
         if (mine === statusToken) {
             status.value = {};
         }
+    }
+}
+
+function landOnNext() {
+    if (!pendingNextCursor) {
+        return;
+    }
+
+    pendingNextCursor = false;
+    const s = openScript.value;
+    const i = s ? nextStepIndex(s, status.value) : null;
+
+    if (i !== null) {
+        active.value = i;
+        focusActive();
     }
 }
 
@@ -140,6 +160,7 @@ const level = computed<'scripts' | 'steps' | 'preview'>(() =>
 );
 
 function goScript(id: number | null) {
+    pendingNextCursor = false;
     openId.value = id;
     previewIdx.value = null;
     actionsFor.value = null;
@@ -347,6 +368,11 @@ const listLength = computed(() =>
         : (openScript.value?.steps.length ?? 0),
 );
 
+function moveCursor(i: number) {
+    pendingNextCursor = false;
+    active.value = i;
+}
+
 function focusActive() {
     nextTick(() => {
         root.value
@@ -383,6 +409,7 @@ function onKeydown(e: KeyboardEvent) {
 
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        pendingNextCursor = false;
         const n = listLength.value;
 
         if (n) {
@@ -593,7 +620,7 @@ const ICON_BTN =
                         :key="step.id"
                         :data-idx="i"
                         :data-testid="`step-${step.id}`"
-                        @mouseenter="active = i"
+                        @mouseenter="moveCursor(i)"
                     >
                         <div
                             class="flex items-center gap-1 pr-2 transition-colors"

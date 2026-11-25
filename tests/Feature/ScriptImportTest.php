@@ -71,6 +71,35 @@ it('truncates over-long fields and reports it', function () {
         ->and($r['warnings'])->toHaveCount(3);
 });
 
+it('caps a long category at 120 characters, warns, and groups on the capped name', function () {
+    $head = str_repeat('C', 120);
+    $csv = "Name,Category,Script Order,Message,Fallback,Price,Created At\n".
+        'A,'.$head.'1,1,one,,0,2026-01-01'."\n".
+        'B,'.$head.'2,2,two,,0,2026-01-01'."\n";
+    $r = (new CreatorHeroScriptImport)->parse($csv);
+
+    expect($r['scripts'])->toHaveCount(1)
+        ->and(mb_strlen($r['scripts'][0]['name']))->toBe(120)
+        ->and($r['scripts'][0]['steps'])->toHaveCount(2)
+        ->and($r['warnings'])->not->toBeEmpty()
+        ->and($r['warnings'][0])->toContain('category');
+});
+
+it('flags a non-numeric price as needs-media with a warning, and leaves an empty price alone', function () {
+    $csv = "Name,Category,Script Order,Message,Fallback,Price,Created At\n".
+        'Dollar,Cat,1,hello,,$12,2026-01-01'."\n".
+        'Empty,Cat,2,hello,,,2026-01-01'."\n";
+    $r = (new CreatorHeroScriptImport)->parse($csv);
+    $steps = $r['scripts'][0]['steps'];
+
+    expect($steps[0]['needsMedia'])->toBeTrue()
+        ->and($steps[0]['price'])->toBe(0.0)
+        ->and($steps[1]['needsMedia'])->toBeFalse()
+        ->and($steps[1]['price'])->toBe(0.0)
+        ->and($r['warnings'])->toHaveCount(1)
+        ->and($r['warnings'][0])->toContain('Dollar');
+});
+
 it('previews without writing anything', function () {
     $this->actingAs($this->manager)
         ->post($this->url, ['file' => heroFile()], ['Accept' => 'application/json'])
