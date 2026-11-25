@@ -1,0 +1,212 @@
+{
+  "intents": [
+    {
+      "key": "ppv",
+      "label": "PPV",
+      "group": "bar",
+      "server": false,
+      "options": []
+    },
+    {
+      "key": "repitch",
+      "label": "Re-pitch",
+      "group": "bar",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "cta",
+      "label": "CTA",
+      "group": "bar",
+      "server": true,
+      "options": [
+        {
+          "key": "cta1",
+          "label": "CTA 1"
+        },
+        {
+          "key": "cta2",
+          "label": "CTA 2"
+        }
+      ]
+    },
+    {
+      "key": "objection",
+      "label": "Objection",
+      "group": "bar",
+      "server": true,
+      "options": [
+        {
+          "key": "naked",
+          "label": "Only want naked"
+        },
+        {
+          "key": "worth_it",
+          "label": "Is it worth it?"
+        },
+        {
+          "key": "lied",
+          "label": "You lied / expected more"
+        },
+        {
+          "key": "body_part",
+          "label": "Only want a body part / menu"
+        },
+        {
+          "key": "cheaper",
+          "label": "Other girls show more for less"
+        },
+        {
+          "key": "expensive",
+          "label": "Too expensive / discount"
+        },
+        {
+          "key": "free",
+          "label": "Something for free"
+        },
+        {
+          "key": "bad_experience",
+          "label": "Bad experiences"
+        },
+        {
+          "key": "preview",
+          "label": "Send a preview"
+        },
+        {
+          "key": "later",
+          "label": "Later / not now"
+        },
+        {
+          "key": "didnt_like",
+          "label": "Didn't like it"
+        }
+      ]
+    },
+    {
+      "key": "chitchat",
+      "label": "ChitChat",
+      "group": "bar",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "sexting",
+      "label": "Sexting",
+      "group": "bar",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "tip_ask",
+      "label": "Tip ask",
+      "group": "bar",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "goodbye",
+      "label": "Goodbye",
+      "group": "bar",
+      "server": true,
+      "options": [
+        {
+          "key": "phase1",
+          "label": "Phase 1"
+        },
+        {
+          "key": "phase2",
+          "label": "Phase 2"
+        },
+        {
+          "key": "phase3",
+          "label": "Phase 3"
+        }
+      ]
+    },
+    {
+      "key": "reoffer_mppv",
+      "label": "Re-offer MPPV",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "promise",
+      "label": "Promise",
+      "group": "more",
+      "server": true,
+      "options": [
+        {
+          "key": "ask",
+          "label": "Ask (RLS beat 11)"
+        },
+        {
+          "key": "reinforce1",
+          "label": "Reinforce ×1"
+        },
+        {
+          "key": "reinforce2",
+          "label": "Reinforce ×2"
+        }
+      ]
+    },
+    {
+      "key": "post_purchase",
+      "label": "Post-purchase",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "post_tip",
+      "label": "Post-tip",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "free_picture",
+      "label": "FreePicture",
+      "group": "more",
+      "server": false,
+      "options": []
+    },
+    {
+      "key": "breadcrumb",
+      "label": "Breadcrumb",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "hook",
+      "label": "Hook",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "follow_up",
+      "label": "Follow-up",
+      "group": "more",
+      "server": true,
+      "options": []
+    },
+    {
+      "key": "aftersale",
+      "label": "Aftersale",
+      "group": "more",
+      "server": true,
+      "options": [
+        {
+          "key": "after_sexting",
+          "label": "After sexting"
+        },
+        {
+          "key": "after_no",
+          "label": "After a no"
+        }
+      ]
+    }
+  ]
+}
