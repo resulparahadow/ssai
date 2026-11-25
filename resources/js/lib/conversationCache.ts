@@ -63,6 +63,7 @@ export interface ComposerState {
     suggestionFor: number | null;
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
+    stepLoads: number; // steps loaded so far; a Generate started before the latest load is dropped (lib/ppvComposer.ts)
     step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
@@ -86,6 +87,7 @@ export function chatComposer(chatId: string): ComposerState {
             gif: null,
             attachment: null,
             step: null,
+            stepLoads: 0,
             generating: false,
             sending: false,
             error: null,

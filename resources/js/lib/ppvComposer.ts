@@ -50,6 +50,24 @@ export function suggestionStillApplies(
 }
 
 /**
+ * Whether a Generate's result may still land, comparing the composer when it started with now.
+ * `captionFor` is `captionStepId()`; `loads` counts steps loaded into this composer
+ * (`ComposerState.stepLoads`). Loading ANY step replaces the pending draft — that is what its
+ * confirm promises — so a draft still in flight from before the load is dropped, even when
+ * both ends read as a normal reply (a Text step, or Text step A → B). A reply generated after
+ * a Text step was loaded still applies.
+ */
+export function generationStillApplies(
+    started: { captionFor: number | null; loads: number },
+    now: { captionFor: number | null; loads: number },
+): boolean {
+    return (
+        suggestionStillApplies(started.captionFor, now.captionFor) &&
+        started.loads === now.loads
+    );
+}
+
+/**
  * What a send adds for the loaded step: `scriptStepId` whenever a step is loaded (the ledger
  * row that drives per-fan progress), and its vault media + price only when it has media. A
  * Text step is sent as plain text.

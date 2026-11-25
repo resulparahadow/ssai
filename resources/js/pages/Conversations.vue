@@ -32,9 +32,9 @@ import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     captionStepId,
     composerDirty,
+    generationStillApplies,
     ppvMediaCounts,
     stepSendExtras,
-    suggestionStillApplies,
 } from '@/lib/ppvComposer';
 import {
     ensureSubscribed,
@@ -233,6 +233,7 @@ async function generate() {
     // Text step is a normal reply). If that changes while the engine runs, the result no longer
     // applies and is dropped.
     const captionFor = captionStepId(st.step);
+    const loadsAtStart = st.stepLoads;
     // A free step is captioned too, but its price read is thrown away (there is nothing to price).
     const pricedCaption = captionFor !== null && (st.step?.price ?? 0) > 0;
 
@@ -279,9 +280,15 @@ async function generate() {
                 : {}),
         });
 
-        if (!suggestionStillApplies(captionFor, captionStepId(st.step))) {
-            // A reply landed with a media step loaded (it would be sent as the caption), or a
-            // caption landed for a step no longer loaded. Neither may reach the fan.
+        if (
+            !generationStillApplies(
+                { captionFor, loads: loadsAtStart },
+                { captionFor: captionStepId(st.step), loads: st.stepLoads },
+            )
+        ) {
+            // A reply landed with a media step loaded (it would be sent as the caption), a
+            // caption landed for a step no longer loaded, or any step was loaded while this ran
+            // (its confirm promised to replace the pending draft). None may reach the fan.
             st.error =
                 'Draft discarded: the script step changed while it was generating. Generate again.';
             draft = null;
@@ -1042,6 +1049,7 @@ function loadStep(step: ScriptStep) {
     st.suggestion = null;
     st.suggestionFor = null;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
+    st.stepLoads++; // a Generate still in flight was written before this step: drop it
     st.step = {
         stepId: step.id,
         title: step.title,

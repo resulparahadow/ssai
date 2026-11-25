@@ -5,6 +5,7 @@ const mod = await import('../../resources/js/lib/ppvComposer.ts');
 const {
     parsePpvPriceInput,
     suggestionStillApplies,
+    generationStillApplies,
     composerDirty,
     ppvMediaCounts,
     humanPlan,
@@ -50,6 +51,45 @@ assert.equal(
     suggestionStillApplies(7, null),
     false,
     'caption for step 7, step removed → drop',
+);
+
+// #3b — any step LOADED while a generate runs drops the result, even when both ends read
+// as a normal reply (Text steps): the replace confirm promised to replace the pending draft.
+const at = (captionFor, loads) => ({ captionFor, loads });
+assert.equal(
+    generationStillApplies(at(null, 0), at(null, 1)),
+    false,
+    'reply in flight → Text step loaded → dropped',
+);
+assert.equal(
+    generationStillApplies(at(null, 3), at(null, 4)),
+    false,
+    'Text step A → Text step B mid-generate → dropped',
+);
+assert.equal(
+    generationStillApplies(at(null, 4), at(null, 4)),
+    true,
+    'reply generated after loading a Text step → kept',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(7, 2)),
+    true,
+    'caption for step 7, nothing loaded since → kept',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(null, 2)),
+    false,
+    'caption for step 7, step removed → dropped (caption rule unchanged)',
+);
+assert.equal(
+    generationStillApplies(at(null, 2), at(9, 3)),
+    false,
+    'reply in flight, media step loaded → dropped',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(7, 3)),
+    false,
+    'step 7 reloaded mid-generate → dropped (the load reset the payload)',
 );
 
 // #3 — loading a step while a generate is in flight counts as dirty.
