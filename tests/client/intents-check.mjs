@@ -262,6 +262,12 @@ assert.deepEqual(
     };
     assert.deepEqual(stepSendExtras(adHoc), { mediaFiles: ['v1', 'v2'] });
     assert.equal(captionStepId(adHoc), 0);
+    const priced = stepSendExtras({ ...adHoc, price: 12 });
+    assert.deepEqual(priced, { mediaFiles: ['v1', 'v2'], price: 12 });
+    assert.ok(
+        !('scriptStepId' in priced) &&
+            !('scriptStepId' in stepSendExtras(adHoc)),
+    );
 
     for (const i of intentCatalogue()) {
         if (i.server && i.options.length > 0) {

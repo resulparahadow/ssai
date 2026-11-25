@@ -149,9 +149,14 @@ export function stepSendExtras(step: ComposerStep | null): {
     }
 
     // An ad-hoc media step (picked from the vault, no script_steps row) has no ledger id and
-    // no step price: the send carries the media only.
+    // script id: never `scriptStepId`. It carries the media, plus `price` only once the chatter
+    // has set one (a free picture sends none).
     if (step.stepId === AD_HOC_STEP_ID) {
-        return { mediaFiles: step.media.map((m) => m.id) };
+        const mediaFiles = step.media.map((m) => m.id);
+
+        return step.price > 0
+            ? { mediaFiles, price: step.price }
+            : { mediaFiles };
     }
 
     return {

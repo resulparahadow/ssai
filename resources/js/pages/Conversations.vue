@@ -9,6 +9,7 @@ import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
 import SsScriptsPanel from '@/components/crm/conversations/SsScriptsPanel.vue';
 import SsSentPpvs from '@/components/crm/conversations/SsSentPpvs.vue';
+import SsVaultPickerModal from '@/components/crm/conversations/SsVaultPickerModal.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { chatCounters } from '@/lib/chatCounters';
@@ -29,7 +30,7 @@ import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
 import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
-import { isServerIntent } from '@/lib/intents';
+import { AD_HOC_STEP_ID, isServerIntent } from '@/lib/intents';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
@@ -62,6 +63,7 @@ import type {
     OfGif,
     OfMessage,
     ScriptStep,
+    ScriptStepMedia,
     SidebarCreator,
 } from '@/types/crm';
 
@@ -553,8 +555,10 @@ function fireIntent(ref: IntentRef) {
         return;
     }
 
-    // Free picture's flow lands in a later task; the chip is already on the bar.
+    // Free picture: pick vault photos first; the flow continues in `loadFreePicture`.
     if (ref.key === 'free_picture') {
+        freePictureChat.value = selected.value?.id ?? null;
+
         return;
     }
 
@@ -567,6 +571,54 @@ function fireIntent(ref: IntentRef) {
     }
 
     void generate(ref);
+}
+
+/** The chat the Free-picture vault picker is open for (null = closed). Closes on a chat switch. */
+const freePictureChat = ref<string | null>(null);
+
+watch(
+    () => selected.value?.id ?? null,
+    () => {
+        freePictureChat.value = null;
+    },
+);
+
+/** Picker → Add. Same replace-confirm as a step load (cancel = nothing changes), then the photos
+ *  become an ad-hoc media step and ONE caption generate runs (caption mode, `sender: 'ppv'`). */
+function loadFreePicture(media: ScriptStepMedia[]) {
+    const st = cur.value;
+
+    freePictureChat.value = null;
+
+    if (!st || media.length === 0 || st.sending) {
+        return;
+    }
+
+    if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
+        return;
+    }
+
+    revokeAttachment(st.attachment);
+    st.attachment = null;
+    st.gif = null;
+    st.suggestion = null;
+    st.suggestionFor = null;
+    st.intent = null;
+    st.noteDropped = false;
+    st.requestedIntent = undefined;
+    st.draft = '';
+    st.ppvPending = false;
+    st.stepLoads++;
+    st.step = {
+        stepId: AD_HOC_STEP_ID,
+        title: 'Free picture',
+        price: 0,
+        media: media.map((m) => ({ ...m })),
+        priceSuggestion: null,
+        notReadyPlan: null,
+    };
+    railOpen.value = false;
+    void generate(null);
 }
 
 // A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.
@@ -2364,6 +2416,17 @@ onBeforeUnmount(() => {
                     @jump="jumpToMessage"
                 />
             </aside>
+            <SsVaultPickerModal
+                v-if="
+                    freePictureChat !== null && freePictureChat === selected?.id
+                "
+                :model-id="model.id"
+                :types="['photo']"
+                title="Free picture"
+                :max="40"
+                @add="loadFreePicture"
+                @close="freePictureChat = null"
+            />
         </template>
 
         <div
