@@ -1,0 +1,167 @@
+import type {
+    ChatCounters,
+    IntentKey,
+    IntentLock,
+    MessageTag,
+    OfMessage,
+} from '@/types/crm';
+
+// Client mirror of the server rules in App\Services\OnlyFans\LiveThreadMapper (effective tag,
+// hidden mass PPV, session start) and App\Support\AgentIntents::unpaidPpv. The SERVER enforces
+// every intent; this only decides which buttons look enabled. Keep the two in step.
+
+const TAGS: MessageTag[] = ['chat_ppv', 'mppv', 'free_preview'];
+
+/** Messages needed before PPV unlocks: new fan vs a returning one. */
+export const PPV_MIN_NEW = 12;
+export const PPV_MIN_RETURNING = 10;
+export const PPV_MIN_SINCE_LAST = 6;
+export const REPITCH_MIN_SINCE = 5;
+/** hasMore means the loaded page (100) is a floor, not the real total. */
+const PAGE = 100;
+
+export function effectiveTag(
+    m: OfMessage,
+    tags: Record<string, MessageTag>,
+): MessageTag | null {
+    if (m.from !== 'creator' || m.isFree || !(m.price > 0) || m.isTip) {
+        return null;
+    }
+
+    const stored = m.id !== null ? tags[m.id] : undefined;
+
+    if (stored !== undefined && TAGS.includes(stored)) {
+        return stored;
+    }
+
+    return m.fromQueue ? 'mppv' : 'chat_ppv';
+}
+
+export function isHiddenMass(
+    m: OfMessage,
+    tags: Record<string, MessageTag>,
+): boolean {
+    return effectiveTag(m, tags) === 'mppv' && !m.isOpened;
+}
+
+const ts = (m: OfMessage): number | null => {
+    if (m.time === null) {
+        return null;
+    }
+
+    const t = Date.parse(m.time);
+
+    return Number.isNaN(t) ? null : t;
+};
+
+export function chatCounters(
+    messages: OfMessage[],
+    tags: Record<string, MessageTag>,
+    opts: { hasMore: boolean; sessionGapHours: number },
+): ChatCounters {
+    const real = messages.filter((m) => !m.pending && !m.failed);
+    const unboughtMass = real.filter((m) => isHiddenMass(m, tags)).length;
+    const items = real
+        .filter((m) => !isHiddenMass(m, tags))
+        .map((m) => ({ m, t: ts(m), tag: effectiveTag(m, tags) }))
+        // Null times sort first, like the server's `ts ?? 0`; Array#sort is stable.
+        .sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+
+    const gap = opts.sessionGapHours * 3600 * 1000;
+    let sessionStart = 0;
+
+    for (let i = items.length - 1; i > 0; i--) {
+        const cur = items[i].t;
+        const prev = items[i - 1].t;
+
+        if (cur !== null && prev !== null && cur - prev > gap) {
+            sessionStart = i;
+            break;
+        }
+    }
+
+    const n = items.length;
+    let sinceLastPpv: number | null = null;
+    let unpaidPpv: ChatCounters['unpaidPpv'] = null;
+    let decided = false;
+
+    for (let i = n - 1; i >= 0; i--) {
+        const { m, tag } = items[i];
+
+        if (tag !== 'chat_ppv' && tag !== 'mppv') {
+            continue;
+        }
+
+        if (sinceLastPpv === null) {
+            sinceLastPpv = n - 1 - i;
+        }
+
+        if (!decided) {
+            decided = true;
+
+            if (!m.isOpened) {
+                unpaidPpv = {
+                    price: m.price,
+                    since: n - 1 - i,
+                    messageId: m.id,
+                };
+            }
+        }
+
+        break;
+    }
+
+    return {
+        total: opts.hasMore ? Math.max(n, PAGE) : n,
+        sinceLastPpv,
+        unpaidPpv,
+        returning: sessionStart > 0 || opts.hasMore,
+        unboughtMass,
+    };
+}
+
+export function intentLock(key: IntentKey, c: ChatCounters): IntentLock {
+    if (key === 'ppv') {
+        const need = c.returning ? PPV_MIN_RETURNING : PPV_MIN_NEW;
+
+        if (c.total < need) {
+            return {
+                enabled: false,
+                lit: false,
+                reason: `${c.total} of ${need} messages`,
+            };
+        }
+
+        if (c.sinceLastPpv !== null && c.sinceLastPpv < PPV_MIN_SINCE_LAST) {
+            return {
+                enabled: false,
+                lit: false,
+                reason: `${c.sinceLastPpv} of ${PPV_MIN_SINCE_LAST} since the last PPV`,
+            };
+        }
+
+        return { enabled: true, lit: false, reason: null };
+    }
+
+    if (key === 'repitch') {
+        if (c.unpaidPpv === null) {
+            return { enabled: false, lit: false, reason: 'No unpaid PPV' };
+        }
+
+        if (c.unpaidPpv.since < REPITCH_MIN_SINCE) {
+            return {
+                enabled: false,
+                lit: false,
+                reason: `${c.unpaidPpv.since} of ${REPITCH_MIN_SINCE} messages since the unpaid PPV`,
+            };
+        }
+
+        return { enabled: true, lit: true, reason: null };
+    }
+
+    if (c.unboughtMass < 1) {
+        return { enabled: false, lit: false, reason: 'No unbought mass PPV' };
+    }
+
+    return { enabled: true, lit: false, reason: null };
+}

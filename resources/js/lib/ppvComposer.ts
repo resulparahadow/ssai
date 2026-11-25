@@ -2,7 +2,7 @@
  * Pure decisions behind the PPV composer, kept out of the components so they can be checked
  * without a browser (the repo has no TS unit runner; `engine/`-style node checks cover them).
  */
-import type { ComposerStep } from '@/types/crm';
+import type { ComposerStep, IntentKey } from '@/types/crm';
 
 /**
  * Parse a Price-to-View edit. An empty or unparseable edit REVERTS to the previous price —
@@ -58,12 +58,21 @@ export function suggestionStillApplies(
  * a Text step was loaded still applies.
  */
 export function generationStillApplies(
-    started: { captionFor: number | null; loads: number },
-    now: { captionFor: number | null; loads: number },
+    started: {
+        captionFor: number | null;
+        loads: number;
+        intent: IntentKey | null;
+    },
+    now: {
+        captionFor: number | null;
+        loads: number;
+        intent: IntentKey | null;
+    },
 ): boolean {
     return (
         suggestionStillApplies(started.captionFor, now.captionFor) &&
-        started.loads === now.loads
+        started.loads === now.loads &&
+        started.intent === now.intent
     );
 }
 

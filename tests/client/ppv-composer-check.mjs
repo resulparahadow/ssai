@@ -57,7 +57,11 @@ assert.equal(
 
 // #3b — any step LOADED while a generate runs drops the result, even when both ends read
 // as a normal reply (Text steps): the replace confirm promised to replace the pending draft.
-const at = (captionFor, loads) => ({ captionFor, loads });
+const at = (captionFor, loads, intent = null) => ({
+    captionFor,
+    loads,
+    intent,
+});
 assert.equal(
     generationStillApplies(at(null, 0), at(null, 1)),
     false,
@@ -92,6 +96,12 @@ assert.equal(
     generationStillApplies(at(7, 2), at(7, 3)),
     false,
     'step 7 reloaded mid-generate → dropped (the load reset the payload)',
+);
+
+assert.equal(
+    generationStillApplies(at(null, 2, null), at(null, 2, 'repitch')),
+    false,
+    'only the intent changed -> dropped',
 );
 
 // #3 — loading a step while a generate is in flight counts as dirty.

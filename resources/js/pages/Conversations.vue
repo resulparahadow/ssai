@@ -284,8 +284,12 @@ async function generate() {
 
         if (
             !generationStillApplies(
-                { captionFor, loads: loadsAtStart },
-                { captionFor: captionStepId(st.step), loads: st.stepLoads },
+                { captionFor, loads: loadsAtStart, intent: null },
+                {
+                    captionFor: captionStepId(st.step),
+                    loads: st.stepLoads,
+                    intent: null,
+                },
             )
         ) {
             // A reply landed with a media step loaded (it would be sent as the caption), a
