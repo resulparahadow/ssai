@@ -160,50 +160,81 @@ old rejection explains the move.
 
 ---
 
-## 7. Sending a PPV
+## 7. Scripts and PPVs
 
-The right rail has a **PPV** tab: the creator's saved PPV sets (media + price +
-a default caption), the same idea as CreatorHero's PPV tab. Managers create them
-right there: **PPV tab → New set → Add media from the vault** opens the vault
-picker (folders on the left, media on the right — ticks survive switching
-folders, up to 40 items) → **Add** → name, price, caption → **Create set**.
-To change one later: **⋯ → Edit** on its card (**Change media** reopens the
-picker with the set's media already ticked; the × on a tile removes it).
+The right rail has a **Scripts** tab: the creator's scripts, each a list of
+steps (the same idea as CreatorHero's script and PPV tabs). A step is one
+message: text only, text + free media, or text + media + a price (a PPV). The
+badge on each step tells you which: **Text**, **Free**, or **PPV $20**.
 
-1. Open the fan's chat → **PPV** tab → click a set. It loads into the composer:
-   the media tiles, a **Price to View** chip, and the default caption. If you
-   already had text or media in the box you'll be asked before it's replaced.
-2. Click **Generate caption** (the sparkle button). SSAI writes ONE short
-   curiosity caption for *this* fan, in the creator's voice — it never
-   describes what's in the content, and it does not answer or continue the
-   fan's last message. **Accept** puts it in the box; **Accept & Send** sends.
-3. Check the price. Under the chip SSAI shows its own price read, e.g.
+**Where you are with this fan.** Each script shows your progress for the chat
+you have open, e.g. `3/23`, and each step is marked **Sent** (and **Bought**
+for a PPV he has unlocked). The next step you haven't sent is outlined and
+tagged **Next**.
+
+1. Open the fan's chat → **Scripts** tab → click a step. It loads into the
+   composer: the text, the media tiles and the **Price to View** chip if it has
+   them. The fan's name is filled in for you (`{Fan Name}` / `{Custom Name}`);
+   if he only has a raw OnlyFans id like `u12345678`, the step's fallback name
+   is used, or the name is just left out. If you already had text or media in
+   the box you'll be asked before it's replaced.
+2. Read it over and edit freely. **Check for `[script notes]`**: anything the
+   script author left in square brackets is an instruction to you, not part of
+   the message. If one is still in the text when you press Send, SSAI asks
+   "This message still contains script notes in [brackets]. Send anyway?" —
+   Cancel jumps to the note so you can fix it.
+3. **Generate** is optional and depends on the step:
+   - **PPV or Free step** (has media): SSAI writes ONE short curiosity caption
+     for *this* fan, in the creator's voice. It never describes the content and
+     doesn't answer his last message. **Accept** puts it in the box; **Accept &
+     Send** sends.
+   - **Text step**: Generate writes a normal reply to the conversation, exactly
+     as it does with no step loaded. Your step and its text stay where they are.
+4. **Check the price** (PPV steps). Under the chip SSAI shows its own read, e.g.
    `AI: $12 · cold lurker, first PPV must be low-risk [Use]` (`AI agrees: $20`
-   when it matches). It's a second opinion only — the set's price stays
-   unless you click **Use**. Click the chip to change the price by hand —
-   free, or $3–$200. Send is disabled on anything else (OnlyFans would refuse it).
-   If the caption card shows an amber line like **"SSAI planned a rapport beat
-   next"**, the last plan SSAI made for this fan was *not* to sell yet. The
-   caption is written anyway — send only if he's ready to unlock.
-4. **Send PPV $20** posts a locked message. The thread shows an amber
+   when it matches). It's a second opinion only — the step's price stays unless
+   you click **Use**. Click the chip to change the price by hand — free, or
+   $3–$200. Send is disabled on anything else (OnlyFans would refuse it). If the
+   caption card shows an amber line like **"SSAI planned a rapport beat next"**,
+   the last plan SSAI made for this fan was *not* to sell yet. The caption is
+   written anyway — send only if he's ready to unlock.
+5. **Send**. A PPV posts a locked message; the thread shows an amber
    `$20.00 · Unpaid` pill until he buys, then green `Paid`.
 
+**The "Script: …" chip.** A text step shows a small chip above the box,
+`Script: {title} ×`. It means "when I send this, count it as that step". It
+stays while you edit or generate. Click **×** to remove it if you've gone off
+script and don't want the send to tick the step off (the text stays). It clears
+by itself after you send.
+
+**Mark sent / Unmark.** SSAI only knows about steps sent *from SSAI*. If you
+sent one from CreatorHero or OnlyFans directly, open the step's **⋯** menu and
+choose **Mark sent** so progress and **Next** stay right. **Unmark** undoes a
+mark you made by hand (a step that was really sent from SSAI says "Sent from
+SSAI" and can't be unmarked).
+
+Managers build scripts in the same tab: **New script**, **Add step** (or **⋯ →
+Edit** on a step). A step has a title, text (buttons insert the name labels),
+a fallback name, optional media from the vault (folders on the left, ticks
+survive switching folders, up to 40 items) and a price. **⋯** also moves
+steps/scripts up and down and deletes them; deleting keeps the send history.
+
 Notes:
-- The card's **Sent / Bought** pill is for the fan you have open. It only knows
-  about PPVs sent *from SSAI* — a set sent from CreatorHero or OnlyFans directly
-  shows no pill.
 - A caption generate does not change the fan's AI Intel or memory — it is a
-  caption, not a read of the conversation.
-- Attaching a GIF or a file while a set is loaded removes the set (they can't
-  go in the same message).
+  caption, not a read of the conversation. The rail also stays on **Scripts**
+  after a generate instead of jumping to AI Intel.
+- If you load a different step while a draft is still generating, the old draft
+  is thrown away when it arrives — it belonged to the previous step.
+- Attaching a GIF or a file while a media step is loaded removes the step
+  (they can't go in the same message).
 
 ---
 
 ## 8. Known limits (today)
 
-- **SSAI suggests a price, but doesn't pick the set yet.** You choose the set;
+- **SSAI suggests a price, but doesn't pick the step yet.** You choose the step;
   SSAI writes the caption and offers a price you can Use or ignore. The price
-  read only appears after **Generate caption**. Tip requests are still
+  read only appears after you Generate on a media step. Tip requests are still
   not sendable from the CRM.
 - **Mass PPVs are handled automatically.** A locked mass message (MPPV) the fan
   hasn't bought shows a `· Mass` label on its pill and SSAI ignores it, so it no

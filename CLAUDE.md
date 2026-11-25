@@ -307,7 +307,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     or $3–$200 with ≤2 decimals, enforced by `App\Rules\PpvPrice` BEFORE the vendor call (the
     vendor 422s anything else after billing) — and refuses a price with no media ("A price needs
     media attached."). `sendMedia(…, float $price = 0)` omits the `price` key when 0. An optional
-    `ppvSetId` writes a `ppv_set_sends` ledger row on a 2xx (see PPV sets below); the set is
+    `scriptStepId` writes a `script_step_sends` ledger row on a 2xx (see Scripts below); the step is
     resolved against THIS creator before sending, and a ledger failure is logged
     (`ppv.ledger_failed`), never surfaced as a failed send. Tips are still not sendable.
     **The chat media gallery's payload is MESSAGES, not media (fixed 2026-09-05).**
@@ -481,7 +481,8 @@ engine uses its in-process copy. Provider keys live in the engine's env
     dashboard (temperature gauge, Connection/Customer Type/Phase/Engagement, Framework Calibration,
     Message Purpose, Next Move, Warning) straight from the `generate` response's `strategy` object
     (the legacy "analysis" is folded into the strategy — no separate `/analyze` call); `SsComposer`
-    emits the strategy up via `@result`, which auto-switches the rail to AI Intel. Reset per chat.
+    emits the strategy up via `@result`, which auto-switches the rail to AI Intel — except while the
+    **Scripts** tab is open (the chatter is working from the script, so the rail stays put). Reset per chat.
     **Persisted fan memory (carve-out — metadata only, NO message text):** the Fan tab's
     "Memory & controls" card restores the legacy `customer_profiles` contribution to AI generation
     (`FanProfileService` over the revived `customer_profiles`, keyed by `(creator_model, of_fan_id)`
@@ -520,44 +521,72 @@ engine uses its in-process copy. Provider keys live in the engine's env
     gap-windowed session spend) and multi-turn forcing-move continuation (`ChatStateService` →
     `_promiseStatus`/`_storyFrameworkStep`) are both DONE. Still deferred: `prior_session_count`
     (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
-    **PPV sets (2026-11-08, spec `docs/superpowers/specs/2026-11-08-ppv-sets-design.md`)** — the
-    CreatorHero "PPV tab" flow the team is used to. **`ppv_sets`** (`PpvSet`, creator-wide, keyed by
-    `creator_model`, `CreatorAccessScope`; `media` json = ordered `{id, type, thumb}` VAULT ids) and
-    **`ppv_set_sends`** (`PpvSetSend`, `BelongsToChatter`: set, fan = chat id, vendor message id,
-    price, sender, time — the only record of what SSAI sent; no text). `PpvSetController` under
-    `onlyfans/{model}/ppv-sets`: reads (`index`, `chats/{chat}/ppv-sets/status`, `thumb/{media}`)
-    for anyone assigned, writes (`store`/`update`/`destroy`/`PUT order`, registered ABOVE
-    `{set}`) in the `can:manage-team` group. Client: right-rail **PPV** tab (`SsPpvRail`) lists the
-    sets with a per-open-fan **Sent / Bought** pill (ledger joined with the loaded thread's
-    `isOpened`; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to
-    vault ids), click → `loadPpvSet` replaces the WHOLE send payload (text/media/GIF/price/pending
-    suggestion, confirm when dirty) with `ComposerState.ppv`; `SsPpvStrip` shows tiles + an
-    editable **Price to View** chip (`isValidPpvPrice`, mirrors `App\Rules\PpvPrice`); Send posts
-    `mediaFiles` + `price` + `ppvSetId`. **Sets are made and edited IN THE RAIL, not in the Media
-    Vault page** (2026-11-09, the team's CreatorHero habit): **New set** (manager) / **⋯ → Edit**
-    open `SsPpvSetModal` — media + name + price + caption in one form — and its **Add / Change
-    media** opens `SsVaultPickerModal`: `SsVaultRail` in `readonly` mode on the left (folders,
-    no create/rename/delete), a multi-select grid on the right (type pills, server search,
-    `?list=` paging), `Cancel` / `Add N items`. The selection is a `Map<id, PpvSetMedia>` that
-    SURVIVES folder switches (the grid only holds the open folder, so a Set filtered against it
-    lost the previous folder's ticks) and is pre-filled from the set when editing; `max` 40 greys
-    out further tiles. The modal re-sends `media` only when its ids changed; cached thumbs come
-    back as OUR thumb route, so `media.*.thumb` is not `url`-validated and `durableThumb` maps
-    `'local'`/that path to the `'local'` marker iff the file exists, fetching nothing. The Media
-    Vault page has NO PPV affordance any more (its bulk bar is Add to list / Delete; its own
-    selection also spans folders now, with an "N from other folders" hint). **Generate with a
-    set loaded sends `sender:'ppv'`** = legacy's PPV CAPTION MODE (one curiosity caption); for it
-    the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips
-    `commitState` and the rail auto-switch — legacy forces that strategy to `send_content`, which
-    would clobber the fan's real next move. The set name is deliberately NOT put in `context`: any
-    context text flips the brain into AGENT OVERRIDE (safeguards deferred). `ppv` is exclusive with
-    `gif`/`attachment`. **Thumbs:** the vendor serves vault thumbs onlyfans-hosted on first look and
-    as `cdn.fansapi.com` presigned urls (15-min expiry) once it has re-hosted them (verified live:
+    **Scripts (2026-11-25, spec `docs/superpowers/specs/2026-11-25-scripts-design.md`; grew out of the
+    2026-11-08 "PPV sets")** — the CreatorHero script/PPV flow the team is used to: a **script** is an
+    ordered list of **steps**, each one message the chatter can load into the composer. **`scripts`**
+    (`Script`, creator-wide, keyed by `creator_model`, `CreatorAccessScope`), **`script_steps`**
+    (`ScriptStep`, renamed from `ppv_sets`: title, text, `media` json = ordered `{id, type, thumb}`
+    VAULT ids, price, position) and **`script_step_sends`** (`ScriptStepSend`, renamed from
+    `ppv_set_sends`, `BelongsToChatter`: step, fan = chat id, vendor message id, price, sender, time —
+    the only record of what SSAI sent; no text). The ledger's `script_step_id` is **`nullOnDelete`** and
+    `step_title` snapshots the title, so deleting a step or script keeps the send history; `source` is
+    `send` (written by `OnlyFansChatController::send` on a 2xx, when `scriptStepId` is posted) or
+    `manual` (a chatter's **Mark sent**). The old `ppv-sets` routes, `PpvSet*` models/controller and
+    `SsPpvRail`/`SsPpvSetModal` are GONE (the rename also moved `ppvSetId` → `scriptStepId`).
+    `ScriptController` under `onlyfans/{model}/scripts…`: reads (`index`, `chats/{chat}/scripts/status`,
+    `scripts/thumb/{media}`) and the per-fan marks (`POST|DELETE chats/{chat}/scripts/steps/{step}/mark`)
+    for anyone assigned; writes (`store`/`update`/`destroy`, `storeStep`/`updateStep`/`destroyStep`,
+    `PUT scripts/order`, `PUT scripts/{script}/steps/order`) in the `can:manage-team` group — the
+    literal `order`/`steps/{step}` routes are registered ABOVE `scripts/{script}`. **Step kinds are
+    derived, not stored:** no media = **Text**, media with price 0 = **Free**, media with a price =
+    **PPV**; a media step sends `mediaFiles` + `price`, a Text step sends plain text, and any loaded
+    step posts `scriptStepId`. **Name labels:** `{Fan Name}` / `{Custom Name}` (any of Title/UPPER/lower
+    case) are filled CLIENT-SIDE on load by `lib/scriptLabels.ts::fillLabels` from the chat row's
+    `fanName`/`customName` (exposed by `OnlyFansService` — custom name is `displayName`, see above); an
+    empty value **or a raw OnlyFans id-style name (`u12345678`)** is not a name and uses the step's
+    fallback name, else the token is removed and the gap tidied. **Bracket guard:** `findScriptNote`
+    detects `[script notes]` still in the text and `SsComposer` asks `confirm` before Send / Enter /
+    Accept & Send (Cancel selects the note; Accept & Send's Cancel accepts the draft into the typing
+    bar first; a failed-bubble `resend` is exempt). **Progress:** the rail (`SsScriptsRail`, right-rail
+    **Scripts** tab) shows a per-open-fan `sent/total` pill per script (`lib/scriptProgress.ts`), a
+    **Sent / Bought** pill per step (ledger joined with the loaded thread's `isOpened`; Bought is PPV
+    only; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to vault ids,
+    hence **Mark sent** / **Unmark**, which write/delete the `manual` row only — a step sent from SSAI
+    reads "Sent from SSAI"), and tags the first unsent step **Next**. Click a step → `loadStep` in
+    `Conversations.vue` replaces the WHOLE send payload (text/media/GIF/price/pending suggestion,
+    confirm when dirty) with `ComposerState.step`. **The step chip:** a media step shows `SsPpvStrip`
+    (tiles + the editable **Price to View** chip, `isValidPpvPrice` mirrors `App\Rules\PpvPrice`); a
+    Text step shows a "Script: {title} ×" chip (× drops the step, keeps the text). The chip survives
+    editing, Generate, Accept and Dismiss, and is cleared after a successful send (else it would log the
+    next, unrelated message). **Generate per kind:** a media step sends `sender:'ppv'` = legacy's PPV
+    CAPTION MODE (one curiosity caption); a Free step discards `ppvSuggestion` (price 0 at generate time);
+    a **Text step generates a normal reply** (`sender:'customer'`, step and text stay in place). For
+    caption mode the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips
+    `commitState` and the rail auto-switch — legacy forces that strategy to `send_content`, which would
+    clobber the fan's real next move. The step title is deliberately NOT put in `context`: any context
+    text flips the brain into AGENT OVERRIDE. A media step is exclusive with `gif`/`attachment`.
+    **Stale replies:** loading ANY step replaces the pending draft, so a Generate still in flight from
+    before the load is dropped — `generationStillApplies` (`lib/ppvComposer.ts`) compares `captionStepId`
+    AND the per-composer `stepLoads` counter, which catches Text A → Text B where both ends read as a
+    normal reply (a reply generated after a Text step was loaded still applies). **Steps are made and
+    edited IN THE RAIL, not in the Media Vault page:** **New script** / **Add step** (managers) and
+    **⋯ → Edit** open `SsScriptStepModal` — title, text (six label buttons inserting at the cursor),
+    fallback name, optional media, price (only with media), script — and its **Add / Change media** opens
+    `SsVaultPickerModal`: `SsVaultRail` in `readonly` mode on the left, a multi-select grid on the right
+    (type pills, server search, `?list=` paging), `Cancel` / `Add N items`. The selection is a
+    `Map<id, ScriptStepMedia>` that SURVIVES folder switches and is pre-filled when editing; `max` 40
+    greys out further tiles. Reordering is ↑/↓ menu items, not drag; the rail refetches after every write.
+    The modal re-sends `media` only when its ids changed; cached thumbs come back as OUR thumb route, so
+    `media.*.thumb` is not `url`-validated and `durableThumb` maps `'local'`/that path to the `'local'`
+    marker iff the file exists, fetching nothing. The Media Vault page has NO script/PPV affordance (bulk
+    bar: Add to list / Delete). **Thumbs:** the vendor serves vault thumbs onlyfans-hosted on first look
+    and as `cdn.fansapi.com` presigned urls (15-min expiry) once it has re-hosted them (verified live:
     same ids flipped within an hour), so on save an onlyfans url is kept (the proxy re-signs) and a
-    fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/
-    {model}/{media}`, stored as the marker `local` and served by the private `thumb/{media}` route;
-    other hosts → null. Guards: `tests/Feature/{PpvSetModelTest,PpvSetTest,OnlyFansChatSendPpvTest,
-    OnlyFansChatCaptionTest}.php`, `node engine/ppv_caption_check.js`.
+    fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/{model}/
+    {media}` — the directory name is unchanged from before the rename — stored as the marker `local` and
+    served by the private `scripts/thumb/{media}` route; other hosts → null. Guards:
+    `tests/Feature/{ScriptModelTest,ScriptTest,OnlyFansChatSendStepTest,OnlyFansChatCaptionTest,
+    OnlyFansFanNamesTest}.php`, `tests/client/scripts-check.mjs`, `node engine/ppv_caption_check.js`.
     **Slice 2 (2026-11-22, spec `docs/superpowers/specs/2026-11-22-ppv-price-suggestion-design.md`):**
     a caption generate also returns **`ppvSuggestion`** — legacy's own price call, lifted in caption
     mode only, told the set's media counts (request `ppvMedia` `{photo,video,gif,audio}`, never the
@@ -570,10 +599,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     own `ppvOverrodeBrain` almost never fires (PPV mode forces the phase first) and is ignored. Both
     keys exist only in caption mode. Client: `SsPpvStrip` shows `AI: $12 · reason [Use]` beside the
     chip — the suggestion NEVER changes the price, only Use does, and the response is merged into the
-    current `st.ppv` so an edit made while generating survives — and `SsComposer`'s draft card shows
+    current `st.step` so an edit made while generating survives — and `SsComposer`'s draft card shows
     the amber "SSAI planned … next" line (`lib/ppvComposer.ts` helpers, guard
     `tests/client/ppv-composer-check.mjs`). Guards: `tests/Unit/{PpvPriceSuggestion,PpvReadiness}Test.php`,
-    `OnlyFansChatCaptionTest`, `node engine/ppv_price_check.js`. NOT yet: AI picking the set,
+    `OnlyFansChatCaptionTest`, `node engine/ppv_price_check.js`. NOT yet: AI picking the step,
     `previews`/`lockedText`, auto follow-up on unbought PPVs, pricing without a Generate.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
