@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
     chatCounters,
     effectiveTag,
+    intentLabel,
     intentLock,
     isHiddenMass,
 } from '../../resources/js/lib/chatCounters.ts';
@@ -141,5 +142,10 @@ assert.equal(c.total, 2);
 const s = { captionFor: null, loads: 0, intent: null };
 assert.equal(generationStillApplies(s, { ...s, intent: 'repitch' }), false);
 assert.equal(generationStillApplies(s, { ...s }), true);
+
+// labels
+assert.equal(intentLabel('repitch'), 'Re-pitch');
+assert.equal(intentLabel('reoffer_mppv'), 'Re-offer MPPV');
+assert.equal(intentLabel('ppv'), 'PPV');
 
 console.log('intents-check: OK');

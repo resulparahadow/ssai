@@ -21,18 +21,22 @@ import {
     ref,
     watch,
 } from 'vue';
+import { intentLabel } from '@/lib/chatCounters';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
 import type {
     ComposerAttachment,
+    ChatCounters,
     ComposerStep,
     DraftRejection,
+    IntentKey,
     OfGif,
     OfMedia,
 } from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
+import SsIntentBar from './SsIntentBar.vue';
 import SsPpvStrip from './SsPpvStrip.vue';
 import SsVaultModal from './SsVaultModal.vue';
 
@@ -53,6 +57,8 @@ const props = defineProps<{
     canSendReason: string | null;
     rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
     rejecting: boolean;
+    counters: ChatCounters;
+    intent: IntentKey | null; // what the pending suggestion was generated for
 }>();
 
 const emit = defineEmits<{
@@ -64,6 +70,8 @@ const emit = defineEmits<{
     'pick-file': [file: File];
     'pick-vault': [item: OfMedia];
     generate: [];
+    regenerate: [];
+    intent: [key: IntentKey];
     send: [];
     accept: [];
     'accept-send': [];
@@ -433,7 +441,7 @@ function onKeydown(e: KeyboardEvent) {
                     :disabled="props.generating"
                     class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-50"
                     title="Regenerate"
-                    @click="emit('generate')"
+                    @click="emit('regenerate')"
                 >
                     <RefreshCw
                         :size="13"
@@ -474,6 +482,13 @@ function onKeydown(e: KeyboardEvent) {
                         Caption written anyway, send only if he's ready to
                         unlock.
                     </span>
+                </p>
+                <p
+                    v-if="props.intent"
+                    class="mb-1 text-[11px] font-semibold text-ss-text-3"
+                    data-testid="intent-label"
+                >
+                    Intent: {{ intentLabel(props.intent) }}
                 </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"
@@ -738,6 +753,15 @@ function onKeydown(e: KeyboardEvent) {
                 props.canSendReason ? ` — ${props.canSendReason}` : ''
             }}
         </p>
+
+        <!-- Agent intents: Re-pitch / Re-offer MPPV (and PPV) with their unlock state. -->
+        <SsIntentBar
+            :counters="props.counters"
+            :busy="props.generating"
+            :media-loaded="mediaStep !== null"
+            :active-intent="props.intent"
+            @fire="emit('intent', $event)"
+        />
 
         <!-- Typing bar: the message gets the full width; tools sit in a row beneath it, so a
              narrow middle column never squeezes the textarea down to one word per line. -->

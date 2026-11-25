@@ -165,3 +165,13 @@ export function intentLock(key: IntentKey, c: ChatCounters): IntentLock {
 
     return { enabled: true, lit: false, reason: null };
 }
+
+const INTENT_LABELS: Record<IntentKey, string> = {
+    ppv: 'PPV',
+    repitch: 'Re-pitch',
+    reoffer_mppv: 'Re-offer MPPV',
+};
+
+export function intentLabel(key: IntentKey): string {
+    return INTENT_LABELS[key];
+}

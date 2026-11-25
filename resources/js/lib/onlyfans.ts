@@ -17,6 +17,8 @@ import type {
     ScriptStatus,
     ScriptStep,
     ScriptStepMedia,
+    IntentKey,
+    MessageTag,
 } from '@/types/crm';
 
 /** Create/update body for a script step (price needs media; a step needs text or media). */
@@ -135,7 +137,23 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
         );
     }
 
+    if (res.status === 204) {
+        return undefined as T;
+    }
+
     return res.json();
+}
+
+/** The generate request. `messages` is open-ended (the server whitelists keys); `id` lets the
+ *  server apply stored per-message PPV tags. `intent` is only ever repitch / reoffer_mppv. */
+export interface GeneratePayload {
+    messages: Array<Record<string, unknown> & { id?: string }>;
+    customer: { id: string; name: string | null; username: string | null };
+    api: string;
+    context: string;
+    sender: 'customer' | 'ppv';
+    intent?: Exclude<IntentKey, 'ppv'>;
+    ppvMedia?: object;
 }
 
 const base = (modelId: number) => `/onlyfans/${modelId}`;
@@ -394,7 +412,7 @@ export const ofApi = {
             `${base(m)}/fans/${fanId}/summary`,
             regenerate ? { regenerate: true } : {},
         ),
-    generate: (m: number, chat: string, payload: object) =>
+    generate: (m: number, chat: string, payload: GeneratePayload) =>
         postJson<{
             draft: string;
             strategy: AiStrategy | null;
@@ -403,6 +421,8 @@ export const ofApi = {
             // Caption mode (sender 'ppv') only.
             ppvSuggestion?: PpvPriceSuggestion | null;
             ppvNotReady?: string | null;
+            // Echoed when the request carried an agent intent.
+            intent?: 'repitch' | 'reoffer_mppv' | null;
         }>(`${base(m)}/chats/${chat}/generate`, payload),
     intel: (m: number, chat: string) =>
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(
@@ -446,6 +466,24 @@ export const ofApi = {
             'PATCH',
             `${base(m)}/chats/${chat}/profile`,
             payload,
+        ),
+
+    // ---- Message PPV tags (chat PPV / mass PPV / free preview) ---------------
+    tags: (m: number, chat: string) =>
+        req<{ tags: Record<string, MessageTag> }>(
+            'GET',
+            `${base(m)}/chats/${chat}/tags`,
+        ),
+    setTag: (m: number, chat: string, message: string, tag: MessageTag) =>
+        req<unknown>(
+            'PUT',
+            `${base(m)}/chats/${chat}/messages/${message}/tag`,
+            { tag },
+        ),
+    clearTag: (m: number, chat: string, message: string) =>
+        req<unknown>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/messages/${message}/tag`,
         ),
 
     // ---- Rejected drafts (Reject with feedback) ------------------------------

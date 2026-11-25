@@ -11,6 +11,7 @@ import SsScriptsPanel from '@/components/crm/conversations/SsScriptsPanel.vue';
 import SsSentPpvs from '@/components/crm/conversations/SsSentPpvs.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
+import { chatCounters } from '@/lib/chatCounters';
 import {
     chatComposer,
     chatListView,
@@ -22,6 +23,7 @@ import {
     nextCache,
     recallOpenChat,
     rememberOpenChat,
+    tagsCache,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
@@ -49,6 +51,8 @@ import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
     ComposerStep,
+    IntentKey,
+    MessageTag,
     OfChat,
     OfChatFilter,
     OfChatOrder,
@@ -141,6 +145,9 @@ const msgsNext = ref<Record<string, string> | null>(null);
 const msgsLoadingMore = ref(false);
 const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
+// Stored per-message PPV tags for the open chat (stale-while-revalidate via tagsCache). The
+// server applies the same tags on generate; here they only feed the intent bar's counters.
+const tags = ref<Record<string, MessageTag>>({});
 
 // Right rail: Fan / AI Intel / PPV (PPVs sent to this fan) tabs.
 const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
@@ -168,6 +175,14 @@ const curRejections = computed(() =>
               props.sessionGapHours,
           )
         : [],
+);
+
+// `hasMore`: the loaded page is a floor, not the thread's real length (older pages remain).
+const counters = computed(() =>
+    chatCounters(messages.value, tags.value, {
+        hasMore: msgsNext.value !== null,
+        sessionGapHours: props.sessionGapHours,
+    }),
 );
 
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
@@ -206,6 +221,7 @@ function dropChat() {
     msgCache.delete(id);
     fanCache.delete(id);
     nextCache.delete(id);
+    tagsCache.delete(id);
 
     if (model.value) {
         rememberOpenChat(model.value.id, null);
@@ -218,7 +234,9 @@ function dropChat() {
     fan.value = null;
 }
 
-async function generate() {
+/** `intent`: null = a plain reply (or the loaded media step's caption); repitch / reoffer_mppv
+ *  = an agent intent. Only those two reach the server. */
+async function generate(intent: IntentKey | null = null) {
     const m = model.value;
     const chat = selected.value;
 
@@ -256,6 +274,7 @@ async function generate() {
             messages: thread
                 .filter((mm) => !mm.failed)
                 .map((mm) => ({
+                    ...(mm.id ? { id: mm.id } : {}),
                     from: mm.from,
                     text: mm.text,
                     time: mm.time,
@@ -272,6 +291,9 @@ async function generate() {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
+            ...(intent === 'repitch' || intent === 'reoffer_mppv'
+                ? { intent }
+                : {}),
             // A loaded media step → legacy's caption mode: ONE curiosity caption, not a reply.
             // The step's title/text is deliberately NOT put in `context` — any context text
             // flips the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
@@ -284,11 +306,11 @@ async function generate() {
 
         if (
             !generationStillApplies(
-                { captionFor, loads: loadsAtStart, intent: null },
+                { captionFor, loads: loadsAtStart, intent },
                 {
                     captionFor: captionStepId(st.step),
                     loads: st.stepLoads,
-                    intent: null,
+                    intent,
                 },
             )
         ) {
@@ -302,6 +324,7 @@ async function generate() {
             draft = data.draft || null;
             st.suggestion = draft;
             st.suggestionFor = captionFor;
+            st.intent = intent;
 
             // Merge into the CURRENT step, read after the await: a price the chatter edited while
             // this ran must survive. The suggestion is advice next to the chip, never the price.
@@ -411,7 +434,7 @@ async function rejectDraft(feedback: string) {
     }
 
     if (selected.value?.id === chatId) {
-        void generate();
+        void generate(st.intent);
     }
 }
 
@@ -451,6 +474,47 @@ async function fetchRejections(chatId: string) {
     }
 }
 
+/** Load this chat's stored PPV tags (stale-while-revalidate: the cache paints first). */
+async function fetchTags(chatId: string) {
+    const m = model.value;
+
+    if (!m) {
+        return;
+    }
+
+    try {
+        const r = await ofApi.tags(m.id, chatId);
+        tagsCache.set(chatId, r.tags);
+
+        if (selected.value?.id === chatId) {
+            tags.value = r.tags;
+        }
+    } catch {
+        // Best-effort: without tags the counters fall back to the heuristic (queue = mass),
+        // and the server applies the stored tags on generate either way.
+    }
+}
+
+/** An intent chip. Re-pitch / Re-offer generate through the server's intent path; PPV with a
+ *  media step loaded is the existing caption flow (picking a step for the chatter comes later). */
+function fireIntent(key: IntentKey) {
+    const st = cur.value;
+
+    if (!st || st.generating) {
+        return;
+    }
+
+    if (key === 'ppv') {
+        if (captionStepId(st.step) !== null) {
+            void generate(null);
+        }
+
+        return;
+    }
+
+    void generate(key);
+}
+
 /** Persist the adopted generation's strategy so the next Generate builds on it.
  *  Fire-and-forget — a failed commit must never block the chatter. */
 function commitStrategyMemory(chatId: string) {
@@ -487,6 +551,7 @@ function acceptSuggestion() {
     st.step = stepAfterAccept(st.step, st.suggestionFor);
     st.draft = st.suggestion;
     st.suggestion = null;
+    st.intent = null;
 }
 
 /** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
@@ -506,6 +571,7 @@ async function acceptAndSend() {
     st.step = stepAfterAccept(st.step, st.suggestionFor);
     const text = st.suggestion;
     st.suggestion = null;
+    st.intent = null;
     await send(text);
 }
 
@@ -513,6 +579,7 @@ function dismissSuggestion() {
     if (cur.value) {
         cur.value.suggestion = null;
         cur.value.suggestionFor = null;
+        cur.value.intent = null;
     }
 }
 
@@ -1054,6 +1121,7 @@ function loadStep(step: ScriptStep): boolean {
     st.gif = null;
     st.suggestion = null;
     st.suggestionFor = null;
+    st.intent = null;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
     st.stepLoads++; // a Generate still in flight was written before this step: drop it
     st.step = {
@@ -1250,6 +1318,7 @@ async function loadChats() {
     if (creatorChanged) {
         selected.value = null;
         messages.value = [];
+        tags.value = {};
         fan.value = null;
         rail.value = 'fan';
 
@@ -1662,6 +1731,9 @@ function openChat(chat: OfChat) {
     // restores it after a reload. Race-safe: only apply while this chat is open.
     fetchIntel(chat.id);
     fetchRejections(chat.id);
+
+    tags.value = tagsCache.get(chat.id) ?? {};
+    fetchTags(chat.id);
 }
 
 async function fetchIntel(chatId: string) {
@@ -1975,7 +2047,11 @@ onBeforeUnmount(() => {
                         @update:step="setStep"
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
-                        @generate="generate"
+                        :counters="counters"
+                        :intent="cur.intent"
+                        @generate="generate()"
+                        @regenerate="generate(cur.intent)"
+                        @intent="fireIntent"
                         @send="send"
                         @accept="acceptSuggestion"
                         @accept-send="acceptAndSend"
