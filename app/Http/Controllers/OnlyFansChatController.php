@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\AuthorizesCreator;
 use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
+use App\Models\AichMessageTag;
 use App\Models\AichModel;
 use App\Models\ScriptStep;
 use App\Models\ScriptStepSend;
@@ -888,6 +889,8 @@ class OnlyFansChatController extends Controller
         $data = $this->validateJson($request, [
             'messages' => 'array',
             'messages.*.from' => 'nullable|string',
+            // Load-bearing: the mapper matches stored MPPV tags by message id; unlisted keys are stripped.
+            'messages.*.id' => 'nullable|string|max:64',
             'messages.*.text' => 'nullable|string',
             // Load-bearing: without a rule, Laravel's validate() strips `time` from $data['messages'],
             // collapsing LiveThreadMapper's gap-based session detection to a single session. Do not remove.
@@ -923,6 +926,7 @@ class OnlyFansChatController extends Controller
             $data['messages'] ?? [],
             (int) config('services.engine.session_gap_hours', 12),
             $model->timezoneOrDefault(),
+            AichMessageTag::forChat($model->name, $chat),
         );
         $messages = $mapped['messages'];
 
