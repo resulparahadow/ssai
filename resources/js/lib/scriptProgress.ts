@@ -39,3 +39,42 @@ export function nextStepIndex(
 
     return next === null || i < 0 ? null : i;
 }
+
+/**
+ * Where the PPV chip opens the Scripts panel: the remembered folder if it still has an unsent,
+ * media-ready PPV step, else the first folder (array order) that does, else null. `stepIndex` is
+ * that folder's first such step.
+ */
+export function nextPpvTarget(
+    scripts: Script[],
+    status: ScriptStatus,
+    rememberedId: number | null,
+): { scriptId: number; stepIndex: number } | null {
+    const inFolder = (s: Script) => {
+        const i = s.steps.findIndex(
+            (st) =>
+                st.kind === 'ppv' &&
+                !st.needsMedia &&
+                (status[st.id]?.length ?? 0) === 0,
+        );
+
+        return i < 0 ? null : { scriptId: s.id, stepIndex: i };
+    };
+
+    const remembered = scripts.find((s) => s.id === rememberedId);
+    const fromRemembered = remembered ? inFolder(remembered) : null;
+
+    if (fromRemembered) {
+        return fromRemembered;
+    }
+
+    for (const s of scripts) {
+        const hit = inFolder(s);
+
+        if (hit) {
+            return hit;
+        }
+    }
+
+    return null;
+}

@@ -22,7 +22,11 @@ import {
 import { relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
-import { nextStepIndex, scriptProgress } from '@/lib/scriptProgress';
+import {
+    nextPpvTarget,
+    nextStepIndex,
+    scriptProgress,
+} from '@/lib/scriptProgress';
 import type { OfMessage, Script, ScriptStatus, ScriptStep } from '@/types/crm';
 
 /**
@@ -40,6 +44,8 @@ const props = defineProps<{
     messages: OfMessage[];
     /** Bumped by the page after a step send so progress re-reads the ledger. */
     statusKey: number;
+    /** Opened from the PPV chip: land on the next unsent PPV step instead of the remembered folder. */
+    focusPpv?: boolean;
 }>();
 const emit = defineEmits<{ load: [step: ScriptStep]; close: [] }>();
 
@@ -47,7 +53,11 @@ const scripts = ref<Script[]>(scriptsCache.get(props.modelId) ?? []);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const status = ref<ScriptStatus>({});
-const openId = ref<number | null>(recallOpenScript(props.modelId));
+const focusPending = ref(props.focusPpv === true); // waiting for scripts + status before landing on the PPV target
+const noPpv = ref(false); // PPV focus found nothing: show the folder list with a note
+const openId = ref<number | null>(
+    focusPending.value ? null : recallOpenScript(props.modelId),
+);
 const previewIdx = ref<number | null>(null); // index into the open script's steps
 const active = ref(0); // keyboard cursor in the current list
 const actionsFor = ref<number | null>(null); // step whose Mark sent / Unmark row is showing
@@ -55,6 +65,8 @@ const busy = ref<number | null>(null);
 const root = ref<HTMLElement | null>(null);
 
 let scriptsToken = 0;
+let scriptsSettled = false;
+let statusSettled = false;
 let lastScript: number | null = openId.value; // where level 1's cursor lands on Back
 let statusToken = 0;
 // The panel opened straight into a remembered script (level 2): its status isn't known yet, so
@@ -85,6 +97,8 @@ async function loadScripts() {
     } finally {
         if (mine === scriptsToken) {
             loading.value = false;
+            scriptsSettled = true;
+            landOnPpv();
         }
     }
 }
@@ -94,6 +108,8 @@ async function loadStatus() {
 
     if (!props.chatId) {
         status.value = {};
+        statusSettled = true;
+        landOnPpv();
 
         return;
     }
@@ -104,13 +120,40 @@ async function loadStatus() {
         if (mine === statusToken) {
             status.value = res.status ?? {};
             landOnNext();
+            statusSettled = true;
+            landOnPpv();
         }
     } catch {
         // Progress is advisory; a failed read just shows nothing sent.
         if (mine === statusToken) {
             status.value = {};
+            statusSettled = true;
+            landOnPpv();
         }
     }
+}
+
+/** PPV focus: once both reads have landed, open the next unsent PPV step in preview (or note that there is none). */
+function landOnPpv() {
+    if (!focusPending.value || !scriptsSettled || !statusSettled) {
+        return;
+    }
+
+    focusPending.value = false;
+    const target = nextPpvTarget(
+        scripts.value,
+        status.value,
+        recallOpenScript(props.modelId),
+    );
+
+    if (!target) {
+        noPpv.value = true;
+
+        return;
+    }
+
+    goScript(target.scriptId);
+    preview(target.stepIndex);
 }
 
 function landOnNext() {
@@ -161,6 +204,7 @@ const level = computed<'scripts' | 'steps' | 'preview'>(() =>
 
 function goScript(id: number | null) {
     pendingNextCursor = false;
+    noPpv.value = false;
     openId.value = id;
     previewIdx.value = null;
     actionsFor.value = null;
@@ -553,8 +597,15 @@ const ICON_BTN =
         <div class="min-h-0 flex-1 overflow-y-auto">
             <!-- Level 1: scripts -->
             <template v-if="level === 'scripts'">
+                <p
+                    v-if="noPpv"
+                    class="border-b border-ss-border bg-ss-surface-2 px-3 py-1.5 text-[12px] text-ss-text-2"
+                    data-testid="no-ppv-note"
+                >
+                    No unsent PPV step — pick any step.
+                </p>
                 <div
-                    v-if="loading && !scripts.length"
+                    v-if="focusPending || (loading && !scripts.length)"
                     class="grid place-items-center py-8"
                 >
                     <LoaderCircle

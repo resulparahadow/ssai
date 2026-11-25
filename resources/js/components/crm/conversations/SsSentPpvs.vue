@@ -6,17 +6,21 @@ import { usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
 import { sentPpvs } from '@/lib/sentPpvs';
 import type { SentPpv } from '@/lib/sentPpvs';
-import type { OfMessage } from '@/types/crm';
+import type { MessageTag, OfMessage } from '@/types/crm';
 
 /**
  * Right-rail "PPV" tab (CreatorHero's): every priced message the creator sent this fan in the
  * loaded thread, newest first, with Bought / Not bought. Built from the thread, so PPVs sent
  * from CreatorHero or OnlyFans show too. Click → the thread scrolls to that message.
  */
-const props = defineProps<{ modelId: number; messages: OfMessage[] }>();
+const props = defineProps<{
+    modelId: number;
+    messages: OfMessage[];
+    tags: Record<string, MessageTag>;
+}>();
 const emit = defineEmits<{ jump: [id: string] }>();
 
-const ppvs = computed(() => sentPpvs(props.messages));
+const ppvs = computed(() => sentPpvs(props.messages, props.tags));
 
 const broken = ref(new Set<string>());
 
@@ -101,6 +105,12 @@ function markBroken(id: string) {
                                     class="shrink-0 text-[10px] text-ss-text-3"
                                     title="Sent as an OnlyFans mass message"
                                     >· Mass</span
+                                >
+                                <span
+                                    v-else-if="p.freePreview"
+                                    class="shrink-0 text-[10px] text-ss-text-3"
+                                    title="Tagged as a free preview"
+                                    >· Free preview</span
                                 >
                             </span>
                             <span

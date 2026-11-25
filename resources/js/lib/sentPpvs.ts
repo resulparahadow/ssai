@@ -1,10 +1,13 @@
-import type { OfMedia, OfMessage } from '@/types/crm';
+import type { MessageTag, OfMedia, OfMessage } from '@/types/crm';
+import { effectiveTag } from './chatCounters.ts';
 
 export interface SentPpv {
     id: string;
     price: number;
     opened: boolean;
     mass: boolean;
+    /** Tagged Free preview: shown in the list, labelled instead of the Mass suffix. */
+    freePreview: boolean;
     photos: number; // photos + GIFs
     videos: number;
     thumb: OfMedia | null;
@@ -18,7 +21,10 @@ export interface SentPpv {
  * CreatorHero or OnlyFans show too. The thread is chronological (oldest first), so newest-first
  * is its reverse. Optimistic bubbles (in flight or failed) are left out: not sent yet.
  */
-export function sentPpvs(messages: OfMessage[]): SentPpv[] {
+export function sentPpvs(
+    messages: OfMessage[],
+    tags: Record<string, MessageTag> = {},
+): SentPpv[] {
     const out: SentPpv[] = [];
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -51,7 +57,12 @@ export function sentPpvs(messages: OfMessage[]): SentPpv[] {
             id: String(m.id),
             price: m.price,
             opened: m.isOpened,
-            mass: m.fromQueue,
+            // Same rule as the bubble chip (effectiveTag); a priced message the helper
+            // declines (flagged free) falls back to the queue heuristic.
+            mass:
+                (effectiveTag(m, tags) ?? (m.fromQueue ? 'mppv' : null)) ===
+                'mppv',
+            freePreview: effectiveTag(m, tags) === 'free_preview',
             photos,
             videos,
             thumb: media[0] ?? null,
