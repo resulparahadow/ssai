@@ -265,6 +265,46 @@ Notes:
 
 ---
 
+## 7b. The intent bar — take control of the next message
+
+Above the message box there is a row of buttons: **PPV**, **Re-pitch** and **Re-offer MPPV**,
+with a small line of counts under it (messages in the chat, messages since the last PPV).
+Use them when SSAI is looping or reading the chat wrong and you know what the next message
+should be. One click writes a draft for that move — it never sends by itself. You still
+**Accept** or **Send**. It applies to that one message only; the next plain Generate is SSAI
+back on its own pacing.
+
+Anything you type in the box when you click is added to the button as an extra note
+("Agent note"), so you can say *how* to do it. A button can't be talked out of its job.
+
+**Why is a button grey?** Hover it, it tells you:
+- **PPV** is locked until the chat has enough messages (`8 of 12 messages`; 10 for a fan who
+  has been here before) and at least 6 messages since the last PPV (`4 of 6 since the last PPV`).
+- **Re-pitch** needs a PPV he hasn't opened (`No unpaid PPV`) and at least 5 messages since it
+  (`3 of 5 messages since the unpaid PPV`). When it is ready it lights up.
+- **Re-offer MPPV** needs a mass message he never bought (`No unbought mass PPV`).
+
+**What each one does**
+- **PPV**: opens the Scripts panel on the next PPV script you haven't sent. Pick it with **Use**
+  and SSAI writes the caption for it, as in section 7.
+- **Re-pitch**: nudges him to open the PPV that is already in the chat. Same price, no discount,
+  no new content, no number in the text. Curiosity and a light push, not pressure.
+- **Re-offer MPPV**: takes a mass message he didn't buy and offers that same content to him
+  personally, as if it were just for him. No price in the text; you attach the content and
+  set the price yourself.
+
+**The tag chip.** Every priced message you sent has a small chip on its bubble: **Chat PPV**,
+**Mass** or **Free preview**. SSAI guesses it (it says "· auto"). Click it to correct it, or
+choose Auto to clear your change. It matters because SSAI and the counts treat them differently:
+an unbought **Mass** is hidden from SSAI's view of the chat (and can be re-offered), a **Chat PPV**
+counts for the locks above, and a **Free preview** is not a pitch at all. The chip is shared:
+every chatter on that fan sees the same one.
+
+If a button says it is unavailable when you click, refresh the chat — the thread changed
+since the page loaded.
+
+---
+
 ## 8. Known limits (today)
 
 - **SSAI suggests a price, but doesn't pick the script yet.** You choose the script;

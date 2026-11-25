@@ -143,6 +143,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
   (carry-forward telemetry), `node engine/tw_check.js` (`_profile.is_timewaster` → `flagged_tw` tier),
   `node engine/tz_check.js` (`timezone` → the prompts' clock, per request),
   `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
+  `node engine/intent_check.js` (an intent directive in `context` reaches BOTH override blocks; a creator-last thread gets the follow-up note's facts-only variant; no context → no block),
   `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note),
   `node engine/ppv_caption_check.js` (`sender:'ppv'` → legacy's PPV CAPTION MODE on the generator, no
   follow-up note, exactly ONE `price_ppv` call; a reply makes none),
@@ -647,9 +648,39 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `tests/client/ppv-composer-check.mjs`). Guards: `tests/Unit/{PpvPriceSuggestion,PpvReadiness}Test.php`,
     `OnlyFansChatCaptionTest`, `node engine/ppv_price_check.js`. NOT yet: AI picking the step,
     `previews`/`lockedText`, auto follow-up on unbought PPVs, pricing without a Generate.
+    **Agent intents (§5a slice 1, 2026-11-26, spec `docs/superpowers/specs/2026-11-26-agent-intents-design.md`)** —
+    an **intent bar** above the composer (`SsIntentBar`: **PPV · Re-pitch · Re-offer MPPV** + a counters line) so a
+    chatter can take control instead of hand-typing an override. A click writes a DRAFT right away (never sends) and
+    SSAI must follow it for that ONE message (`ComposerState.intent`, cleared on send / step load; stale drafts are
+    dropped by `generationStillApplies`). **Catalogue:** `ppv` is a client flow (opens `SsScriptsPanel` with
+    `focusPpv` → `nextPpvTarget` in `lib/scriptProgress.ts` → ONE auto caption generate, see Scripts); **`repitch`** and
+    **`reoffer_mppv`** are SERVER intents (`App\Support\AgentIntents::SERVER_KEYS`). **Override channel:** `generate`
+    takes `intent`; `AgentIntents::directive()` builds a fixed playbook-worded directive from the mapped thread and passes
+    it as the engine `context`, i.e. legacy's AGENT OVERRIDE (authoritative for one turn, still under HARD RULES/TOS/Hard
+    NOs); anything the chatter typed is appended as "Agent note (apply within the intent above)" (`compose`). No intent →
+    byte-identical to before. A missing precondition throws `IntentUnavailable` → **422** (no unpaid PPV / no unbought mass
+    PPV). Re-pitch says no discount/new content/number; Re-offer says personal, first purchase, no number. `engine/intent_spot.js`
+    (manual, NOT CI, real AI calls) + its `engine/intent_directives.json` copy of those strings is the spot check; if a
+    directive is reworded, change `AgentIntents`, the JSON and the pinned strings in `tests/Unit/AgentIntentsTest.php` together.
+    **Tags (`aich_message_tags`, `AichMessageTag`, `BelongsToChatter`, metadata only):** `MessageTagController`
+    `GET …/chats/{chat}/tags`, `PUT|DELETE …/messages/{message}/tag` (anyone assigned; unique per creator+chat+message; shared by
+    every chatter). Taggable = creator message with price > 0, not a tip, not free. **Effective tag** = stored override, else
+    `fromQueue ? mppv : chat_ppv`; `free_preview` is never a `ppv` bubble or counter/pitch signal (an OPENED one still counts
+    as spend). `LiveThreadMapper::map(…, $tags)` applies tags by message id BEFORE the mass filter (unopened `mppv` is hidden
+    from the AI) and returns thread + `droppedMass`; tags are looked up SERVER-side in `generate`, so every chatter's generate
+    uses the stored set. **Counters (§5c):** `lib/chatCounters.ts` MIRRORS the mapper rule client-side (`effectiveTag`,
+    `chatCounters`, `intentLock`, `ppvChipLock`) — keep the two in step. PPV locks below 12 msgs (10 for a returning fan) or
+    <6 since the last chat PPV; Re-pitch needs an unpaid PPV >= 5 messages back (lit then); Re-offer needs an unbought mass PPV.
+    Hidden mass PPVs, optimistic and failed bubbles don't count; tips do; `hasMore` reads as 100+. The bubble's tag chip lives in
+    `SsPayPill` (replaces `· Mass`; shows "· auto" without an override; per-message re-tags are sequenced so a fast double
+    change can't land out of order) and the rail PPV tab (`lib/sentPpvs.ts`) follows tags. Guards: `tests/Feature/{MessageTagTest,
+    OnlyFansChatGenerateTagsTest,OnlyFansChatIntentTest}.php`, `tests/Unit/AgentIntentsTest.php`, `tests/client/intents-check.mjs`,
+    `node engine/intent_check.js`. NOT in slice 1: 5b state switches, objection/goodbye/promise intents, the other 5c counters.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
-    background (race-safe via `selected.id` check); caches clear on creator switch / Refresh.
+    background (race-safe via `selected.id` check). The Maps are module-scoped and NOT cleared on a
+    creator switch or Refresh (verified: the only deletes are per chat in `dropChat`, when a chat is hidden); a revisit
+    just revalidates over the cached entry.
     **The open chat is URL state (`/conversations?chat=<id>`).** The caches are in-memory, so a
     reload used to land back on the empty state. `syncChatUrl` writes the id with
     **`history.replaceState`**, not an Inertia visit — the page is a shell whose data is fetched

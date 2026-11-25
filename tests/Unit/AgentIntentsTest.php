@@ -58,3 +58,11 @@ it('compose appends the agent note only when typed text is non-empty', function 
         ->and(AgentIntents::compose('D', "  \n"))->toBe('D')
         ->and(AgentIntents::compose('D', 'be nice'))->toBe("D\n\nAgent note (apply within the intent above): be nice");
 });
+
+it('engine/intent_directives.json (the spot-check copy) matches the PHP directives', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__, 2).'/engine/intent_directives.json'), true);
+    $thread = array_merge([intentItem('creator', 'chat_ppv', 21)], array_fill(0, 5, intentItem('fan')));
+    $mass = [intentItem('creator', 'mppv', 15, false, 'made something naughty in the shower today, unlock it')];
+    expect(AgentIntents::directive('repitch', $thread, []))->toBe($json['repitch'])
+        ->and(AgentIntents::directive('reoffer_mppv', [], $mass))->toBe($json['reoffer_mppv']);
+});
