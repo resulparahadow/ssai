@@ -170,8 +170,12 @@ covers the second anti-goal.
 - Sending with a step loaded writes a `send` ledger row (today's behaviour for PPV sets, now for
   every kind of step). A Text step is sent as plain text with `scriptStepId`.
 - **The step chip is the chatter's "this counts as the step" switch**, like CreatorHero's Sent
-  Marker. It survives editing the text, Generate, and accepting an AI reply — a reworded step
-  is still that step. Dismissing a suggestion doesn't touch it. The chatter removes the chip
+  Marker. It survives editing the text and Generate — a reworded step is still that step.
+  Dismissing a suggestion doesn't touch it. **For a Text step, accepting an AI reply (Accept or
+  Accept & Send) drops the chip**: Generate wrote a normal reply that ignores the step, so the
+  fan never gets the step and nothing may be logged for it. This holds until §5a makes the AI
+  write the step itself. A media step's caption IS its text, so accepting a caption keeps the
+  strip. The chatter removes the chip
   (×) when what they send is no longer the step; then nothing is logged. A media step's chip is
   its strip, so removing the strip removes the media too, as today.
 - A step row in the list has **Mark sent / Unmark** (anyone assigned). Mark writes a `manual`

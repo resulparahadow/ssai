@@ -65,6 +65,11 @@ async function loadScripts(force = false) {
     const cached = scriptsCache.get(props.modelId);
 
     if (cached && !force) {
+        // Invalidate a fetch still in flight for the creator just left, or it would land
+        // here and show that creator's scripts in this rail.
+        ++scriptsToken;
+        loading.value = false;
+        error.value = null;
         scripts.value = cached;
 
         return;

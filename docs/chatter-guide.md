@@ -189,7 +189,10 @@ tagged **Next**.
      doesn't answer his last message. **Accept** puts it in the box; **Accept &
      Send** sends.
    - **Text step**: Generate writes a normal reply to the conversation, exactly
-     as it does with no step loaded. Your step and its text stay where they are.
+     as it does with no step loaded. Your step and its text stay where they are
+     until you accept. **Accepting that reply (Accept or Accept & Send) removes
+     the step's chip**: the reply isn't the step, so it won't tick the step off.
+     To send the step itself, Dismiss the reply and send the step's text.
 4. **Check the price** (PPV steps). Under the chip SSAI shows its own read, e.g.
    `AI: $12 · cold lurker, first PPV must be low-risk [Use]` (`AI agrees: $20`
    when it matches). It's a second opinion only — the step's price stays unless
@@ -203,7 +206,8 @@ tagged **Next**.
 
 **The "Script: …" chip.** A text step shows a small chip above the box,
 `Script: {title} ×`. It means "when I send this, count it as that step". It
-stays while you edit or generate. Click **×** to remove it if you've gone off
+stays while you edit or generate, and goes away if you accept an AI reply
+instead (see step 3). Click **×** to remove it if you've gone off
 script and don't want the send to tick the step off (the text stays). It clears
 by itself after you send.
 

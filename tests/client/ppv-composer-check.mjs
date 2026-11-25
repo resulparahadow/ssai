@@ -10,6 +10,8 @@ const {
     ppvMediaCounts,
     humanPlan,
     priceSuggestionView,
+    sendClearsComposer,
+    stepAfterAccept,
 } = mod;
 
 // #1 — an empty/junk edit reverts to the previous price; 0 must be typed on purpose.
@@ -119,6 +121,32 @@ assert.equal(
     'a loaded step is dirty',
 );
 
+// #7 — a send clears the composer only when no step was loaded while it was in flight:
+// a step loaded during "Sending…" owns the text/chip now, and wiping its text would leave a
+// chip that logs the next, unrelated message as that step.
+assert.equal(sendClearsComposer(3, 3), true, 'nothing loaded mid-send → clear');
+assert.equal(
+    sendClearsComposer(3, 4),
+    false,
+    'step loaded mid-send → keep its text, suggestion and chip',
+);
+
+// #8 — accepting a suggestion: a NORMAL reply accepted with a Text step loaded drops the step
+// (the fan never got the step's text); a caption on a media step IS the step, so it stays.
+const textStep = { stepId: 5, media: [] };
+const mediaStep = { stepId: 6, media: [{ id: 'v1', type: 'photo' }] };
+assert.equal(
+    stepAfterAccept(textStep, null),
+    null,
+    'Text step + normal reply accepted → step dropped',
+);
+assert.equal(
+    stepAfterAccept(mediaStep, 6),
+    mediaStep,
+    'media step + its caption accepted → step kept',
+);
+assert.equal(stepAfterAccept(null, null), null, 'no step → nothing');
+
 // #4 — step media for the price prompt: counts by type, non-zero keys only.
 assert.deepEqual(
     ppvMediaCounts([{ type: 'photo' }, { type: 'photo' }, { type: 'video' }]),
@@ -157,5 +185,5 @@ assert.equal(
 );
 
 console.log(
-    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view',
+    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view, send clear guard, accept drops Text step',
 );

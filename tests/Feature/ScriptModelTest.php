@@ -33,7 +33,9 @@ function scriptWithStep(string $creator, string $title = 'Red set', array $media
 }
 
 it('migrates every creator\'s sets into one "PPV sets" script, keeping ids and order', function () {
-    Artisan::call('migrate:rollback', ['--step' => 1]);
+    Artisan::call('migrate:rollback', [
+        '--path' => 'database/migrations/2026_11_25_100000_create_scripts_and_rename_ppv_sets.php',
+    ]);
 
     $row = fn (string $creator, string $name, int $sort, int $id) => [
         'id' => $id, 'creator_model' => $creator, 'name' => $name, 'caption' => "cap {$name}",

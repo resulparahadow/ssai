@@ -34,6 +34,8 @@ import {
     composerDirty,
     generationStillApplies,
     ppvMediaCounts,
+    sendClearsComposer,
+    stepAfterAccept,
     stepSendExtras,
 } from '@/lib/ppvComposer';
 import {
@@ -479,6 +481,9 @@ function acceptSuggestion() {
         commitStrategyMemory(chatId); // only a REPLY's strategy persists, never a caption's
     }
 
+    // A normal reply accepted with a Text step loaded is not the step: drop its chip, or the
+    // reply would be logged as that step.
+    st.step = stepAfterAccept(st.step, st.suggestionFor);
     st.draft = st.suggestion;
     st.suggestion = null;
 }
@@ -496,6 +501,8 @@ async function acceptAndSend() {
         commitStrategyMemory(chatId);
     }
 
+    // As in acceptSuggestion: a normal reply over a Text step goes out WITHOUT its scriptStepId.
+    st.step = stepAfterAccept(st.step, st.suggestionFor);
     const text = st.suggestion;
     st.suggestion = null;
     await send(text);
@@ -528,6 +535,8 @@ async function send(override?: string) {
     // a media step also brings its vault ids + price (exclusive with gif/attachment).
     const step = st.step;
     const ppv: ComposerStep | null = step && step.media.length ? step : null;
+    // A step loaded while this send is in flight owns the composer afterwards (see below).
+    const loadsAtSend = st.stepLoads;
 
     if (!text && !gif && !att && !ppv) {
         return;
@@ -679,18 +688,19 @@ async function send(override?: string) {
             }
         }
 
-        st.draft = '';
-        st.suggestion = null;
-
-        // Only clear the attachment / step that was actually sent — the user may have
-        // replaced it with a new pick while this send was in flight. A Text step's chip goes
-        // too: left behind, it would log the next, unrelated message as that step.
-        if (st.attachment === att) {
-            st.attachment = null;
+        // A step loaded while this send was in flight replaced the payload: keep its text,
+        // suggestion and chip. Otherwise clear them — a Text step's chip goes too: left
+        // behind, it would log the next, unrelated message as that step.
+        if (sendClearsComposer(loadsAtSend, st.stepLoads)) {
+            st.draft = '';
+            st.suggestion = null;
+            st.step = null;
         }
 
-        if (step && st.step === step) {
-            st.step = null;
+        // Only clear the attachment that was actually sent — the user may have replaced it
+        // with a new pick while this send was in flight.
+        if (st.attachment === att) {
+            st.attachment = null;
         }
 
         if (step) {

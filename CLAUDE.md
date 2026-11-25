@@ -557,8 +557,12 @@ engine uses its in-process copy. Provider keys live in the engine's env
     confirm when dirty) with `ComposerState.step`. **The step chip:** a media step shows `SsPpvStrip`
     (tiles + the editable **Price to View** chip, `isValidPpvPrice` mirrors `App\Rules\PpvPrice`); a
     Text step shows a "Script: {title} ×" chip (× drops the step, keeps the text). The chip survives
-    editing, Generate, Accept and Dismiss, and is cleared after a successful send (else it would log the
-    next, unrelated message). **Generate per kind:** a media step sends `sender:'ppv'` = legacy's PPV
+    editing, Generate and Dismiss, and is cleared after a successful send (else it would log the
+    next, unrelated message) — unless a step was loaded while that send was in flight
+    (`sendClearsComposer`, the `stepLoads` counter: the new step's text and chip stay). **Accepting an
+    AI reply over a Text step DROPS the chip** (`stepAfterAccept`): that reply ignores the step, so
+    Accept / Accept & Send must not post `scriptStepId` and tick the step Sent — until §5a makes the AI
+    write the step. Accepting a media step's caption keeps the strip (the caption IS the step). **Generate per kind:** a media step sends `sender:'ppv'` = legacy's PPV
     CAPTION MODE (one curiosity caption); a Free step discards `ppvSuggestion` (price 0 at generate time);
     a **Text step generates a normal reply** (`sender:'customer'`, step and text stay in place). For
     caption mode the controller skips the `AichChatIntel` write + `applyAnalysis` and the client skips

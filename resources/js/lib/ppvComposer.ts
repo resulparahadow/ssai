@@ -92,6 +92,37 @@ export function stepSendExtras(step: ComposerStep | null): {
     };
 }
 
+/**
+ * Whether a successful send may clear the composer (draft, suggestion, step). `loadsAtSend` and
+ * `loadsNow` are `ComposerState.stepLoads` when the send started and when it finished. A step
+ * loaded while the send was in flight owns the composer now: wiping its text would leave its
+ * chip behind, and the next, unrelated message would be logged as that step.
+ */
+export function sendClearsComposer(
+    loadsAtSend: number,
+    loadsNow: number,
+): boolean {
+    return loadsAtSend === loadsNow;
+}
+
+/**
+ * The loaded step after a suggestion is accepted. `suggestionFor` is the suggestion's
+ * `captionStepId()` (null = a normal reply). With a Text step loaded, Generate writes a normal
+ * reply that ignores the step, so accepting it drops the step: sent with the step's id, the
+ * reply would mark a step the fan never got as Sent. A caption on a media step IS the step's
+ * text, so that step stays.
+ */
+export function stepAfterAccept<T extends { media: ReadonlyArray<unknown> }>(
+    step: T | null,
+    suggestionFor: number | null,
+): T | null {
+    if (step !== null && step.media.length === 0 && suggestionFor === null) {
+        return null;
+    }
+
+    return step;
+}
+
 /** Anything a loaded step would replace — including a generate still in flight. */
 export function composerDirty(st: {
     draft: string;
