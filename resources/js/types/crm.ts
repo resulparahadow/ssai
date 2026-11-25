@@ -174,6 +174,48 @@ export type PpvPriceSuggestion =
     | { price: number; reason: string }
     | { error: string };
 
+export type ScriptStepMedia = PpvSetMedia;
+
+export interface ScriptStep {
+    id: number;
+    scriptId: number;
+    title: string;
+    text: string | null;
+    fallbackName: string | null;
+    price: number; // 0 = free, else 3..200
+    media: ScriptStepMedia[];
+    kind: 'text' | 'free' | 'ppv';
+    sortOrder: number;
+}
+
+export interface Script {
+    id: number;
+    name: string;
+    sortOrder: number;
+    steps: ScriptStep[];
+}
+
+/** One fan's ledger: step id → sends/manual marks, newest first. */
+export type ScriptStatus = Record<
+    string,
+    {
+        sentAt: string;
+        messageId: string | null;
+        price: number | null;
+        source: 'send' | 'manual';
+    }[]
+>;
+
+/** A script step loaded into the composer for the next send (exclusive with gif/attachment). */
+export interface ComposerStep {
+    stepId: number;
+    title: string;
+    price: number;
+    media: ScriptStepMedia[];
+    priceSuggestion: PpvPriceSuggestion | null;
+    notReadyPlan: string | null;
+}
+
 export interface ComposerPpv {
     setId: number;
     setName: string;

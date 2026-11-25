@@ -15,6 +15,10 @@ import type {
     PpvSet,
     PpvSetMedia,
     PpvSetStatus,
+    Script,
+    ScriptStatus,
+    ScriptStep,
+    ScriptStepMedia,
 } from '@/types/crm';
 
 /** Create/update body for a PPV set (media = vault ids + type + raw thumb; the server nulls non-onlyfans thumbs). */
@@ -23,6 +27,15 @@ export interface PpvSetBody {
     caption: string | null;
     price: number;
     media: PpvSetMedia[];
+}
+
+/** Create/update body for a script step (price needs media; a step needs text or media). */
+export interface ScriptStepBody {
+    title: string;
+    text: string | null;
+    fallbackName: string | null;
+    price: number;
+    media: ScriptStepMedia[];
 }
 
 /**
@@ -338,7 +351,11 @@ export const ofApi = {
         giphyId?: string,
         mediaFiles?: string[],
         // PPV: `price` 0 (free) or 3..200; `ppvSetId` records the send in the set ledger.
-        extra: { price?: number; ppvSetId?: number } = {},
+        extra: {
+            price?: number;
+            scriptStepId?: number;
+            ppvSetId?: number;
+        } = {},
     ) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
             text,
@@ -479,6 +496,55 @@ export const ofApi = {
         req<{ ok: boolean }>('DELETE', `${base(m)}/ppv-sets/${id}`),
     reorderPpvSets: (m: number, ids: number[]) =>
         req<{ ok: boolean }>('PUT', `${base(m)}/ppv-sets/order`, { ids }),
+
+    // ---- Scripts (creator-wide; writes are manager+, marks any assigned) -----
+    scripts: (m: number) =>
+        req<{ scripts: Script[] }>('GET', `${base(m)}/scripts`),
+    scriptStatus: (m: number, chat: string) =>
+        req<{ status: ScriptStatus }>(
+            'GET',
+            `${base(m)}/chats/${chat}/scripts/status`,
+        ),
+    createScript: (m: number, name: string) =>
+        postJson<{ script: Script }>(`${base(m)}/scripts`, { name }),
+    renameScript: (m: number, id: number, name: string) =>
+        req<{ script: Script }>('PUT', `${base(m)}/scripts/${id}`, { name }),
+    deleteScript: (m: number, id: number) =>
+        req<{ ok: boolean; steps: number }>(
+            'DELETE',
+            `${base(m)}/scripts/${id}`,
+        ),
+    reorderScripts: (m: number, ids: number[]) =>
+        req<{ ok: boolean }>('PUT', `${base(m)}/scripts/order`, { ids }),
+    createStep: (m: number, scriptId: number, body: ScriptStepBody) =>
+        postJson<{ step: ScriptStep }>(
+            `${base(m)}/scripts/${scriptId}/steps`,
+            body,
+        ),
+    updateStep: (m: number, id: number, body: Partial<ScriptStepBody>) =>
+        req<{ step: ScriptStep }>(
+            'PUT',
+            `${base(m)}/scripts/steps/${id}`,
+            body,
+        ),
+    deleteStep: (m: number, id: number) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/scripts/steps/${id}`),
+    reorderSteps: (m: number, scriptId: number, ids: number[]) =>
+        req<{ ok: boolean }>(
+            'PUT',
+            `${base(m)}/scripts/${scriptId}/steps/order`,
+            { ids },
+        ),
+    markStep: (m: number, chat: string, stepId: number) =>
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/scripts/steps/${stepId}/mark`,
+            {},
+        ),
+    unmarkStep: (m: number, chat: string, stepId: number) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/scripts/steps/${stepId}/mark`,
+        ),
 
     // ---- Chat actions -----------------------------------------------------
     mute: (m: number, chat: string) =>
