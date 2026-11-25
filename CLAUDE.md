@@ -560,7 +560,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
     creator message WITH media in the loaded thread (not the ledger, so CreatorHero/OnlyFans sends
     show), newest first, Bought/Not bought off `isOpened`, `· Mass` off `fromQueue`, optimistic
     bubbles excluded; a card click scrolls the thread there (`SsChatThread` exposes `jumpTo`). The
-    old Scripts rail tab and its "don't auto-switch to AI Intel" exceptions are gone. **Progress:** the
+    old Scripts rail tab (`SsScriptsRail`) and its "don't auto-switch to AI Intel" exceptions are gone (the
+    only rail auto-switch left is AI Intel after a normal generate). The panel closes on a real load,
+    chat switch, Esc, outside click. **Progress:** the
     panel shows a per-open-fan `sent/total` pill per script (`lib/scriptProgress.ts`), a
     **Sent / Bought** pill per step (ledger joined with the loaded thread's `isOpened`; Bought is PPV
     only; sends from CreatorHero/OnlyFans are invisible — chat media ids cannot be mapped to vault ids,
@@ -586,13 +588,35 @@ engine uses its in-process copy. Provider keys live in the engine's env
     before the load is dropped — `generationStillApplies` (`lib/ppvComposer.ts`) compares `captionStepId`
     AND the per-composer `stepLoads` counter, which catches Text A → Text B where both ends read as a
     normal reply (a reply generated after a Text step was loaded still applies). **Steps are made and
-    edited IN THE RAIL, not in the Media Vault page:** **New script** / **Add step** (managers) and
+    edited on the manager-only `/scripts` page, not in the composer panel or the Media Vault page:**
+    `ScriptsPageController` (thin Inertia shell, `can:manage-team`) → `Scripts.vue` →
+    `SsScriptsManager` (creator from the app-wide context; search, expand, ↑/↓ + drag reorder when
+    not searching, **Import CSV**); the sidebar item has `hideWhenLocked` (`crm/nav.ts`: omitted, not
+    shown locked, for chatters, who work scripts from the composer). **New script** / **Add step** and
     **⋯ → Edit** open `SsScriptStepModal` — title, text (six label buttons inserting at the cursor),
     fallback name, optional media, price (only with media), script — and its **Add / Change media** opens
     `SsVaultPickerModal`: `SsVaultRail` in `readonly` mode on the left, a multi-select grid on the right
     (type pills, server search, `?list=` paging), `Cancel` / `Add N items`. The selection is a
     `Map<id, ScriptStepMedia>` that SURVIVES folder switches and is pre-filled when editing; `max` 40
-    greys out further tiles. Reordering is ↑/↓ menu items, not drag; the rail refetches after every write.
+    greys out further tiles. The page refetches after every write.
+    **CreatorHero CSV import** (`POST onlyfans/{model}/scripts/import`, `manage-team`, multipart `file`
+    ≤1 MB csv/txt, optional `commit`): `App\Services\Scripts\CreatorHeroScriptImport` (pure parser)
+    reads the Scripts → Export columns `Name, Category, Script Order, Message, Fallback, Price,
+    Created At` — **Category = script, Name = step title**, steps ordered by `Script Order` then file
+    order; cells are trimmed and cut to the column limits (title 120, text 2000, fallback 60, with a
+    warning); a price outside free/$3–$200 imports as free; a row with no name/category, or no message
+    and no media need, is skipped; the BOM is stripped. Without `commit` it only PREVIEWS (per script:
+    steps / needs-media / skipped + totals + warnings); with it, everything is written in one
+    transaction. **It never merges:** a script whose trimmed name already exists for the creator is
+    skipped, and the file is read from the temp upload and dropped — nothing is stored. The export has
+    **NO media column**, so media must be attached after import. **`needs_media`** (`script_steps`
+    flag, `needsMedia` in the payload) marks only imported steps that may hold a price WITHOUT media:
+    set when the title matches `(PPV)` / `(FREE)` / `FREE PIC` or the price is > 0. Such a step is not
+    loadable in the panel; `OnlyFansChatController::send` refuses it with 422 "This step needs media
+    before it can be sent." BEFORE the vendor call; saving media clears the flag; a title-only edit
+    keeps the imported price (`stepError(allowPriceWithoutMedia)`); any other step still needs media
+    for a price. The team's Master Scripts use a $12/$21/$35/$49/$69/$100 price ladder — script text
+    itself is private team content and never goes in the repo. Guards: `tests/Feature/ScriptImportTest.php`.
     The modal re-sends `media` only when its ids changed; cached thumbs come back as OUR thumb route, so
     `media.*.thumb` is not `url`-validated and `durableThumb` maps `'local'`/that path to the `'local'`
     marker iff the file exists, fetching nothing. The Media Vault page has NO script/PPV affordance (bulk
@@ -602,7 +626,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     fansapi one is downloaded ONCE (direct S3, no credit) to `storage/app/private/ppv-thumbs/{model}/
     {media}` — the directory name is unchanged from before the rename — stored as the marker `local` and
     served by the private `scripts/thumb/{media}` route; other hosts → null. Guards:
-    `tests/Feature/{ScriptModelTest,ScriptTest,OnlyFansChatSendStepTest,OnlyFansChatCaptionTest,
+    `tests/Feature/{ScriptModelTest,ScriptTest,ScriptImportTest,OnlyFansChatSendStepTest,OnlyFansChatCaptionTest,
     OnlyFansFanNamesTest}.php`, `tests/client/scripts-check.mjs`, `node engine/ppv_caption_check.js`.
     **Slice 2 (2026-11-22, spec `docs/superpowers/specs/2026-11-22-ppv-price-suggestion-design.md`):**
     a caption generate also returns **`ppvSuggestion`** — legacy's own price call, lifted in caption

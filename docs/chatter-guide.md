@@ -162,19 +162,29 @@ old rejection explains the move.
 
 ## 7. Scripts and PPVs
 
-The right rail has a **Scripts** tab: the creator's scripts, each a list of
-steps (the same idea as CreatorHero's script and PPV tabs). A step is one
-message: text only, text + free media, or text + media + a price (a PPV). The
-badge on each step tells you which: **Text**, **Free**, or **PPV $20**.
+**Scripts** are the creator's ready-made messages, the same idea as CreatorHero's
+scripts. A script is a list of steps and a step is one message: text only, text
++ free media, or text + media + a price (a PPV). The badge on each step tells
+you which: **Text**, **Free**, or **PPV $20**.
 
-**Where you are with this fan.** Each script shows your progress for the chat
-you have open, e.g. `3/23`, and each step is marked **Sent** (and **Bought**
-for a PPV he has unlocked). The next step you haven't sent is outlined and
-tagged **Next**.
+**Open the Scripts panel.** In a chat, click the **Scripts** button at the
+top-right of the message box. A panel opens over the bottom of the chat. It
+closes by itself when you load a step or switch chats, or press Esc or click
+outside it.
 
-1. Open the fan's chat → **Scripts** tab → click a step. It loads into the
-   composer: the text, the media tiles and the **Price to View** chip if it has
-   them. The fan's name is filled in for you (`{Fan Name}` / `{Custom Name}`);
+- It first lists the creator's scripts. Each shows your progress with the fan
+  you have open, e.g. `3/23`.
+- Click a script to see its steps. Each step is marked **Sent** (and **Bought**
+  for a PPV he has unlocked). The next step you haven't sent is outlined and
+  tagged **Next**.
+- Click a step to preview it. Use the **‹ ›** arrows to move between steps, then
+  **Use** to load it (arrow keys and Enter work too).
+- A step tagged **Needs media** can't be used yet: it was imported without its
+  photos or videos. Ask a manager to add the media.
+
+1. **Use** loads the step into the message box: the text, the media tiles and the
+   **Price to View** chip if it has them. The fan's name is filled in for you
+   (`{Fan Name}` / `{Custom Name}`);
    if he only has a raw OnlyFans id like `u12345678`, the step's fallback name
    is used, or the name is just left out. If you already had text or media in
    the box you'll be asked before it's replaced.
@@ -212,21 +222,42 @@ script and don't want the send to tick the step off (the text stays). It clears
 by itself after you send.
 
 **Mark sent / Unmark.** SSAI only knows about steps sent *from SSAI*. If you
-sent one from CreatorHero or OnlyFans directly, open the step's **⋯** menu and
-choose **Mark sent** so progress and **Next** stay right. **Unmark** undoes a
-mark you made by hand (a step that was really sent from SSAI says "Sent from
-SSAI" and can't be unmarked).
+sent one from CreatorHero or OnlyFans directly, open the step's **⋯** menu in the
+panel and choose **Mark sent** so progress and **Next** stay right. **Unmark**
+undoes a mark you made by hand (a step that was really sent from SSAI says "Sent
+from SSAI" and can't be unmarked).
 
-Managers build scripts in the same tab: **New script**, **Add step** (or **⋯ →
-Edit** on a step). A step has a title, text (buttons insert the name labels),
-a fallback name, optional media from the vault (folders on the left, ticks
-survive switching folders, up to 40 items) and a price. **⋯** also moves
-steps/scripts up and down and deletes them; deleting keeps the send history.
+**The PPV tab.** The right side of the chat has three tabs: **Fan**, **AI Intel**
+and **PPV**. PPV lists every PPV (a priced message with media) sent to this fan,
+newest first, whoever sent it: SSAI, CreatorHero or OnlyFans, because it reads
+the chat that is open. Each card shows the price and:
+- **Bought**: he unlocked it.
+- **Not bought**: still locked.
+- **Mass**: it went out as a mass message, not just to him.
+
+Click a card to jump to that message in the chat.
+
+### For managers
+
+- **Scripts page.** Managers see **Scripts** in the sidebar. Pick the creator,
+  then **New script** or **Add step** (or **⋯ → Edit** on a step). A step has a
+  title, text (buttons insert the name labels), a fallback name, optional media
+  from the vault (folders on the left, ticks survive switching folders, up to 40
+  items) and a price. You can search, and reorder scripts and steps with the
+  arrows or by dragging. Deleting keeps the send history.
+- **Import from CreatorHero.** In CreatorHero go to Creator Settings → Scripts →
+  Export, then on the Scripts page click **Import CSV** and choose the file.
+  You get a preview first (scripts, steps, steps needing media, anything
+  skipped); confirm to import. A script whose name already exists for this
+  creator is skipped, never merged, and the file isn't kept.
+- **Attach media to Needs media steps.** The CreatorHero export has no media, so
+  steps that were PPV or free-media come in tagged **Needs media**. Open each
+  (**⋯ → Edit**), add its media from the vault and check the price. Until then
+  chatters can't use it, and it can't be sent.
 
 Notes:
 - A caption generate does not change the fan's AI Intel or memory — it is a
-  caption, not a read of the conversation. The rail also stays on **Scripts**
-  after a generate instead of jumping to AI Intel.
+  caption, not a read of the conversation.
 - If you load a different step while a draft is still generating, the old draft
   is thrown away when it arrives — it belonged to the previous step.
 - Attaching a GIF or a file while a media step is loaded removes the step
