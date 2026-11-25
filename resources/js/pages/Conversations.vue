@@ -236,8 +236,8 @@ function dropChat() {
     fan.value = null;
 }
 
-/** `intent`: null = a plain reply (or the loaded media step's caption); repitch / reoffer_mppv
- *  = an agent intent. Only those two reach the server. */
+/** `intent`: null = a plain reply (or the loaded media step's caption); otherwise an agent
+ *  intent ref. Only server intents (`isServerIntent`) reach the server, as `intent` + `intentOption`. */
 async function generate(intent: IntentRef | null = null) {
     const m = model.value;
     const chat = selected.value;

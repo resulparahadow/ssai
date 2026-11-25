@@ -1,9 +1,35 @@
-import type { IntentKey, IntentRef } from '@/types/crm';
+import type { IntentRef } from '@/types/crm';
 import catalogue from './intent-catalogue.json' with { type: 'json' };
 
 // The agent-intent catalogue is ONE json file shared with the server
 // (App\Support\AgentIntents reads the same file), so the bar, the labels and the server's
 // validation cannot drift apart.
+
+/** Every catalogue key, in chip order. Pinned to intent-catalogue.json by intents-check.mjs. */
+export const INTENT_KEYS = [
+    'ppv',
+    'repitch',
+    'cta',
+    'objection',
+    'chitchat',
+    'sexting',
+    'tip_ask',
+    'goodbye',
+    'reoffer_mppv',
+    'promise',
+    'post_purchase',
+    'post_tip',
+    'free_picture',
+    'breadcrumb',
+    'hook',
+    'follow_up',
+    'aftersale',
+] as const;
+
+export type IntentKey = (typeof INTENT_KEYS)[number];
+
+/** Intents the server handles (everything except the client-only PPV / Free picture). */
+export type ServerIntentKey = Exclude<IntentKey, 'ppv' | 'free_picture'>;
 
 export interface CatalogueOption {
     key: string;
@@ -32,7 +58,7 @@ export function findIntent(key: IntentKey): CatalogueIntent | undefined {
     return INTENTS.find((i) => i.key === key);
 }
 
-export function isServerIntent(key: IntentKey): boolean {
+export function isServerIntent(key: IntentKey): key is ServerIntentKey {
     return findIntent(key)?.server === true;
 }
 

@@ -14,6 +14,7 @@ import {
     isServerIntent,
     intentCatalogue,
     AD_HOC_STEP_ID,
+    INTENT_KEYS,
 } from '../../resources/js/lib/intents.ts';
 import {
     generationStillApplies,
@@ -195,6 +196,11 @@ assert.equal(tagChipLabel('chat_ppv', false), 'Chat PPV');
 assert.equal(tagChipLabel('free_preview', false), 'Free preview');
 
 // ---- intent refs (slice 2) ----
+assert.deepEqual(
+    intentCatalogue().map((i) => i.key),
+    [...INTENT_KEYS],
+    'INTENT_KEYS must match the catalogue keys exactly (members + order)',
+);
 {
     const a = { key: 'objection', option: 'expensive' };
     assert.equal(

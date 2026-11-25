@@ -1,3 +1,4 @@
+import type { IntentKey } from '@/lib/intents';
 import type { Role } from './auth';
 
 export interface KpiCard {
@@ -767,25 +768,9 @@ export interface OfFanProfile {
 /** Per-message PPV tag (mirror of the server's chat_ppv / mppv / free_preview). */
 export type MessageTag = 'chat_ppv' | 'mppv' | 'free_preview';
 
-// Every key of lib/intent-catalogue.json (the single source of truth, shared with the server).
-export type IntentKey =
-    | 'ppv'
-    | 'repitch'
-    | 'cta'
-    | 'objection'
-    | 'chitchat'
-    | 'sexting'
-    | 'tip_ask'
-    | 'goodbye'
-    | 'reoffer_mppv'
-    | 'promise'
-    | 'post_purchase'
-    | 'post_tip'
-    | 'free_picture'
-    | 'breadcrumb'
-    | 'hook'
-    | 'follow_up'
-    | 'aftersale';
+// IntentKey = every key of lib/intent-catalogue.json, derived from INTENT_KEYS (lib/intents.ts,
+// pinned to the catalogue by tests/client/intents-check.mjs).
+export type { IntentKey };
 
 /** A chosen agent intent: the key plus, for intents that have them, one option key. */
 export interface IntentRef {
