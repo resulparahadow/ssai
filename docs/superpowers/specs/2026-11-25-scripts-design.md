@@ -204,17 +204,37 @@ Changed: `send` takes `scriptStepId` (was `ppvSetId`; resolved against this crea
 
 ### Chat UI
 
-**Right rail: the PPV tab becomes Scripts.**
-- Scripts as collapsible rows: name + progress for the open fan (`3/23`, amber once started,
-  green when done).
-- Expanded: steps in order. Each row: title, kind badge (**Text** · **Free 📷3** · **PPV $12
-  📷4 🎞2**), two-line text excerpt, status (**Sent** / **Bought** / none), and the **next
-  unsent step** outlined as "Next".
-- Click a step → loads it (same confirm as today). Row ⋯ → Mark sent / Unmark; managers also
-  Edit / Delete.
-- Managers: **New script**, rename, delete (confirm, says how many steps go with it), drag to
-  reorder scripts and steps; **Add step** at the bottom of each script.
-- The rail remembers which scripts are expanded per creator (per tab, like `chatListView`).
+> **Revised 2026-11-26 (layout).** The first build put scripts — using AND managing — in the
+> right rail's PPV tab. That is not how CreatorHero works, and the team expects its layout (see
+> the observations above and the user's screenshots of 2026-11-26). The layout is now three
+> parts. Data, endpoints, composer behaviour, labels, guard and progress are unchanged.
+
+**1. Scripts button + panel, in the composer (where chatters USE scripts).**
+- A **Scripts** button at the top-right of the message box (CreatorHero's spot, beside the
+  emoji row). It toggles a panel that opens **above the message box**, full composer width,
+  over the bottom of the thread (CreatorHero's panel; a sheet, not a modal).
+- Level 1: the creator's scripts in order, each with the open fan's progress (`0/13`;
+  accent once started, green when done).
+- Level 2 (click a script): back arrow + script name, then its steps in order. Each row: title,
+  one-line text, kind badge (**Free 📷3** · **PPV $12 📷4 🎞2**; text steps no badge), status
+  (**Sent** / **Bought**), the **Next** step marked, and a ◉ **preview** button. Preview opens
+  the step in the panel (text, media tiles, price, `‹ 4/23 ›` paging) with **Use**.
+- Clicking a step row (or Use) loads it into the composer — same rules and confirm as before —
+  and closes the panel.
+- Row ⋯ → **Mark sent / Unmark** (anyone assigned). No create/edit/delete here.
+- Esc / click outside / the button again closes it. Keyboard: arrows move, Enter loads.
+
+**2. Right rail → PPV tab = PPVs sent to this fan (CreatorHero's PPV tab).**
+- One card per locked/priced message the creator sent in the loaded thread, newest first:
+  first thumb, price, **Bought** / **Not bought** (`isOpened`), photo/video counts, relative
+  time, two lines of caption. Built from the loaded messages, so PPVs sent from CreatorHero or
+  OnlyFans show too (the old ledger-only view could not). Mass PPVs keep their `· Mass` label.
+- Clicking a card scrolls the thread to that message.
+- Empty: "No PPVs sent to this fan yet." Scope note: only what is in the loaded page (~100
+  messages), like everything else in the thread.
+- The Scripts tab is removed from the rail; the rail is Fan · AI Intel · PPV again, and the
+  "no auto-switch to AI Intel" exception goes with it (a reply Generate switches to AI Intel
+  as before).
 
 **Composer.** `ComposerState.ppv` generalises to `step`:
 `{stepId, title, price, media}`; `media` may be empty.
@@ -234,12 +254,41 @@ accepts. §5a changes this.
 insert tokens at the cursor, Fallback name, Media (optional, the existing vault picker),
 Price (shown only with media), Script (select). Validation mirrors the server.
 
-### Where scripts are managed
+### Where scripts are managed (revised 2026-11-26)
 
-In the rail, the same as PPV sets today (the team's CreatorHero habit, and the decision made
-2026-11-09). No separate settings page in this slice. If the library grows past what the rail
-can comfortably edit (CreatorHero's Camila has 12 scripts, ~100 steps), a full-page manager
-is the natural next step and reuses the same endpoints.
+**3. A Scripts page** — managers/admins only (`can:manage-team`), like CreatorHero's
+Settings → Scripts, and Requirements v1 §7 ("Scripts — most important" creator setting).
+- Sidebar item **Scripts** with the creator dropdown (the `dynamic:'creators'` pattern Media
+  Vault and Conversations use); route `/scripts`, `SmartStarsLayout`, the app-wide creator
+  context picks the creator.
+- A wide list: scripts as expandable folders (name, step count), steps inside (title, kind
+  badge, one-line text, media count, price). Search (title + text), **New script**, **New
+  step**, rename, delete (confirm with step count; history kept), drag to reorder scripts and
+  steps (↑/↓ buttons as keyboard fallback).
+- Edit/New step opens the existing step editor (`SsScriptStepModal`), unchanged.
+- Uses the existing `onlyfans/{model}/scripts…` endpoints; no server changes except the page
+  route + controller shell (like `MediaVaultController@index`).
+- Chatters don't see the sidebar item, and the route 403s for them.
+
+**Import from CreatorHero (added 2026-11-26).** CreatorHero's Scripts → Export gives a CSV:
+`Name, Category, Script Order, Message, Fallback, Price, Created At` (Camila's: 120 rows, 12
+categories — RLS Script (Invested New Subs) 13, Master Script 23, 7 × OBJ, RLS Script 12,
+PRE RLS CS 4, RLS CRAZY STORY 37). Facts that shape the import:
+- **No media column.** The export carries text and price only, so every step comes in without
+  its photos/videos.
+- Category → script (names trimmed; CreatorHero has trailing spaces like `"Master Script "`);
+  Name → title (trimmed); Message → text; Fallback → fallback name; steps ordered by
+  `Script Order` within each category.
+- Master Script prices are the ladder: **$12, $21, $35, $49, $69, $100** — the "last rung
+  bought → next price" data §5c and Requirements §2 Option A will use.
+- The page gets **Import CSV** (managers): upload → preview ("12 scripts, 120 steps; 6 need
+  media") → Import. Scripts whose name already exists for the creator are skipped, not merged
+  (re-importing must not duplicate). Server-side parse; the file is not stored.
+- **Steps that need media:** a step whose title says `(PPV)` / `(FREE)` / `FREE PIC`, or whose
+  price > 0, imports as **Needs media** — price kept, media empty — shown with a warning badge
+  and **not loadable** in the chat until a manager attaches media in the step editor. This is
+  the one place a price may sit on a step without media; the send-side rule ("a price needs
+  media") is unchanged.
 
 ## Testing
 
