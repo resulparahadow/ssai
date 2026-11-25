@@ -763,3 +763,26 @@ export interface OfFanProfile {
     subscription_status: string | null;
     locked_fields: OfLockableField[];
 }
+
+/** Per-message PPV tag (mirror of the server's chat_ppv / mppv / free_preview). */
+export type MessageTag = 'chat_ppv' | 'mppv' | 'free_preview';
+
+export type IntentKey = 'ppv' | 'repitch' | 'reoffer_mppv';
+
+export interface ChatCounters {
+    total: number;
+    sinceLastPpv: number | null;
+    unpaidPpv: {
+        price: number;
+        since: number;
+        messageId: string | null;
+    } | null;
+    returning: boolean;
+    unboughtMass: number;
+}
+
+export interface IntentLock {
+    enabled: boolean;
+    lit: boolean;
+    reason: string | null;
+}

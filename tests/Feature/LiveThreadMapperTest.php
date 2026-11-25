@@ -207,3 +207,88 @@ it('normalizeMessage carries isFromQueue through as fromQueue', function () {
     expect($mass['fromQueue'])->toBeTrue();
     expect($direct['fromQueue'])->toBeFalse();
 });
+
+function tagMap(array $messages, array $tags = []): array
+{
+    return app(LiveThreadMapper::class)->map($messages, 12, 'UTC', $tags);
+}
+
+function tagPriced(string $id, int $minAgo, array $extra = []): array
+{
+    return array_merge([
+        'id' => $id, 'from' => 'creator', 'text' => "pitch {$id}", 'time' => now()->subMinutes($minAgo)->toIso8601String(),
+        'price' => 25, 'isFree' => false, 'isOpened' => false, 'isTip' => false,
+    ], $extra);
+}
+
+it('a chat_ppv tag on a fromQueue message keeps it and makes it a ppv bubble', function () {
+    $out = tagMap([tagPriced('m1', 5, ['fromQueue' => true])], ['m1' => 'chat_ppv']);
+
+    expect($out['messages'])->toHaveCount(1)
+        ->and($out['messages'][0]['sender'])->toBe('ppv')
+        ->and($out['droppedMass'])->toBe([])
+        ->and($out['thread'][0]['tag'])->toBe('chat_ppv');
+});
+
+it('an mppv tag on a non-queue unopened priced message hides it', function () {
+    $out = tagMap([tagPriced('m1', 5)], ['m1' => 'mppv']);
+
+    expect($out['messages'])->toBe([])
+        ->and($out['thread'])->toBe([])
+        ->and($out['droppedMass'])->toHaveCount(1);
+});
+
+it('free_preview is not a ppv bubble but an opened one still counts as spend', function () {
+    $out = tagMap([tagPriced('m1', 5, ['isOpened' => true])], ['m1' => 'free_preview']);
+
+    expect($out['messages'])->toHaveCount(1)
+        ->and($out['messages'][0]['sender'])->toBe('model')
+        ->and($out['messages'][0])->not->toHaveKey('price')
+        ->and($out['total_spend'])->toBe(25.0)
+        ->and($out['thread'][0]['tag'])->toBe('free_preview');
+});
+
+it('an opened mass PPV stays, counts as spend and is tagged mppv in thread', function () {
+    $out = tagMap([tagPriced('m1', 5, ['fromQueue' => true, 'isOpened' => true])]);
+
+    expect($out['messages'][0]['sender'])->toBe('ppv')
+        ->and($out['total_spend'])->toBe(25.0)
+        ->and($out['thread'][0]['tag'])->toBe('mppv')
+        ->and($out['droppedMass'])->toBe([]);
+});
+
+it('droppedMass returns the hidden unbought mass PPV with its id and text', function () {
+    $out = tagMap([tagPriced('m7', 5, ['fromQueue' => true])]);
+
+    expect($out['messages'])->toBe([])
+        ->and($out['droppedMass'])->toHaveCount(1)
+        ->and($out['droppedMass'][0]['id'])->toBe('m7')
+        ->and($out['droppedMass'][0]['text'])->toBe('pitch m7')
+        ->and($out['droppedMass'][0]['tag'])->toBe('mppv');
+});
+
+it('thread carries ids and tags, oldest first', function () {
+    $out = tagMap([
+        tagPriced('m2', 1),
+        ['id' => 'm1', 'from' => 'fan', 'text' => 'hi', 'time' => now()->subMinutes(9)->toIso8601String()],
+    ]);
+
+    expect(array_column($out['thread'], 'id'))->toBe(['m1', 'm2'])
+        ->and(array_column($out['thread'], 'tag'))->toBe([null, 'chat_ppv']);
+});
+
+it('with no tags and no ids the engine messages are identical to before', function () {
+    $t = now()->startOfMinute();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => 'hey', 'time' => $t->copy()->subMinutes(10)->toIso8601String()],
+        ['from' => 'creator', 'text' => 'unlock', 'time' => $t->copy()->subMinutes(5)->toIso8601String(),
+            'price' => 20, 'isFree' => false, 'isOpened' => true, 'isTip' => false],
+        ['from' => 'creator', 'text' => 'blast', 'time' => $t->copy()->subMinutes(4)->toIso8601String(),
+            'price' => 9, 'isFree' => false, 'isOpened' => false, 'isTip' => false, 'fromQueue' => true],
+    ]);
+
+    expect($out['messages'])->toBe([
+        ['sender' => 'customer', 'text' => 'hey', 'ts_iso' => $t->copy()->subMinutes(10)->format('c'), 'ts' => $t->copy()->subMinutes(10)->utc()->format('g:i A')],
+        ['sender' => 'ppv', 'text' => 'unlock', 'ts_iso' => $t->copy()->subMinutes(5)->format('c'), 'ts' => $t->copy()->subMinutes(5)->utc()->format('g:i A'), 'opened' => true, 'price' => 20.0],
+    ])->and($out['total_spend'])->toBe(20.0);
+});

@@ -21,18 +21,22 @@ import {
     ref,
     watch,
 } from 'vue';
+import { intentLabel } from '@/lib/chatCounters';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
 import type {
     ComposerAttachment,
+    ChatCounters,
     ComposerStep,
     DraftRejection,
+    IntentKey,
     OfGif,
     OfMedia,
 } from '@/types/crm';
 import SsEmojiPicker from './SsEmojiPicker.vue';
 import SsGifPicker from './SsGifPicker.vue';
+import SsIntentBar from './SsIntentBar.vue';
 import SsPpvStrip from './SsPpvStrip.vue';
 import SsVaultModal from './SsVaultModal.vue';
 
@@ -53,6 +57,9 @@ const props = defineProps<{
     canSendReason: string | null;
     rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
     rejecting: boolean;
+    counters: ChatCounters;
+    intent: IntentKey | null; // the intent shown on the card: the one generating, else the pending suggestion's
+    requestedIntent: IntentKey | null; // the intent being generated right now (spinner on its chip)
 }>();
 
 const emit = defineEmits<{
@@ -64,6 +71,10 @@ const emit = defineEmits<{
     'pick-file': [file: File];
     'pick-vault': [item: OfMedia];
     generate: [];
+    regenerate: [];
+    intent: [key: IntentKey];
+    /** The Scripts panel opened (`focusPpv`: from the PPV chip) or closed. */
+    'scripts-toggle': [open: boolean, focusPpv: boolean];
     send: [];
     accept: [];
     'accept-send': [];
@@ -78,6 +89,7 @@ const showPicker = ref(false);
 // the top-right of the message box. The page fills the `scripts` slot (it owns the chat data
 // and `loadStep`); the composer owns open/close: the button, Esc, a click outside, a chat switch.
 const showScripts = ref(false);
+const focusPpv = ref(false); // opened by the PPV chip: the panel lands on the next unsent PPV step
 const scriptsBtn = ref<HTMLButtonElement | null>(null);
 const scriptsSheet = ref<HTMLElement | null>(null);
 
@@ -97,6 +109,39 @@ watch(
     () => props.chatId,
     () => closeScripts(),
 );
+watch(showScripts, (open) => {
+    if (!open) {
+        focusPpv.value = false;
+    }
+
+    emit('scripts-toggle', open, focusPpv.value);
+});
+
+/** The intent bar. PPV with nothing loaded opens the Scripts panel on the next PPV step; every
+ *  other chip (and PPV with a media step loaded = caption it) goes to the page. */
+async function fireIntent(key: IntentKey) {
+    if (key === 'ppv' && mediaStep.value === null) {
+        // Already open (e.g. the chatter browsed into a folder): close it first and let it
+        // unmount, so the reopen is a fresh PPV open — it re-lands on the next PPV step and
+        // the page re-arms `ppvPending`. Toggling within one tick would change nothing.
+        if (showScripts.value) {
+            showScripts.value = false;
+            await nextTick();
+        }
+
+        focusPpv.value = true;
+        showScripts.value = true;
+
+        return;
+    }
+
+    emit('intent', key);
+}
+
+function toggleScripts() {
+    focusPpv.value = false;
+    showScripts.value = !showScripts.value;
+}
 
 function onDocPointer(e: PointerEvent) {
     const t = e.target as Node | null;
@@ -406,7 +451,11 @@ function onKeydown(e: KeyboardEvent) {
             ref="scriptsSheet"
             class="absolute inset-x-3 bottom-full z-20 mb-1"
         >
-            <slot name="scripts" :close="() => closeScripts()" />
+            <slot
+                name="scripts"
+                :close="() => closeScripts()"
+                :focus-ppv="focusPpv"
+            />
         </div>
 
         <!-- AI suggestion card (above the typing bar) -->
@@ -433,7 +482,7 @@ function onKeydown(e: KeyboardEvent) {
                     :disabled="props.generating"
                     class="grid h-6 w-6 place-items-center rounded text-ss-text-3 hover:bg-ss-surface-2 hover:text-ss-text-2 disabled:opacity-50"
                     title="Regenerate"
-                    @click="emit('generate')"
+                    @click="emit('regenerate')"
                 >
                     <RefreshCw
                         :size="13"
@@ -453,6 +502,12 @@ function onKeydown(e: KeyboardEvent) {
 
             <p v-if="props.generating" class="py-2 text-[13px] text-ss-text-3">
                 Generating a draft…
+                <span
+                    v-if="props.requestedIntent"
+                    class="font-semibold"
+                    data-testid="intent-label"
+                    >Intent: {{ intentLabel(props.requestedIntent) }}</span
+                >
             </p>
             <template v-else>
                 <!-- PPV caption only: SSAI's saved plan was a non-selling move (PpvReadiness). -->
@@ -474,6 +529,13 @@ function onKeydown(e: KeyboardEvent) {
                         Caption written anyway, send only if he's ready to
                         unlock.
                     </span>
+                </p>
+                <p
+                    v-if="props.intent"
+                    class="mb-1 text-[11px] font-semibold text-ss-text-3"
+                    data-testid="intent-label"
+                >
+                    Intent: {{ intentLabel(props.intent) }}
                 </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"
@@ -739,6 +801,17 @@ function onKeydown(e: KeyboardEvent) {
             }}
         </p>
 
+        <!-- Agent intents: Re-pitch / Re-offer MPPV (and PPV) with their unlock state. -->
+        <SsIntentBar
+            :counters="props.counters"
+            :busy="props.generating"
+            :sending="props.sending"
+            :media-loaded="mediaStep !== null"
+            :active-intent="props.intent"
+            :generating-intent="props.requestedIntent"
+            @fire="fireIntent"
+        />
+
         <!-- Typing bar: the message gets the full width; tools sit in a row beneath it, so a
              narrow middle column never squeezes the textarea down to one word per line. -->
         <div
@@ -789,7 +862,7 @@ function onKeydown(e: KeyboardEvent) {
                 title="Scripts"
                 aria-label="Scripts"
                 data-testid="scripts-button"
-                @click="showScripts = !showScripts"
+                @click="toggleScripts"
             >
                 <ListOrdered :size="16" />
             </button>

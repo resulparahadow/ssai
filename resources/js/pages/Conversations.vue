@@ -11,6 +11,7 @@ import SsScriptsPanel from '@/components/crm/conversations/SsScriptsPanel.vue';
 import SsSentPpvs from '@/components/crm/conversations/SsSentPpvs.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
+import { chatCounters } from '@/lib/chatCounters';
 import {
     chatComposer,
     chatListView,
@@ -22,6 +23,7 @@ import {
     nextCache,
     recallOpenChat,
     rememberOpenChat,
+    tagsCache,
 } from '@/lib/conversationCache';
 import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
@@ -32,7 +34,7 @@ import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
     captionStepId,
     composerDirty,
-    generationStillApplies,
+    generationOutcome,
     ppvMediaCounts,
     sendClearsComposer,
     stepAfterAccept,
@@ -49,6 +51,8 @@ import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
     ComposerStep,
+    IntentKey,
+    MessageTag,
     OfChat,
     OfChatFilter,
     OfChatOrder,
@@ -141,6 +145,9 @@ const msgsNext = ref<Record<string, string> | null>(null);
 const msgsLoadingMore = ref(false);
 const msgsMoreError = ref<string | null>(null);
 const fan = ref<OfFan | null>(null);
+// Stored per-message PPV tags for the open chat (stale-while-revalidate via tagsCache). The
+// server applies the same tags on generate; here they only feed the intent bar's counters.
+const tags = ref<Record<string, MessageTag>>({});
 
 // Right rail: Fan / AI Intel / PPV (PPVs sent to this fan) tabs.
 const rail = ref<'fan' | 'ai' | 'ppv'>('fan');
@@ -168,6 +175,14 @@ const curRejections = computed(() =>
               props.sessionGapHours,
           )
         : [],
+);
+
+// `hasMore`: the loaded page is a floor, not the thread's real length (older pages remain).
+const counters = computed(() =>
+    chatCounters(messages.value, tags.value, {
+        hasMore: msgsNext.value !== null,
+        sessionGapHours: props.sessionGapHours,
+    }),
 );
 
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
@@ -206,6 +221,7 @@ function dropChat() {
     msgCache.delete(id);
     fanCache.delete(id);
     nextCache.delete(id);
+    tagsCache.delete(id);
 
     if (model.value) {
         rememberOpenChat(model.value.id, null);
@@ -218,7 +234,9 @@ function dropChat() {
     fan.value = null;
 }
 
-async function generate() {
+/** `intent`: null = a plain reply (or the loaded media step's caption); repitch / reoffer_mppv
+ *  = an agent intent. Only those two reach the server. */
+async function generate(intent: IntentKey | null = null) {
     const m = model.value;
     const chat = selected.value;
 
@@ -228,14 +246,21 @@ async function generate() {
 
     const chatId = chat.id;
     const st = chatComposer(chatId);
+    // This run's token. A Generate started while this one runs takes a newer token and owns the
+    // composer: this run's result, error and `finally` are then ignored (generationOutcome).
+    const seq = ++st.generateSeq;
     st.generating = true;
     st.error = null;
     let draft: string | null = null;
+    // Dropped without a word: superseded by a newer run, or ended by the chatter's own
+    // Dismiss / send. No error, no "draft ready/failed" toast.
+    let silent = false;
     // What this draft is FOR, decided now: a caption for the loaded media step, or a reply (a
     // Text step is a normal reply). If that changes while the engine runs, the result no longer
     // applies and is dropped.
     const captionFor = captionStepId(st.step);
     const loadsAtStart = st.stepLoads;
+    st.requestedIntent = intent;
     // A free step is captioned too, but its price read is thrown away (there is nothing to price).
     const pricedCaption = captionFor !== null && (st.step?.price ?? 0) > 0;
 
@@ -256,6 +281,7 @@ async function generate() {
             messages: thread
                 .filter((mm) => !mm.failed)
                 .map((mm) => ({
+                    ...(mm.id ? { id: mm.id } : {}),
                     from: mm.from,
                     text: mm.text,
                     time: mm.time,
@@ -272,6 +298,9 @@ async function generate() {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
+            ...(intent === 'repitch' || intent === 'reoffer_mppv'
+                ? { intent }
+                : {}),
             // A loaded media step → legacy's caption mode: ONE curiosity caption, not a reply.
             // The step's title/text is deliberately NOT put in `context` — any context text
             // flips the brain into AGENT OVERRIDE mode (safeguards deferred for the turn).
@@ -282,22 +311,29 @@ async function generate() {
                 : {}),
         });
 
-        if (
-            !generationStillApplies(
-                { captionFor, loads: loadsAtStart },
-                { captionFor: captionStepId(st.step), loads: st.stepLoads },
-            )
-        ) {
+        const outcome = generationOutcome(
+            { seq, captionFor, loads: loadsAtStart, intent },
+            {
+                seq: st.generateSeq,
+                captionFor: captionStepId(st.step),
+                loads: st.stepLoads,
+                intent: st.requestedIntent,
+            },
+        );
+
+        if (outcome === 'superseded' || outcome === 'invalidated') {
+            silent = true;
+        } else if (outcome === 'script-changed') {
             // A reply landed with a media step loaded (it would be sent as the caption), a
             // caption landed for a step no longer loaded, or any step was loaded while this ran
             // (its confirm promised to replace the pending draft). None may reach the fan.
             st.error =
                 'Draft discarded: the script changed while it was generating. Generate again.';
-            draft = null;
         } else {
             draft = data.draft || null;
             st.suggestion = draft;
             st.suggestionFor = captionFor;
+            st.intent = intent;
 
             // Merge into the CURRENT step, read after the await: a price the chatter edited while
             // this ran must survive. The suggestion is advice next to the chip, never the price.
@@ -332,9 +368,22 @@ async function generate() {
             }
         }
     } catch (e) {
-        st.error = e instanceof Error ? e.message : String(e);
+        if (seq === st.generateSeq) {
+            st.error = e instanceof Error ? e.message : String(e);
+        } else {
+            silent = true; // a newer run owns the composer; this run's failure is moot
+        }
     } finally {
-        st.generating = false;
+        // Only the latest run may end the composer's generating state: an older one landing
+        // must not flip the spinner off (or clear requestedIntent) under the newer run.
+        if (seq === st.generateSeq) {
+            st.generating = false;
+            st.requestedIntent = undefined;
+        }
+    }
+
+    if (silent) {
+        return;
     }
 
     // However it ended, tell a chatter who has moved on (another chat, page or tab) —
@@ -407,7 +456,7 @@ async function rejectDraft(feedback: string) {
     }
 
     if (selected.value?.id === chatId) {
-        void generate();
+        void generate(st.intent);
     }
 }
 
@@ -447,6 +496,102 @@ async function fetchRejections(chatId: string) {
     }
 }
 
+/** Load this chat's stored PPV tags (stale-while-revalidate: the cache paints first). */
+async function fetchTags(chatId: string) {
+    const m = model.value;
+
+    if (!m) {
+        return;
+    }
+
+    try {
+        const r = await ofApi.tags(m.id, chatId);
+        const merged = { ...r.tags };
+        const local = tagsCache.get(chatId) ?? {};
+
+        // A re-tag still in flight is newer than this snapshot: keep its optimistic value.
+        for (const key of tagFlight.keys()) {
+            if (!key.startsWith(`${chatId}:`)) {
+                continue;
+            }
+
+            const id = key.slice(chatId.length + 1);
+
+            if (local[id] === undefined) {
+                delete merged[id];
+            } else {
+                merged[id] = local[id];
+            }
+        }
+
+        tagsCache.set(chatId, merged);
+
+        if (selected.value?.id === chatId) {
+            tags.value = merged;
+        }
+    } catch {
+        // Best-effort: without tags the counters fall back to the heuristic (queue = mass),
+        // and the server applies the stored tags on generate either way.
+    }
+}
+
+/** An intent chip. Re-pitch / Re-offer generate through the server's intent path; PPV with a
+ *  media step loaded is the existing caption flow (picking a step for the chatter comes later). */
+function fireIntent(key: IntentKey) {
+    const st = cur.value;
+
+    // While a send is in flight its pending bubble is in the generate payload — a Re-pitch could
+    // target the PPV still on its way out (the bar shows these chips disabled: "Sending…").
+    if (!st || st.generating || st.sending) {
+        return;
+    }
+
+    if (key === 'ppv') {
+        if (captionStepId(st.step) !== null) {
+            void generate(null);
+        }
+
+        return;
+    }
+
+    void generate(key);
+}
+
+// A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.
+watch(
+    () => selected.value?.id ?? null,
+    (_now, was) => {
+        if (was) {
+            chatComposer(was).ppvPending = false;
+        }
+    },
+);
+
+/** The Scripts panel opened or closed. A PPV-chip open arms `ppvPending` (caption the step the
+ *  chatter loads); closing without a load, or any manual open, disarms it. */
+function onScriptsToggle(open: boolean, focusPpv: boolean) {
+    const st = cur.value;
+
+    if (st) {
+        st.ppvPending = open && focusPpv;
+    }
+}
+
+/** A step picked in the panel. After a PPV-chip open, a media step is captioned on its own. */
+function onScriptLoad(step: ScriptStep, close: () => void) {
+    const armed = cur.value?.ppvPending === true;
+
+    if (!loadStep(step)) {
+        return;
+    }
+
+    close();
+
+    if (armed && step.media.length > 0) {
+        void generate(null);
+    }
+}
+
 /** Persist the adopted generation's strategy so the next Generate builds on it.
  *  Fire-and-forget — a failed commit must never block the chatter. */
 function commitStrategyMemory(chatId: string) {
@@ -483,6 +628,7 @@ function acceptSuggestion() {
     st.step = stepAfterAccept(st.step, st.suggestionFor);
     st.draft = st.suggestion;
     st.suggestion = null;
+    st.intent = null;
 }
 
 /** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
@@ -502,6 +648,7 @@ async function acceptAndSend() {
     st.step = stepAfterAccept(st.step, st.suggestionFor);
     const text = st.suggestion;
     st.suggestion = null;
+    st.intent = null;
     await send(text);
 }
 
@@ -509,6 +656,8 @@ function dismissSuggestion() {
     if (cur.value) {
         cur.value.suggestion = null;
         cur.value.suggestionFor = null;
+        cur.value.intent = null;
+        cur.value.requestedIntent = undefined;
     }
 }
 
@@ -689,6 +838,9 @@ async function send(override?: string) {
         if (sendClearsComposer(loadsAtSend, st.stepLoads)) {
             st.draft = '';
             st.suggestion = null;
+            st.suggestionFor = null;
+            st.intent = null;
+            st.requestedIntent = undefined;
             st.step = null;
         }
 
@@ -1050,7 +1202,10 @@ function loadStep(step: ScriptStep): boolean {
     st.gif = null;
     st.suggestion = null;
     st.suggestionFor = null;
+    st.intent = null;
+    st.requestedIntent = undefined;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
+    st.ppvPending = false;
     st.stepLoads++; // a Generate still in flight was written before this step: drop it
     st.step = {
         stepId: step.id,
@@ -1246,6 +1401,7 @@ async function loadChats() {
     if (creatorChanged) {
         selected.value = null;
         messages.value = [];
+        tags.value = {};
         fan.value = null;
         rail.value = 'fan';
 
@@ -1658,6 +1814,9 @@ function openChat(chat: OfChat) {
     // restores it after a reload. Race-safe: only apply while this chat is open.
     fetchIntel(chat.id);
     fetchRejections(chat.id);
+
+    tags.value = tagsCache.get(chat.id) ?? {};
+    fetchTags(chat.id);
 }
 
 async function fetchIntel(chatId: string) {
@@ -1685,6 +1844,90 @@ async function fetchIntel(chatId: string) {
     } catch {
         // Intel is best-effort — a fetch failure just leaves the Fan tab showing.
     }
+}
+
+// Re-tag bookkeeping per `chatId:messageId`. A message is "in flight" from its first optimistic
+// change until its LATEST request settles. `seq` numbers requests so a superseded one never
+// rolls back or overwrites newer state; `base` is the last value the server is known to hold
+// (absent = Auto); `chain` runs one message's requests in call order, so the server also ends
+// on the last value picked.
+const tagFlight = new Map<
+    string,
+    {
+        seq: number;
+        base: MessageTag | undefined;
+        chain: Promise<unknown>;
+    }
+>();
+let tagSeq = 0;
+
+/** Re-tag a PPV bubble (null = Auto). Optimistic on `tags` + `tagsCache`, so the counters and
+ *  intent bar react at once; rolled back if the server refuses the latest request. */
+async function onTag(messageId: string, tag: MessageTag | null) {
+    const m = model.value;
+    const chatId = selected.value?.id;
+
+    if (!m || !chatId) {
+        return;
+    }
+
+    const key = `${chatId}:${messageId}`;
+    const current = (tagsCache.get(chatId) ?? tags.value)[messageId];
+    const seq = ++tagSeq;
+    const flight = tagFlight.get(key) ?? {
+        seq,
+        base: current,
+        chain: Promise.resolve(),
+    };
+
+    flight.seq = seq;
+    tagFlight.set(key, flight);
+
+    const apply = (fn: (v: Record<string, MessageTag>) => void) => {
+        const v = { ...(tagsCache.get(chatId) ?? {}) };
+        fn(v);
+        tagsCache.set(chatId, v);
+
+        if (selected.value?.id === chatId) {
+            tags.value = v;
+        }
+    };
+    const put = (t: MessageTag | undefined) =>
+        apply((v) => {
+            if (t === undefined) {
+                delete v[messageId];
+            } else {
+                v[messageId] = t;
+            }
+        });
+
+    put(tag ?? undefined);
+
+    const run = flight.chain.then(async () => {
+        try {
+            if (tag === null) {
+                await ofApi.clearTag(m.id, chatId, messageId);
+            } else {
+                await ofApi.setTag(m.id, chatId, messageId, tag);
+            }
+
+            flight.base = tag ?? undefined;
+        } catch (e) {
+            if (flight.seq !== seq) {
+                return; // superseded: the newer request owns the state
+            }
+
+            put(flight.base);
+            alert(e instanceof Error ? e.message : String(e));
+        } finally {
+            if (flight.seq === seq) {
+                tagFlight.delete(key);
+            }
+        }
+    });
+
+    flight.chain = run;
+    await run;
 }
 
 async function onLike(m: OfMessage) {
@@ -1939,6 +2182,8 @@ onBeforeUnmount(() => {
                 :loading-more="msgsLoadingMore"
                 :load-more-error="msgsMoreError"
                 :spend="fan?.totalSpent ?? null"
+                :tags="tags"
+                @tag="onTag"
                 @like="onLike"
                 @delete="onDelete"
                 @resend="resend"
@@ -1971,7 +2216,21 @@ onBeforeUnmount(() => {
                         @update:step="setStep"
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
-                        @generate="generate"
+                        :counters="counters"
+                        :intent="
+                            cur.generating
+                                ? (cur.requestedIntent ?? null)
+                                : cur.intent
+                        "
+                        :requested-intent="
+                            cur.generating
+                                ? (cur.requestedIntent ?? null)
+                                : null
+                        "
+                        @generate="generate()"
+                        @regenerate="generate(cur.intent)"
+                        @intent="fireIntent"
+                        @scripts-toggle="onScriptsToggle"
                         @send="send"
                         @accept="acceptSuggestion"
                         @accept-send="acceptAndSend"
@@ -1979,13 +2238,14 @@ onBeforeUnmount(() => {
                         @reject="rejectDraft"
                         @remove-rejection="removeRejection"
                     >
-                        <template #scripts="{ close }">
+                        <template #scripts="{ close, focusPpv }">
                             <SsScriptsPanel
                                 :model-id="model.id"
                                 :chat-id="selected.id"
                                 :messages="messages"
                                 :status-key="scriptStatusKey"
-                                @load="(step) => loadStep(step) && close()"
+                                :focus-ppv="focusPpv"
+                                @load="(step) => onScriptLoad(step, close)"
                                 @close="close"
                             />
                         </template>
@@ -2082,6 +2342,7 @@ onBeforeUnmount(() => {
                     v-if="rail === 'ppv'"
                     :model-id="model.id"
                     :messages="messages"
+                    :tags="tags"
                     @jump="jumpToMessage"
                 />
             </aside>

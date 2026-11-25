@@ -17,14 +17,16 @@ class LiveThreadMapper
      * @param  string  $timezone  the creator's IANA zone — the per-message `ts` stamps must read
      *                            the same clock as the engine's "current time" line (EngineClient
      *                            sends the same zone), or the AI sees two contradicting times
-     * @return array{messages: list<array<string, mixed>>, total_spend: float, tips_spend: float}
+     * @param  array<string, string>  $tags  stored message_id => tag overrides (AichMessageTag::forChat)
+     * @return array{messages: list<array<string, mixed>>, total_spend: float, tips_spend: float, thread: list<array<string, mixed>>, droppedMass: list<array<string, mixed>>}
      */
-    public function map(array $messages, int $gapHours = 12, string $timezone = 'UTC'): array
+    public function map(array $messages, int $gapHours = 12, string $timezone = 'UTC', array $tags = []): array
     {
-        $items = array_map(function (array $m): array {
+        $items = array_map(function (array $m) use ($tags): array {
             $ts = isset($m['time']) && $m['time'] !== null ? strtotime((string) $m['time']) : false;
 
-            return [
+            $item = [
+                'id' => isset($m['id']) && $m['id'] !== '' ? (string) $m['id'] : null,
                 'from' => ($m['from'] ?? 'fan') === 'creator' ? 'creator' : 'fan',
                 'text' => (string) ($m['text'] ?? ''),
                 'ts' => $ts === false ? null : $ts,
@@ -35,6 +37,19 @@ class LiveThreadMapper
                 'tipAmount' => isset($m['tipAmount']) ? (float) $m['tipAmount'] : null,
                 'fromQueue' => (bool) ($m['fromQueue'] ?? false),
             ];
+
+            // Effective tag: only a creator-sent paid, non-tip message is taggable. A stored
+            // override wins, else the OnlyFans default (mass blast = mppv, otherwise chat_ppv).
+            // free_preview is manual-only. Applied BEFORE the mass filter below.
+            $item['tag'] = null;
+            if ($item['from'] === 'creator' && ! $item['isFree'] && $item['price'] > 0 && ! $item['isTip']) {
+                $stored = $item['id'] !== null ? ($tags[$item['id']] ?? null) : null;
+                $item['tag'] = in_array($stored, ['chat_ppv', 'mppv', 'free_preview'], true)
+                    ? $stored
+                    : ($item['fromQueue'] ? 'mppv' : 'chat_ppv');
+            }
+
+            return $item;
         }, array_values($messages));
 
         // An UNOPENED mass-message PPV (OnlyFans mass blast, `isFromQueue`) is broadcast
@@ -42,17 +57,13 @@ class LiveThreadMapper
         // him" (wrong pacing, false don't-chase) and its timestamp can bridge a real
         // session gap. Dropped BEFORE sorting/gap detection so it affects neither. An
         // OPENED one stays — the fan genuinely paid, so spend + post-purchase are correct.
-        $items = array_values(array_filter($items, fn ($m) => ! (
-            $m['fromQueue']
-            && $m['from'] === 'creator'
-            && ! $m['isFree']
-            && $m['price'] > 0
-            && ! $m['isTip']
-            && ! $m['isOpened']
-        )));
+        $isHidden = fn ($m) => $m['tag'] === 'mppv' && ! $m['isOpened'];
+        $dropped = array_values(array_filter($items, $isHidden));
+        $items = array_values(array_filter($items, fn ($m) => ! $isHidden($m)));
 
         // Oldest → newest so the session-window scan and the engine transcript are chronological.
         usort($items, fn ($a, $b) => ($a['ts'] ?? 0) <=> ($b['ts'] ?? 0));
+        usort($dropped, fn ($a, $b) => ($a['ts'] ?? 0) <=> ($b['ts'] ?? 0));
 
         $sessionStart = $this->sessionStartIndex($items, $gapHours);
 
@@ -75,10 +86,13 @@ class LiveThreadMapper
                 $bubble['ts'] = Carbon::createFromTimestamp($m['ts'], $timezone)->format('g:i A');
             }
 
-            if ($inWindow && $m['from'] === 'creator' && ! $m['isFree'] && $m['price'] > 0 && ! $m['isTip']) {
-                $bubble['sender'] = 'ppv';
-                $bubble['opened'] = $m['isOpened'];
-                $bubble['price'] = $m['price'];
+            if ($inWindow && $m['tag'] !== null) {
+                // free_preview is never a ppv bubble, but a paid one still counts as spend.
+                if ($m['tag'] !== 'free_preview') {
+                    $bubble['sender'] = 'ppv';
+                    $bubble['opened'] = $m['isOpened'];
+                    $bubble['price'] = $m['price'];
+                }
                 if ($m['isOpened']) {
                     $totalSpend += $m['price'];
                 }
@@ -93,7 +107,17 @@ class LiveThreadMapper
             $out[] = $bubble;
         }
 
-        return ['messages' => $out, 'total_spend' => $totalSpend, 'tips_spend' => $tipsSpend];
+        $view = fn (array $m): array => array_intersect_key($m, array_flip(
+            ['id', 'tag', 'from', 'text', 'ts', 'price', 'isFree', 'isOpened', 'isTip', 'fromQueue'],
+        ));
+
+        return [
+            'messages' => $out,
+            'total_spend' => $totalSpend,
+            'tips_spend' => $tipsSpend,
+            'thread' => array_map($view, $items),
+            'droppedMass' => array_map($view, $dropped),
+        ];
     }
 
     /**

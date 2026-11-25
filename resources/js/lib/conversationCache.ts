@@ -4,6 +4,8 @@ import type {
     ComposerAttachment,
     ComposerStep,
     DraftRejection,
+    IntentKey,
+    MessageTag,
     OfChat,
     OfChatFilter,
     OfChatOrder,
@@ -47,6 +49,10 @@ export const fanCache = new Map<string, OfFan>();
 // older messages" button.
 export const nextCache = new Map<string, Record<string, string> | null>();
 
+// Stored per-message PPV tags for each chat (message id → tag), fetched beside the thread and
+// served stale-while-revalidate like msgCache. Feeds the intent bar's counters.
+export const tagsCache = new Map<string, Record<string, MessageTag>>();
+
 // Per-chat composer state, keyed by chat id. Each chat keeps its own draft,
 // loading/sending flags, error, and AI strategy — so generating in chat A and
 // switching to chat B no longer bleeds A's spinner/result into B, and an
@@ -61,9 +67,15 @@ export interface ComposerState {
     // reply, and a draft whose mode/step no longer matches the composer is dropped
     // (lib/ppvComposer.ts).
     suggestionFor: number | null;
+    // The intent of the generate in flight; undefined = no generate owns the composer (dismiss, send or
+    // step load invalidated it), so a landing result is dropped (generationStillApplies).
+    requestedIntent: IntentKey | null | undefined;
+    intent: IntentKey | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
+    ppvPending: boolean; // the PPV chip opened the Scripts panel: caption the step the chatter loads (cleared on load / panel close / chat switch)
     stepLoads: number; // steps loaded so far; a Generate started before the latest load is dropped (lib/ppvComposer.ts)
+    generateSeq: number; // token of the latest Generate: an older run's result, error and finally are ignored (generationOutcome)
     step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
@@ -84,10 +96,14 @@ export function chatComposer(chatId: string): ComposerState {
             context: '',
             suggestion: null,
             suggestionFor: null,
+            intent: null,
+            requestedIntent: undefined,
             gif: null,
             attachment: null,
             step: null,
+            ppvPending: false,
             stepLoads: 0,
+            generateSeq: 0,
             generating: false,
             sending: false,
             error: null,
