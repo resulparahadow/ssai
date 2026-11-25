@@ -205,6 +205,19 @@ assert.equal(
     'https://x/t1.jpg',
     'first media is the thumb',
 );
+// Tags: the rail follows the same effective tag as the bubble chip.
+{
+    // The shared fixtures carry isFree:true; real priced PPVs do not.
+    const real = thread.map((m) => ({ ...m, isFree: m.price === 0 }));
+    const t = sentPpvs(real, { new: 'chat_ppv', old: 'mppv' });
+    assert.equal(t[0].mass, false, 'override chat_ppv beats fromQueue');
+    assert.equal(t[1].mass, true, 'override mppv on a non-queue message');
+    const f = sentPpvs(real, { new: 'free_preview' });
+    assert.equal(f.length, 2, 'free_preview stays in the list');
+    assert.equal(f[0].freePreview, true);
+    assert.equal(f[0].mass, false);
+    assert.equal(ppvs[0].freePreview, false);
+}
 assert.deepEqual(sentPpvs([]), []);
 // No timestamps (optimistic/edge): thread order decides, newest = last in the thread.
 assert.deepEqual(

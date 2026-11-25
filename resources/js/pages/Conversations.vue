@@ -489,10 +489,28 @@ async function fetchTags(chatId: string) {
 
     try {
         const r = await ofApi.tags(m.id, chatId);
-        tagsCache.set(chatId, r.tags);
+        const merged = { ...r.tags };
+        const local = tagsCache.get(chatId) ?? {};
+
+        // A re-tag still in flight is newer than this snapshot: keep its optimistic value.
+        for (const key of tagFlight.keys()) {
+            if (!key.startsWith(`${chatId}:`)) {
+                continue;
+            }
+
+            const id = key.slice(chatId.length + 1);
+
+            if (local[id] === undefined) {
+                delete merged[id];
+            } else {
+                merged[id] = local[id];
+            }
+        }
+
+        tagsCache.set(chatId, merged);
 
         if (selected.value?.id === chatId) {
-            tags.value = r.tags;
+            tags.value = merged;
         }
     } catch {
         // Best-effort: without tags the counters fall back to the heuristic (queue = mass),
@@ -1809,8 +1827,23 @@ async function fetchIntel(chatId: string) {
     }
 }
 
+// Re-tag bookkeeping per `chatId:messageId`. A message is "in flight" from its first optimistic
+// change until its LATEST request settles. `seq` numbers requests so a superseded one never
+// rolls back or overwrites newer state; `base` is the last value the server is known to hold
+// (absent = Auto); `chain` runs one message's requests in call order, so the server also ends
+// on the last value picked.
+const tagFlight = new Map<
+    string,
+    {
+        seq: number;
+        base: MessageTag | undefined;
+        chain: Promise<unknown>;
+    }
+>();
+let tagSeq = 0;
+
 /** Re-tag a PPV bubble (null = Auto). Optimistic on `tags` + `tagsCache`, so the counters and
- *  intent bar react at once; rolled back if the server refuses. */
+ *  intent bar react at once; rolled back if the server refuses the latest request. */
 async function onTag(messageId: string, tag: MessageTag | null) {
     const m = model.value;
     const chatId = selected.value?.id;
@@ -1819,44 +1852,63 @@ async function onTag(messageId: string, tag: MessageTag | null) {
         return;
     }
 
-    const before = tagsCache.get(chatId) ?? tags.value;
-    const next = { ...before };
+    const key = `${chatId}:${messageId}`;
+    const current = (tagsCache.get(chatId) ?? tags.value)[messageId];
+    const seq = ++tagSeq;
+    const flight = tagFlight.get(key) ?? {
+        seq,
+        base: current,
+        chain: Promise.resolve(),
+    };
 
-    if (tag === null) {
-        delete next[messageId];
-    } else {
-        next[messageId] = tag;
-    }
+    flight.seq = seq;
+    tagFlight.set(key, flight);
 
-    const apply = (v: Record<string, MessageTag>) => {
+    const apply = (fn: (v: Record<string, MessageTag>) => void) => {
+        const v = { ...(tagsCache.get(chatId) ?? {}) };
+        fn(v);
         tagsCache.set(chatId, v);
 
         if (selected.value?.id === chatId) {
             tags.value = v;
         }
     };
+    const put = (t: MessageTag | undefined) =>
+        apply((v) => {
+            if (t === undefined) {
+                delete v[messageId];
+            } else {
+                v[messageId] = t;
+            }
+        });
 
-    apply(next);
+    put(tag ?? undefined);
 
-    try {
-        if (tag === null) {
-            await ofApi.clearTag(m.id, chatId, messageId);
-        } else {
-            await ofApi.setTag(m.id, chatId, messageId, tag);
+    const run = flight.chain.then(async () => {
+        try {
+            if (tag === null) {
+                await ofApi.clearTag(m.id, chatId, messageId);
+            } else {
+                await ofApi.setTag(m.id, chatId, messageId, tag);
+            }
+
+            flight.base = tag ?? undefined;
+        } catch (e) {
+            if (flight.seq !== seq) {
+                return; // superseded: the newer request owns the state
+            }
+
+            put(flight.base);
+            alert(e instanceof Error ? e.message : String(e));
+        } finally {
+            if (flight.seq === seq) {
+                tagFlight.delete(key);
+            }
         }
-    } catch (e) {
-        // Roll back only this message, so a tag set meanwhile on another bubble survives.
-        const cur = { ...(tagsCache.get(chatId) ?? {}) };
+    });
 
-        if (before[messageId] === undefined) {
-            delete cur[messageId];
-        } else {
-            cur[messageId] = before[messageId];
-        }
-
-        apply(cur);
-        alert(e instanceof Error ? e.message : String(e));
-    }
+    flight.chain = run;
+    await run;
 }
 
 async function onLike(m: OfMessage) {
@@ -2271,6 +2323,7 @@ onBeforeUnmount(() => {
                     v-if="rail === 'ppv'"
                     :model-id="model.id"
                     :messages="messages"
+                    :tags="tags"
                     @jump="jumpToMessage"
                 />
             </aside>
