@@ -20,6 +20,8 @@ use App\Services\OnlyFans\FanProfileService;
 use App\Services\OnlyFans\LiveThreadMapper;
 use App\Services\OnlyFans\OnlyFansService;
 use App\Services\OnlyFans\PpvReadiness;
+use App\Support\AgentIntents;
+use App\Support\IntentUnavailable;
 use App\Support\PpvPriceSuggestion;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
@@ -30,6 +32,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
@@ -907,6 +910,8 @@ class OnlyFansChatController extends Controller
             // documented on `messages.*.time` above. The fan's name reaches the prompt.
             'customer' => 'array',
             'context' => 'nullable|string',
+            // One-turn intent button (Re-pitch / Re-offer MPPV): the server builds the directive.
+            'intent' => ['nullable', Rule::in(AgentIntents::SERVER_KEYS)],
             'api' => 'nullable|in:claude,auto,mistral',
             // 'ppv' = legacy's PPV caption mode (the chatter is about to send paid content;
             // the engine writes ONE curiosity caption, no reply). See the skip rules below.
@@ -930,6 +935,22 @@ class OnlyFansChatController extends Controller
         );
         $messages = $mapped['messages'];
 
+        $intent = $data['intent'] ?? null;
+        $context = $data['context'] ?? '';
+        if ($intent !== null) {
+            if ($captionMode) {
+                return response()->json(['error' => "An intent can't be combined with a PPV caption."], 422);
+            }
+            try {
+                $context = AgentIntents::compose(
+                    AgentIntents::directive($intent, $mapped['thread'], $mapped['droppedMass']),
+                    $context,
+                );
+            } catch (IntentUnavailable $e) {
+                return response()->json(['error' => $e->getMessage()], 422);
+            }
+        }
+
         // Load-or-create the persisted fan memory (refreshes spend from OnlyFans) and
         // feed it to the engine so the brain sees a returning customer, not a $0 lurker.
         $customer = $data['customer'] ?? ['id' => $chat];
@@ -940,7 +961,7 @@ class OnlyFansChatController extends Controller
 
         try {
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
-                'context' => $data['context'] ?? '',
+                'context' => $context,
                 'api' => $data['api'] ?? 'claude',
                 'sender' => $sender,
                 'ppvMedia' => $captionMode ? ($data['ppvMedia'] ?? null) : null,
@@ -1027,6 +1048,7 @@ class OnlyFansChatController extends Controller
             'strategy' => $out['strategy'] ?? null,
             'telemetry' => $out['telemetry'] ?? null,
             'generatedAt' => $generatedAt,
+            'intent' => $intent,
             // Caption mode only: legacy's price suggestion, clamped to a sendable price.
             ...($captionMode ? [
                 'ppvSuggestion' => PpvPriceSuggestion::normalize($out['ppvSuggestion'] ?? null),
