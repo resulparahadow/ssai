@@ -144,36 +144,17 @@ export interface OfGif {
     height: number;
 }
 
-/** One item of a saved PPV set: a Media Vault id + its type + an onlyfans-hosted thumb (or null). */
-export interface PpvSetMedia {
-    id: string;
-    type: 'photo' | 'video' | 'gif' | 'audio';
-    thumb: string | null; // onlyfans.com CDN url (via the media proxy), a same-origin /ppv-sets/thumb path (cached on our disk), or null
-}
-
-/** A creator-wide saved PPV (manager-owned): media + price + default caption. */
-export interface PpvSet {
-    id: number;
-    name: string;
-    caption: string | null;
-    price: number; // 0 = free, else 3..200
-    media: PpvSetMedia[];
-    sortOrder: number;
-    createdAt: string | null;
-}
-
-/** SSAI's own send ledger for one fan: set id → sends, newest first. */
-export type PpvSetStatus = Record<
-    string,
-    { sentAt: string; messageId: string | null; price: number }[]
->;
-
 /** The AI's price for a PPV caption (legacy fetchPpvSuggestion, clamped server-side to $3–$200). */
 export type PpvPriceSuggestion =
     | { price: number; reason: string }
     | { error: string };
 
-export type ScriptStepMedia = PpvSetMedia;
+/** One item of a script step: a Media Vault id + its type + a renderable thumb (or null). */
+export interface ScriptStepMedia {
+    id: string;
+    type: 'photo' | 'video' | 'gif' | 'audio';
+    thumb: string | null; // onlyfans.com CDN url (via the media proxy), a same-origin /scripts/thumb path (cached on our disk), or null
+}
 
 export interface ScriptStep {
     id: number;

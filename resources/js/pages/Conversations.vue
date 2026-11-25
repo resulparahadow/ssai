@@ -7,7 +7,7 @@ import SsChatThread from '@/components/crm/conversations/SsChatThread.vue';
 import SsComposer from '@/components/crm/conversations/SsComposer.vue';
 import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
-import SsPpvRail from '@/components/crm/conversations/SsPpvRail.vue';
+import SsScriptsRail from '@/components/crm/conversations/SsScriptsRail.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { can } from '@/crm/nav';
@@ -317,7 +317,10 @@ async function generate() {
             } else if (
                 data.strategy &&
                 selected.value?.id === chatId &&
-                captionFor === null
+                captionFor === null &&
+                // A chatter working the Scripts tab stays on it (a Text step's reply lands
+                // here too); AI Intel is one click away.
+                rail.value !== 'scripts'
             ) {
                 rail.value = 'ai'; // surface intel only if this chat is still open
             }
@@ -1012,7 +1015,6 @@ function confirmReplaceStep(st: ComposerState): boolean {
  * confirm when anything is already there, so Accept can never pair old text with new media or
  * a stale price. Name labels are filled in now, so the chatter sees and can edit the final text.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- mounted by the Scripts rail (next commit)
 function loadStep(step: ScriptStep) {
     const chat = selected.value;
 
@@ -2044,13 +2046,14 @@ onBeforeUnmount(() => {
                     :strategy="cur?.strategy ?? null"
                     :generated-at="cur?.strategyGeneratedAt ?? null"
                 />
-                <SsPpvRail
+                <SsScriptsRail
                     v-if="rail === 'scripts'"
                     :model-id="model.id"
                     :chat-id="selected?.id ?? null"
                     :messages="messages"
                     :can-manage="canManage"
                     :status-key="scriptStatusKey"
+                    @load="loadStep"
                 />
             </aside>
         </template>

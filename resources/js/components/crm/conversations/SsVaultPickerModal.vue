@@ -3,7 +3,7 @@ import { Check, LoaderCircle, Play, Search, X } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import SsVaultRail from '@/components/crm/vault/SsVaultRail.vue';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
-import type { OfMedia, OfVaultList, PpvSetMedia } from '@/types/crm';
+import type { OfMedia, OfVaultList, ScriptStepMedia } from '@/types/crm';
 
 /**
  * Multi-select vault picker (folders left, that folder's media right), opened from the PPV set
@@ -14,12 +14,12 @@ import type { OfMedia, OfVaultList, PpvSetMedia } from '@/types/crm';
 const props = withDefaults(
     defineProps<{
         modelId: number;
-        initial?: PpvSetMedia[];
+        initial?: ScriptStepMedia[];
         max?: number;
     }>(),
     { initial: () => [], max: 40 },
 );
-const emit = defineEmits<{ add: [media: PpvSetMedia[]]; close: [] }>();
+const emit = defineEmits<{ add: [media: ScriptStepMedia[]]; close: [] }>();
 
 const FILTERS = [
     { label: 'All', value: '' },
@@ -42,7 +42,7 @@ const error = ref<string | null>(null);
 let token = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-const selected = ref<Map<string, PpvSetMedia>>(
+const selected = ref<Map<string, ScriptStepMedia>>(
     new Map(props.initial.map((m) => [m.id, { ...m }])),
 );
 const count = computed(() => selected.value.size);
@@ -125,12 +125,12 @@ watch(query, () => {
     searchTimer = setTimeout(() => load(true), 350);
 });
 
-function toPpvMedia(m: OfMedia): PpvSetMedia {
+function toPpvMedia(m: OfMedia): ScriptStepMedia {
     return {
         id: m.id as string,
         type: (['photo', 'video', 'gif', 'audio'].includes(m.type)
             ? m.type
-            : 'photo') as PpvSetMedia['type'],
+            : 'photo') as ScriptStepMedia['type'],
         thumb: m.thumb ?? null,
     };
 }

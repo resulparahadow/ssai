@@ -10,7 +10,7 @@ import type {
     OfFan,
     OfGif,
     OfMessage,
-    PpvSet,
+    Script,
 } from '@/types/crm';
 
 // Module-scoped stale-while-revalidate caches for the live Conversations view.
@@ -34,12 +34,8 @@ export const chatListView = reactive<{
     filter: OfChatFilter;
     order: OfChatOrder;
 }>({ filter: '', order: 'recent' });
-/** Creator id → PPV sets (loaded once per page session; invalidated on any manager edit). */
-export const ppvSetsCache = new Map<number, PpvSet[]>();
-
-export function invalidatePpvSets(modelId: number): void {
-    ppvSetsCache.delete(modelId);
-}
+/** Creator id → scripts with their steps (loaded once per page session; refetched after any manager edit). */
+export const scriptsCache = new Map<number, Script[]>();
 
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
@@ -167,4 +163,41 @@ export function rememberOpenChat(modelId: number, chatId: string | null): void {
 /** The chat that was open for a creator before the reload, if any. */
 export function recallOpenChat(modelId: number): string | null {
     return readOpen()[modelId] ?? null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Which scripts are expanded in the Scripts rail, per creator. Per TAB (sessionStorage), like
+// the open chat above; ids only. A convenience — any storage failure just collapses them all.
+const SCRIPTS_OPEN_KEY = 'ss_scripts_open';
+
+function readScriptsOpen(): Record<string, number[]> {
+    try {
+        const parsed = JSON.parse(
+            sessionStorage.getItem(SCRIPTS_OPEN_KEY) ?? 'null',
+        );
+
+        return parsed && typeof parsed === 'object'
+            ? (parsed as Record<string, number[]>)
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+/** The script ids expanded in the rail for a creator. */
+export function recallScriptsOpen(modelId: number): number[] {
+    const ids = readScriptsOpen()[modelId];
+
+    return Array.isArray(ids) ? ids.filter((id) => Number.isInteger(id)) : [];
+}
+
+export function rememberScriptsOpen(modelId: number, ids: number[]): void {
+    const map = readScriptsOpen();
+    map[modelId] = ids;
+
+    try {
+        sessionStorage.setItem(SCRIPTS_OPEN_KEY, JSON.stringify(map));
+    } catch {
+        // See readScriptsOpen.
+    }
 }

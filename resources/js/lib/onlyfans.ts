@@ -12,22 +12,11 @@ import type {
     OfPreviewKind,
     OfVaultList,
     PpvPriceSuggestion,
-    PpvSet,
-    PpvSetMedia,
-    PpvSetStatus,
     Script,
     ScriptStatus,
     ScriptStep,
     ScriptStepMedia,
 } from '@/types/crm';
-
-/** Create/update body for a PPV set (media = vault ids + type + raw thumb; the server nulls non-onlyfans thumbs). */
-export interface PpvSetBody {
-    name: string;
-    caption: string | null;
-    price: number;
-    media: PpvSetMedia[];
-}
 
 /** Create/update body for a script step (price needs media; a step needs text or media). */
 export interface ScriptStepBody {
@@ -350,11 +339,10 @@ export const ofApi = {
         text: string,
         giphyId?: string,
         mediaFiles?: string[],
-        // PPV: `price` 0 (free) or 3..200; `ppvSetId` records the send in the set ledger.
+        // PPV: `price` 0 (free) or 3..200; `scriptStepId` records the send in the step ledger.
         extra: {
             price?: number;
             scriptStepId?: number;
-            ppvSetId?: number;
         } = {},
     ) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
@@ -480,23 +468,6 @@ export const ofApi = {
             `${base(m)}/chats/${chat}/rejections/${id}`,
         ),
 
-    // ---- PPV sets (creator-wide; writes are manager+, server-gated) -----------
-    ppvSets: (m: number) =>
-        req<{ sets: PpvSet[] }>('GET', `${base(m)}/ppv-sets`),
-    ppvSetStatus: (m: number, chat: string) =>
-        req<{ status: PpvSetStatus }>(
-            'GET',
-            `${base(m)}/chats/${chat}/ppv-sets/status`,
-        ),
-    createPpvSet: (m: number, body: PpvSetBody) =>
-        postJson<{ set: PpvSet }>(`${base(m)}/ppv-sets`, body),
-    updatePpvSet: (m: number, id: number, body: Partial<PpvSetBody>) =>
-        req<{ set: PpvSet }>('PUT', `${base(m)}/ppv-sets/${id}`, body),
-    deletePpvSet: (m: number, id: number) =>
-        req<{ ok: boolean }>('DELETE', `${base(m)}/ppv-sets/${id}`),
-    reorderPpvSets: (m: number, ids: number[]) =>
-        req<{ ok: boolean }>('PUT', `${base(m)}/ppv-sets/order`, { ids }),
-
     // ---- Scripts (creator-wide; writes are manager+, marks any assigned) -----
     scripts: (m: number) =>
         req<{ scripts: Script[] }>('GET', `${base(m)}/scripts`),
@@ -521,7 +492,12 @@ export const ofApi = {
             `${base(m)}/scripts/${scriptId}/steps`,
             body,
         ),
-    updateStep: (m: number, id: number, body: Partial<ScriptStepBody>) =>
+    // `scriptId` moves the step to the end of another script.
+    updateStep: (
+        m: number,
+        id: number,
+        body: Partial<ScriptStepBody> & { scriptId?: number },
+    ) =>
         req<{ step: ScriptStep }>(
             'PUT',
             `${base(m)}/scripts/steps/${id}`,
