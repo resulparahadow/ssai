@@ -24,6 +24,7 @@ class ScriptStep extends Model
         'fallback_name',
         'price',
         'media',
+        'needs_media',
         'sort_order',
         'created_by',
     ];
@@ -32,6 +33,7 @@ class ScriptStep extends Model
     {
         return [
             'media' => 'array',
+            'needs_media' => 'boolean',
             'price' => 'decimal:2',
             'sort_order' => 'integer',
         ];

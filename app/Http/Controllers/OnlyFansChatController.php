@@ -541,6 +541,10 @@ class OnlyFansChatController extends Controller
             if (! $step) {
                 return response()->json(['error' => 'Script step not found for this creator.'], 422);
             }
+            // Imported from CreatorHero without its media: nothing real to send yet.
+            if ($step->needs_media) {
+                return response()->json(['error' => 'This step needs media before it can be sent.'], 422);
+            }
         }
 
         $res = match (true) {

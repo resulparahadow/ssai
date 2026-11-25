@@ -8,9 +8,11 @@ use App\Models\Script;
 use App\Models\ScriptStep;
 use App\Models\ScriptStepSend;
 use App\Rules\PpvPrice;
+use App\Services\Scripts\CreatorHeroScriptImport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -181,6 +183,8 @@ class ScriptController extends Controller
             array_key_exists('text', $patch) ? $patch['text'] : $row->text,
             $patch['media'] ?? ($row->media ?? []),
             (float) ($patch['price'] ?? $row->price),
+            // An imported step may hold its price while it waits for media.
+            allowPriceWithoutMedia: (bool) $row->needs_media,
         );
         if ($error) {
             return response()->json(['error' => $error], 422);
@@ -193,6 +197,10 @@ class ScriptController extends Controller
             }
             $patch['script_id'] = $target->id;
             $patch['sort_order'] = $this->nextOrder(ScriptStep::withoutGlobalScopes()->where('script_id', $target->id));
+        }
+
+        if (! empty($patch['media'])) {
+            $patch['needs_media'] = false;
         }
 
         $row->update($patch);
@@ -223,6 +231,82 @@ class ScriptController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    // ---- CreatorHero import -----------------------------------------------
+
+    /**
+     * Upload a CreatorHero scripts export. Without `commit` it only previews; with it, every
+     * script whose trimmed name is new for this creator is written in one transaction. Never
+     * merges into an existing script, and the file itself is read from the temp upload and
+     * dropped — nothing is stored.
+     */
+    public function import(Request $request, AichModel $model): JsonResponse
+    {
+        $this->authorizeCreator($request, $model);
+        $data = $this->validateJson($request, [
+            'file' => 'required|file|max:1024|mimetypes:text/csv,text/plain,application/csv,application/vnd.ms-excel|extensions:csv,txt',
+            'commit' => 'nullable|boolean',
+        ]);
+
+        try {
+            $parsed = (new CreatorHeroScriptImport)->parse((string) file_get_contents($request->file('file')->getRealPath()));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+
+        $existing = Script::withoutGlobalScopes()->where('creator_model', $model->name)->pluck('name')
+            ->map(fn ($n) => trim((string) $n))->all();
+
+        $scripts = [];
+        $toWrite = [];
+        $totals = ['scripts' => 0, 'steps' => 0, 'needsMedia' => 0, 'skipped' => 0];
+        foreach ($parsed['scripts'] as $script) {
+            $skipped = in_array($script['name'], $existing, true);
+            $needs = count(array_filter($script['steps'], fn ($st) => $st['needsMedia']));
+            $scripts[] = ['name' => $script['name'], 'steps' => count($script['steps']), 'needsMedia' => $needs, 'skipped' => $skipped];
+            $totals['scripts']++;
+            $totals['steps'] += count($script['steps']);
+            $totals['needsMedia'] += $needs;
+            if ($skipped) {
+                $totals['skipped']++;
+            } else {
+                $toWrite[] = $script;
+            }
+        }
+
+        $result = ['scripts' => $scripts, 'warnings' => $parsed['warnings'], 'totals' => $totals];
+
+        if ($request->boolean('commit')) {
+            DB::transaction(function () use ($toWrite, $model, $request) {
+                $order = $this->nextOrder(Script::withoutGlobalScopes()->where('creator_model', $model->name));
+                foreach ($toWrite as $script) {
+                    $row = Script::create([
+                        'creator_model' => $model->name,
+                        'name' => $script['name'],
+                        'sort_order' => $order++,
+                        'created_by' => $request->user()?->id,
+                    ]);
+                    foreach ($script['steps'] as $step) {
+                        ScriptStep::create([
+                            'script_id' => $row->id,
+                            'creator_model' => $model->name,
+                            'title' => $step['title'],
+                            'text' => $step['text'],
+                            'fallback_name' => $step['fallbackName'],
+                            'price' => $step['price'],
+                            'media' => [],
+                            'needs_media' => $step['needsMedia'],
+                            'sort_order' => $step['order'],
+                            'created_by' => $request->user()?->id,
+                        ]);
+                    }
+                }
+            });
+            $result['created'] = count($toWrite);
+        }
+
+        return response()->json($result);
     }
 
     // ---- manual marks -----------------------------------------------------
@@ -327,6 +411,7 @@ class ScriptController extends Controller
                     : ($m['thumb'] ?? null),
             ], $s->media ?? [])),
             'kind' => $s->kind,
+            'needsMedia' => (bool) $s->needs_media,
             'sortOrder' => (int) $s->sort_order,
         ];
     }
@@ -351,12 +436,14 @@ class ScriptController extends Controller
     }
 
     /** A step needs text or media, and a price needs media. Null when fine. */
-    private function stepError(?string $text, array $media, float $price): ?string
+    private function stepError(?string $text, array $media, float $price, bool $allowPriceWithoutMedia = false): ?string
     {
-        if ($text === null && $media === []) {
+        // `$allowPriceWithoutMedia` is the step's needs_media flag: it is waiting for its media,
+        // so it may also have no text yet.
+        if ($text === null && $media === [] && ! $allowPriceWithoutMedia) {
             return 'A step needs text or media.';
         }
-        if ($price > 0 && $media === []) {
+        if ($price > 0 && $media === [] && ! $allowPriceWithoutMedia) {
             return 'A price needs media.';
         }
 

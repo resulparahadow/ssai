@@ -11,6 +11,7 @@ use App\Http\Controllers\ModelController;
 use App\Http\Controllers\ModelOnlyFansController;
 use App\Http\Controllers\OnlyFansChatController;
 use App\Http\Controllers\ScriptController;
+use App\Http\Controllers\ScriptsPageController;
 use App\Http\Controllers\SpenderAnalyticsController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\Webhooks\OnlyFansWebhookController;
@@ -31,6 +32,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Media Vault — thin shell; all vault data is fetched LIVE from OnlyFans (no persistence).
     Route::get('media-vault', [MediaVaultController::class, 'index'])->name('media-vault.index');
+
+    // Scripts management page — thin shell over the onlyfans/{model}/scripts endpoints.
+    Route::get('scripts', [ScriptsPageController::class, 'index'])->middleware('can:manage-team')->name('scripts.index');
 
     // OnlyFans live proxy (no persistence). {model} = AichModel; access scoped in the controller.
     Route::prefix('onlyfans/{model}')->name('onlyfans.')->group(function () {
@@ -99,6 +103,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // The controller still scopes per-creator; this gate is the extra role bar.
         Route::middleware('can:manage-team')->group(function () {
             Route::post('scripts', [ScriptController::class, 'store'])->name('scripts.store');
+            Route::post('scripts/import', [ScriptController::class, 'import'])->name('scripts.import');
             Route::put('scripts/order', [ScriptController::class, 'reorder'])->name('scripts.order');
             Route::put('scripts/steps/{step}', [ScriptController::class, 'updateStep'])->whereNumber('step')->name('scripts.steps.update');
             Route::delete('scripts/steps/{step}', [ScriptController::class, 'destroyStep'])->whereNumber('step')->name('scripts.steps.destroy');

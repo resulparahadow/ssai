@@ -469,3 +469,33 @@ it('gates writes to managers but allows chatters to mark', function () {
     $this->actingAs(scriptAssigned('Nina'))
         ->postJson("{$this->base}/chats/101/scripts/steps/{$step->id}/mark")->assertForbidden();
 });
+
+it('clears needs_media when media is saved on the step', function () {
+    $step = stepRow($this->script, 'Imported', 0, 12, []);
+    $step->update(['needs_media' => true]);
+
+    $this->actingAs($this->manager)->putJson("{$this->url}/steps/{$step->id}", [
+        'media' => [['id' => 'v9', 'type' => 'photo', 'thumb' => null]],
+    ])->assertOk()->assertJsonPath('step.needsMedia', false);
+
+    expect($step->refresh()->needs_media)->toBeFalse();
+});
+
+it('keeps a needs-media step priced without media, but rejects that on any other step', function () {
+    $needs = stepRow($this->script, 'Imported', 0, 12, []);
+    $needs->update(['needs_media' => true]);
+    $plain = stepRow($this->script, 'Plain', 1, 0, []);
+    $plain->update(['text' => 'hello']);
+
+    $this->actingAs($this->manager)->putJson("{$this->url}/steps/{$needs->id}", ['title' => 'Renamed'])
+        ->assertOk()->assertJsonPath('step.needsMedia', true)->assertJsonPath('step.price', 12);
+    expect($needs->refresh()->needs_media)->toBeTrue();
+
+    $this->actingAs($this->manager)->putJson("{$this->url}/steps/{$plain->id}", ['price' => 20])
+        ->assertStatus(422)->assertJsonPath('error', 'A price needs media.');
+});
+
+it('serves the Scripts page to managers only', function () {
+    $this->actingAs($this->manager)->get('/scripts')->assertOk();
+    $this->actingAs(scriptAssigned('Camila'))->get('/scripts')->assertForbidden();
+});

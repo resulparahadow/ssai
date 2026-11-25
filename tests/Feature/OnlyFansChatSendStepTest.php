@@ -175,3 +175,15 @@ it('records a text step send with no media or price', function () {
         ->and((float) $row->price)->toBe(0.0)
         ->and($row->source)->toBe('send');
 });
+
+it('refuses a step that still needs media, before any vendor call', function () {
+    Http::fake();
+    $this->set->update(['needs_media' => true, 'media' => []]);
+
+    $this->actingAs($this->admin)
+        ->postJson($this->url, ['text' => 'hi', 'scriptStepId' => $this->set->id])
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'This step needs media before it can be sent.');
+
+    Http::assertNothingSent();
+});
