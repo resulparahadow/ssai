@@ -125,7 +125,7 @@ it('rejects a scriptStepId of another creator before calling the vendor', functi
     $this->actingAs($this->admin)
         ->postJson($this->url, ['mediaFiles' => ['n1'], 'price' => 20, 'scriptStepId' => $other->id])
         ->assertStatus(422)
-        ->assertJsonPath('error', 'Script step not found for this creator.');
+        ->assertJsonPath('error', 'Script not found for this creator.');
 
     Http::assertNothingSent();
 });
@@ -183,7 +183,7 @@ it('refuses a step that still needs media, before any vendor call', function () 
     $this->actingAs($this->admin)
         ->postJson($this->url, ['text' => 'hi', 'scriptStepId' => $this->set->id])
         ->assertStatus(422)
-        ->assertJsonPath('error', 'This step needs media before it can be sent.');
+        ->assertJsonPath('error', 'This script needs media before it can be sent.');
 
     Http::assertNothingSent();
 });

@@ -523,7 +523,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
     (legacy's third "returning customer" signal — no column, so a $0/trust-1 returnee reads as new).
     **Scripts (2026-11-25, spec `docs/superpowers/specs/2026-11-25-scripts-design.md`; grew out of the
     2026-11-08 "PPV sets")** — the CreatorHero script/PPV flow the team is used to: a **script** is an
-    ordered list of **steps**, each one message the chatter can load into the composer. **`scripts`**
+    ordered list of **steps**, each one message the chatter can load into the composer (**the UI uses
+    CreatorHero's terms: Folder = our `Script` model/table, Script = our `ScriptStep`; code, routes and
+    this paragraph keep the model names**). **`scripts`**
     (`Script`, creator-wide, keyed by `creator_model`, `CreatorAccessScope`), **`script_steps`**
     (`ScriptStep`, renamed from `ppv_sets`: title, text, `media` json = ordered `{id, type, thumb}`
     VAULT ids, price, position) and **`script_step_sends`** (`ScriptStepSend`, renamed from

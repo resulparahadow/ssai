@@ -242,7 +242,7 @@ function deleteScript(s: Script) {
 
     if (
         !window.confirm(
-            `Delete "${s.name}" and its ${n} step${n === 1 ? '' : 's'}? Send history is kept.`,
+            `Delete folder "${s.name}" and its ${n} script${n === 1 ? '' : 's'}? Send history is kept.`,
         )
     ) {
         return;
@@ -254,7 +254,7 @@ function deleteScript(s: Script) {
 function deleteStep(step: ScriptStep) {
     if (
         !window.confirm(
-            `Delete the step "${step.title}"? Send history is kept.`,
+            `Delete the script "${step.title}"? Send history is kept.`,
         )
     ) {
         return;
@@ -390,18 +390,18 @@ function onImported(res: ScriptImportResult) {
     const steps = made.reduce((n, s) => n + s.steps, 0);
     const needs = made.reduce((n, s) => n + s.needsMedia, 0);
     const parts = [
-        `Imported ${made.length} script${made.length === 1 ? '' : 's'} (${steps} step${steps === 1 ? '' : 's'}).`,
+        `Imported ${made.length} folder${made.length === 1 ? '' : 's'} (${steps} script${steps === 1 ? '' : 's'}).`,
     ];
 
     if (res.totals.skipped) {
         parts.push(
-            `${res.totals.skipped} skipped — a script with that name already exists.`,
+            `${res.totals.skipped} skipped — a folder with that name already exists.`,
         );
     }
 
     if (needs) {
         parts.push(
-            `${needs} step${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} media before chatters can use ${needs === 1 ? 'it' : 'them'}.`,
+            `${needs} script${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} media before chatters can use ${needs === 1 ? 'it' : 'them'}.`,
         );
     }
 
@@ -430,7 +430,7 @@ const GRID =
         <!-- Toolbar -->
         <div class="flex flex-wrap items-center gap-2 px-5 py-3">
             <label class="relative w-full max-w-xs">
-                <span class="sr-only">Search scripts</span>
+                <span class="sr-only">Search folders and scripts</span>
                 <Search
                     :size="14"
                     class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ss-text-3"
@@ -438,13 +438,13 @@ const GRID =
                 <input
                     v-model="query"
                     type="search"
-                    placeholder="Search step titles and text"
+                    placeholder="Search script titles and text"
                     class="h-8 w-full rounded-lg border border-ss-border bg-ss-surface pr-2.5 pl-8 text-[13px] text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:ring-2 focus:ring-ss-accent/20 focus:outline-none"
                 />
             </label>
             <span v-if="searching" class="text-[12px] text-ss-text-3">
-                {{ matchCount }} step{{ matchCount === 1 ? '' : 's' }} in
-                {{ view.length }} script{{ view.length === 1 ? '' : 's' }}
+                {{ matchCount }} script{{ matchCount === 1 ? '' : 's' }} in
+                {{ view.length }} folder{{ view.length === 1 ? '' : 's' }}
             </span>
             <span class="flex-1" />
             <button
@@ -463,7 +463,7 @@ const GRID =
                 <FileUp :size="14" /> Import CSV
             </button>
             <button type="button" :class="BTN_PRIMARY" @click="startCreate">
-                <Plus :size="14" /> New script
+                <Plus :size="14" /> New folder
             </button>
         </div>
 
@@ -513,11 +513,11 @@ const GRID =
                     <Folder :size="22" />
                 </div>
                 <h2 class="mt-3 text-[15px] font-semibold text-ss-text">
-                    No scripts yet
+                    No folders yet
                 </h2>
                 <p class="mt-1 text-[13px] leading-relaxed text-ss-text-2">
-                    A script is an ordered run of messages — text, free media
-                    and PPVs — that chatters send fan by fan. Build one here, or
+                    A folder holds scripts — messages with text, free media or a
+                    PPV — that chatters send fan by fan. Build one here, or
                     bring {{ props.modelName }}’s scripts over from CreatorHero.
                 </p>
                 <div class="mt-4 flex gap-2">
@@ -533,7 +533,7 @@ const GRID =
                         :class="BTN_PRIMARY"
                         @click="startCreate"
                     >
-                        <Plus :size="14" /> New script
+                        <Plus :size="14" /> New folder
                     </button>
                 </div>
             </div>
@@ -542,7 +542,7 @@ const GRID =
                 v-else-if="loaded"
                 class="overflow-hidden rounded-xl border border-ss-border bg-ss-surface"
                 role="table"
-                aria-label="Scripts"
+                aria-label="Folders and scripts"
             >
                 <!-- Header -->
                 <div
@@ -554,7 +554,7 @@ const GRID =
                         ><span class="sr-only">Order</span></span
                     >
                     <span role="columnheader" class="flex items-center gap-2">
-                        Script / step
+                        Folder / script
                         <button
                             v-if="!searching && scripts.length"
                             type="button"
@@ -587,8 +587,8 @@ const GRID =
                             v-focus
                             type="text"
                             maxlength="120"
-                            aria-label="New script name"
-                            placeholder="Script name, e.g. Master Script"
+                            aria-label="New folder name"
+                            placeholder="Folder name, e.g. Master Script"
                             class="h-7 w-full max-w-sm rounded-md border border-ss-accent bg-ss-surface px-2 text-[13px] text-ss-text focus:ring-2 focus:ring-ss-accent/20 focus:outline-none"
                             @keydown.esc="creating = false"
                         />
@@ -615,7 +615,7 @@ const GRID =
                     v-if="searching && !view.length"
                     class="px-4 py-8 text-center text-[13px] text-ss-text-3"
                 >
-                    No step matches “{{ query.trim() }}”.
+                    No script matches “{{ query.trim() }}”.
                 </p>
 
                 <div
@@ -685,7 +685,7 @@ const GRID =
                                     v-focus
                                     type="text"
                                     maxlength="120"
-                                    aria-label="Script name"
+                                    aria-label="Folder name"
                                     class="h-7 w-full max-w-sm rounded-md border border-ss-accent bg-ss-surface px-2 text-[13px] text-ss-text focus:ring-2 focus:ring-ss-accent/20 focus:outline-none"
                                     @keydown.enter.prevent="
                                         saveRename(v.script)
@@ -739,7 +739,7 @@ const GRID =
                             <span
                                 v-if="needsMediaCount(v.script)"
                                 class="inline-flex items-center gap-1 rounded-full bg-ss-warn/15 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-ss-warn"
-                                :title="`${needsMediaCount(v.script)} step(s) were imported without their media`"
+                                :title="`${needsMediaCount(v.script)} script(s) were imported without their media`"
                             >
                                 <CircleAlert :size="11" />
                                 {{ needsMediaCount(v.script) }} need media
@@ -784,8 +784,8 @@ const GRID =
                             <button
                                 type="button"
                                 :class="ICON_BTN"
-                                title="New step"
-                                :aria-label="`New step in ${v.script.name}`"
+                                title="New script"
+                                :aria-label="`New script in ${v.script.name}`"
                                 @click="
                                     editor = {
                                         step: null,
@@ -807,7 +807,7 @@ const GRID =
                             <button
                                 type="button"
                                 :class="ICON_DANGER"
-                                title="Delete script"
+                                title="Delete folder"
                                 :aria-label="`Delete ${v.script.name}`"
                                 @click="deleteScript(v.script)"
                             >
@@ -985,7 +985,7 @@ const GRID =
                                 <button
                                     type="button"
                                     :class="ICON_BTN"
-                                    title="Edit step"
+                                    title="Edit script"
                                     :aria-label="`Edit ${step.title}`"
                                     @click="
                                         editor = { step, scriptId: v.script.id }
@@ -996,7 +996,7 @@ const GRID =
                                 <button
                                     type="button"
                                     :class="ICON_DANGER"
-                                    title="Delete step"
+                                    title="Delete script"
                                     :aria-label="`Delete ${step.title}`"
                                     @click="deleteStep(step)"
                                 >
@@ -1022,8 +1022,8 @@ const GRID =
                                 <Plus :size="13" />
                                 {{
                                     v.script.steps.length
-                                        ? 'New step'
-                                        : 'Add the first step'
+                                        ? 'New script'
+                                        : 'Add the first script'
                                 }}
                             </button>
                         </div>

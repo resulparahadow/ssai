@@ -292,7 +292,7 @@ async function generate() {
             // caption landed for a step no longer loaded, or any step was loaded while this ran
             // (its confirm promised to replace the pending draft). None may reach the fan.
             st.error =
-                'Draft discarded: the script step changed while it was generating. Generate again.';
+                'Draft discarded: the script changed while it was generating. Generate again.';
             draft = null;
         } else {
             draft = data.draft || null;
@@ -1000,7 +1000,7 @@ function cur_(): ComposerState | null {
 }
 
 const REPLACE_MSG =
-    'Replace current message? This replaces your text, media and price with the script step.';
+    'Replace current message? This replaces your text, media and price with the script.';
 
 /** Attaching a file/GIF/vault pick while a script step is loaded drops the step (they are exclusive). */
 function confirmReplaceStep(st: ComposerState): boolean {
@@ -1008,11 +1008,7 @@ function confirmReplaceStep(st: ComposerState): boolean {
         return true;
     }
 
-    if (
-        !window.confirm(
-            'Remove the loaded script step and attach this instead?',
-        )
-    ) {
+    if (!window.confirm('Remove the loaded script and attach this instead?')) {
         return false;
     }
 

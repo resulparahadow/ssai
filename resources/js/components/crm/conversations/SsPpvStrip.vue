@@ -182,7 +182,7 @@ function tileIcon(m: ScriptStepMedia) {
             <button
                 type="button"
                 class="grid h-7 w-7 shrink-0 place-items-center rounded text-ss-text-3 hover:bg-ss-surface hover:text-ss-text-2"
-                title="Remove the script step (media and price go with it)"
+                title="Remove the script (media and price go with it)"
                 @click="emit('remove')"
             >
                 <X :size="14" />
@@ -293,7 +293,7 @@ function tileIcon(m: ScriptStepMedia) {
             <button
                 type="button"
                 class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 text-[11px] font-semibold text-ss-text-2 hover:bg-ss-surface hover:text-ss-text"
-                title="Send without them — the saved step is not changed"
+                title="Send without them — the saved script is not changed"
                 @click="removeBroken"
             >
                 Remove from this send

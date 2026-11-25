@@ -477,8 +477,8 @@ const ICON_BTN =
                 :class="ICON_BTN"
                 :title="
                     level === 'preview'
-                        ? 'Back to the steps'
-                        : 'Back to scripts'
+                        ? 'Back to the folder'
+                        : 'Back to folders'
                 "
                 aria-label="Back"
                 data-testid="scripts-back"
@@ -493,15 +493,15 @@ const ICON_BTN =
             />
             <span
                 class="min-w-0 flex-1 truncate text-[13px] font-semibold text-ss-text"
-                >{{ openScript ? openScript.name : 'Scripts' }}</span
+                >{{ openScript ? openScript.name : 'Folders' }}</span
             >
             <template v-if="level === 'preview' && openScript">
                 <button
                     type="button"
                     :class="ICON_BTN"
                     :disabled="previewIdx === 0"
-                    title="Previous step"
-                    aria-label="Previous step"
+                    title="Previous script"
+                    aria-label="Previous script"
                     @click="page(-1)"
                 >
                     <ChevronLeft :size="15" />
@@ -517,8 +517,8 @@ const ICON_BTN =
                     type="button"
                     :class="ICON_BTN"
                     :disabled="previewIdx === openScript.steps.length - 1"
-                    title="Next step"
-                    aria-label="Next step"
+                    title="Next script"
+                    aria-label="Next script"
                     @click="page(1)"
                 >
                     <ChevronRight :size="15" />
@@ -566,7 +566,7 @@ const ICON_BTN =
                     v-else-if="!scripts.length && !error"
                     class="px-4 py-8 text-center text-[12px] text-ss-text-3"
                 >
-                    No scripts for this creator yet. A manager builds them on
+                    No folders for this creator yet. A manager builds them on
                     the Scripts page.
                 </p>
                 <ul v-else class="divide-y divide-ss-border">
@@ -589,7 +589,7 @@ const ICON_BTN =
                                 :class="progressClass(script.id)"
                                 :title="
                                     props.chatId
-                                        ? 'Steps sent to this fan'
+                                        ? 'Scripts sent to this fan'
                                         : 'Open a chat to see progress'
                                 "
                                 data-testid="script-progress"
@@ -612,7 +612,7 @@ const ICON_BTN =
                     v-if="!openScript.steps.length"
                     class="px-4 py-8 text-center text-[12px] text-ss-text-3"
                 >
-                    No steps in this script yet.
+                    No scripts in this folder yet.
                 </p>
                 <ol v-else class="divide-y divide-ss-border">
                     <li
@@ -717,7 +717,7 @@ const ICON_BTN =
                                 type="button"
                                 :class="ICON_BTN"
                                 title="Preview"
-                                aria-label="Preview step"
+                                aria-label="Preview script"
                                 data-testid="step-preview"
                                 @click="preview(i)"
                             >
@@ -728,7 +728,7 @@ const ICON_BTN =
                                 type="button"
                                 :class="ICON_BTN"
                                 title="Mark sent / Unmark"
-                                aria-label="Step actions"
+                                aria-label="Script actions"
                                 :aria-expanded="actionsFor === step.id"
                                 @click="
                                     actionsFor =
@@ -752,7 +752,7 @@ const ICON_BTN =
                                 v-if="!isSent(step)"
                                 type="button"
                                 class="inline-flex items-center gap-1 rounded-lg border border-ss-border px-2 py-1 text-[11px] font-semibold text-ss-text-2 transition-colors hover:bg-ss-surface-2 focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none"
-                                title="This fan already had this step (sent outside SSAI)"
+                                title="This fan already had this script (sent outside SSAI)"
                                 :disabled="busy === step.id"
                                 @click="mark(step)"
                             >
@@ -843,7 +843,7 @@ const ICON_BTN =
                     v-if="previewStep.needsMedia"
                     class="text-[12px] text-ss-warn"
                 >
-                    This step is waiting for its media. {{ NEEDS_MEDIA }}.
+                    This script is waiting for its media. {{ NEEDS_MEDIA }}.
                 </p>
             </div>
         </div>

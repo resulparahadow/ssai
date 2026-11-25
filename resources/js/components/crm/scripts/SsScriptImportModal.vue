@@ -188,9 +188,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
                         data-testid="script-import-summary"
                     >
                         <span class="font-semibold">{{
-                            plural(preview.totals.scripts, 'script')
+                            plural(preview.totals.scripts, 'folder')
                         }}</span
-                        >, {{ plural(preview.totals.steps, 'step')
+                        >, {{ plural(preview.totals.steps, 'script')
                         }}<template v-if="preview.totals.needsMedia"
                             >; {{ preview.totals.needsMedia }} need
                             media</template
@@ -214,12 +214,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
                             >
                                 <tr>
                                     <th class="px-3 py-2 font-semibold">
-                                        Script
+                                        Folder
                                     </th>
                                     <th
                                         class="w-16 px-3 py-2 text-right font-semibold"
                                     >
-                                        Steps
+                                        Scripts
                                     </th>
                                     <th
                                         class="w-28 px-3 py-2 text-right font-semibold"
@@ -300,13 +300,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
                         class="mt-3 text-[12px] leading-relaxed text-ss-text-2"
                     >
                         CreatorHero’s export has no media, so
-                        {{ plural(newNeeds, 'step') }} with a price or a
+                        {{ plural(newNeeds, 'script') }} with a price or a
                         (PPV)/(FREE) title come in as
                         <span class="font-semibold text-ss-warn"
                             >Needs media</span
                         >
                         — price kept, not loadable in chat until you attach
-                        media in the step editor.
+                        media in the script editor.
                     </p>
                 </template>
 
@@ -354,7 +354,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
                         preview && !toCreate.length
                             ? 'Nothing new to import'
                             : toCreate.length
-                              ? `Import ${plural(toCreate.length, 'script')} (${plural(newSteps, 'step')})`
+                              ? `Import ${plural(toCreate.length, 'folder')} (${plural(newSteps, 'script')})`
                               : 'Import'
                     }}
                 </button>

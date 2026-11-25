@@ -597,15 +597,15 @@ function onKeydown(e: KeyboardEvent) {
         <div v-if="textStep" class="flex" data-testid="script-chip">
             <span
                 class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-ss-accent-soft py-0.5 pr-0.5 pl-2 text-[11px] font-semibold text-ss-accent-text"
-                title="This send counts as the script step. Remove it if what you send is no longer the step."
+                title="This send counts as this script. Remove it if what you send is no longer that script."
             >
                 <ListOrdered :size="11" class="shrink-0" />
                 <span class="truncate">Script · {{ textStep.title }}</span>
                 <button
                     type="button"
                     class="grid h-4 w-4 shrink-0 place-items-center rounded-full hover:bg-ss-accent/20"
-                    title="Not this step any more — keep the text, don't log it"
-                    aria-label="Remove script step"
+                    title="Not this script any more — keep the text, don't log it"
+                    aria-label="Remove script"
                     @click="emit('update:step', null)"
                 >
                     <X :size="10" />

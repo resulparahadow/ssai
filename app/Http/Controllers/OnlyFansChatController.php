@@ -539,11 +539,11 @@ class OnlyFansChatController extends Controller
         if (! empty($data['scriptStepId'])) {
             $step = ScriptStep::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['scriptStepId']);
             if (! $step) {
-                return response()->json(['error' => 'Script step not found for this creator.'], 422);
+                return response()->json(['error' => 'Script not found for this creator.'], 422);
             }
             // Imported from CreatorHero without its media: nothing real to send yet.
             if ($step->needs_media) {
-                return response()->json(['error' => 'This step needs media before it can be sent.'], 422);
+                return response()->json(['error' => 'This script needs media before it can be sent.'], 422);
             }
         }
 

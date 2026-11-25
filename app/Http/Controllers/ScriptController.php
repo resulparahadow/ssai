@@ -193,7 +193,7 @@ class ScriptController extends Controller
         if (array_key_exists('scriptId', $data) && (int) $data['scriptId'] !== (int) $row->script_id) {
             $target = Script::withoutGlobalScopes()->where('creator_model', $model->name)->find((int) $data['scriptId']);
             if (! $target) {
-                return response()->json(['error' => 'Target script not found for this creator.'], 422);
+                return response()->json(['error' => 'Target folder not found for this creator.'], 422);
             }
             $patch['script_id'] = $target->id;
             $patch['sort_order'] = $this->nextOrder(ScriptStep::withoutGlobalScopes()->where('script_id', $target->id));
@@ -441,7 +441,7 @@ class ScriptController extends Controller
         // `$allowPriceWithoutMedia` is the step's needs_media flag: it is waiting for its media,
         // so it may also have no text yet.
         if ($text === null && $media === [] && ! $allowPriceWithoutMedia) {
-            return 'A step needs text or media.';
+            return 'A script needs text or media.';
         }
         if ($price > 0 && $media === [] && ! $allowPriceWithoutMedia) {
             return 'A price needs media.';

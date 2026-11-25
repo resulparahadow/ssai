@@ -47,7 +47,8 @@ const model = computed<SidebarCreator | null>(
                     <template v-if="hydrated && model"
                         >{{ model.name }} ·
                     </template>
-                    Ordered message steps chatters work through, fan by fan.
+                    Folders of ordered scripts (messages) chatters work through,
+                    fan by fan.
                 </p>
             </div>
         </div>

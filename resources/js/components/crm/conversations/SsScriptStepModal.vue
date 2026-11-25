@@ -80,11 +80,11 @@ const mediaChanged = computed(() => {
 });
 const problem = computed<string | null>(() => {
     if (title.value.trim() === '') {
-        return 'Give the step a title.';
+        return 'Give the script a title.';
     }
 
     if (text.value.trim() === '' && !hasMedia.value) {
-        return 'A step needs text or media.';
+        return 'A script needs text or media.';
     }
 
     if (media.value.length > MAX_MEDIA) {
@@ -189,13 +189,13 @@ async function save() {
             class="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-ss-border bg-ss-surface shadow-2xl"
             role="dialog"
             aria-modal="true"
-            :aria-label="props.step ? 'Edit step' : 'New step'"
+            :aria-label="props.step ? 'Edit script' : 'New script'"
             data-testid="script-step-modal"
             @submit.prevent="save"
         >
             <div class="flex items-center gap-2 border-b border-ss-border p-3">
                 <p class="text-[14px] font-semibold text-ss-text">
-                    {{ props.step ? 'Edit step' : 'New step' }}
+                    {{ props.step ? 'Edit script' : 'New script' }}
                 </p>
                 <span class="flex-1" />
                 <button
@@ -254,7 +254,7 @@ async function save() {
                                 :key="label.token"
                                 type="button"
                                 class="rounded-md border border-ss-border px-1.5 py-px text-[11px] text-ss-text-2 transition-colors hover:border-ss-accent hover:text-ss-accent-text focus-visible:border-ss-accent focus-visible:outline-none"
-                                :title="`Insert ${label.token} — filled with the ${group.name.toLowerCase()} when the step loads`"
+                                :title="`Insert ${label.token} — filled with the ${group.name.toLowerCase()} when the script loads`"
                                 :aria-label="`Insert ${label.token}`"
                                 @click="insertLabel(label.token)"
                             >
@@ -393,7 +393,7 @@ async function save() {
                 <label class="block">
                     <span
                         class="mb-1 block text-[11px] font-semibold text-ss-text-2"
-                        >Script</span
+                        >Folder</span
                     >
                     <select
                         v-model="targetScript"
@@ -437,7 +437,7 @@ async function save() {
                         :size="13"
                         class="animate-spin"
                     />
-                    {{ props.step ? 'Save' : 'Add step' }}
+                    {{ props.step ? 'Save' : 'Add script' }}
                 </button>
             </div>
         </form>
