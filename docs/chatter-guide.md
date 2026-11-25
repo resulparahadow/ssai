@@ -160,50 +160,116 @@ old rejection explains the move.
 
 ---
 
-## 7. Sending a PPV
+## 7. Scripts and PPVs
 
-The right rail has a **PPV** tab: the creator's saved PPV sets (media + price +
-a default caption), the same idea as CreatorHero's PPV tab. Managers create them
-right there: **PPV tab → New set → Add media from the vault** opens the vault
-picker (folders on the left, media on the right — ticks survive switching
-folders, up to 40 items) → **Add** → name, price, caption → **Create set**.
-To change one later: **⋯ → Edit** on its card (**Change media** reopens the
-picker with the set's media already ticked; the × on a tile removes it).
+**Scripts** are the creator's ready-made messages, the same idea as CreatorHero's
+scripts. In SSAI, like CreatorHero, a folder holds scripts; each script is one message.
+A script is text only, text + free media, or text + media + a price (a PPV). The
+badge on each script tells you which: **Text**, **Free**, or **PPV $20**.
 
-1. Open the fan's chat → **PPV** tab → click a set. It loads into the composer:
-   the media tiles, a **Price to View** chip, and the default caption. If you
-   already had text or media in the box you'll be asked before it's replaced.
-2. Click **Generate caption** (the sparkle button). SSAI writes ONE short
-   curiosity caption for *this* fan, in the creator's voice — it never
-   describes what's in the content, and it does not answer or continue the
-   fan's last message. **Accept** puts it in the box; **Accept & Send** sends.
-3. Check the price. Under the chip SSAI shows its own price read, e.g.
+**Open the Scripts panel.** In a chat, click the **Scripts** button at the
+top-right of the message box. A panel opens over the bottom of the chat. It
+closes by itself when you load a script or switch chats, or press Esc or click
+outside it.
+
+- It first lists the creator's folders. Each shows your progress with the fan
+  you have open, e.g. `3/23`.
+- Click a folder to see its scripts. Each script is marked **Sent** (and **Bought**
+  for a PPV he has unlocked). The next script you haven't sent is outlined and
+  tagged **Next**.
+- Click a script to preview it. Use the **‹ ›** arrows to move between scripts, then
+  **Use** to load it (arrow keys and Enter work too).
+- A script tagged **Needs media** can't be used yet: it was imported without its
+  photos or videos. Ask a manager to add the media.
+
+1. **Use** loads the script into the message box: the text, the media tiles and the
+   **Price to View** chip if it has them. The fan's name is filled in for you
+   (`{Fan Name}` / `{Custom Name}`);
+   if he only has a raw OnlyFans id like `u12345678`, the script's fallback name
+   is used, or the name is just left out. If you already had text or media in
+   the box you'll be asked before it's replaced.
+2. Read it over and edit freely. **Check for `[script notes]`**: anything the
+   script author left in square brackets is an instruction to you, not part of
+   the message. If one is still in the text when you press Send, SSAI asks
+   "This message still contains script notes in [brackets]. Send anyway?" —
+   Cancel jumps to the note so you can fix it.
+3. **Generate** is optional and depends on the script:
+   - **PPV or Free script** (has media): SSAI writes ONE short curiosity caption
+     for *this* fan, in the creator's voice. It never describes the content and
+     doesn't answer his last message. **Accept** puts it in the box; **Accept &
+     Send** sends.
+   - **Text script**: Generate writes a normal reply to the conversation, exactly
+     as it does with no script loaded. Your script and its text stay where they are
+     until you accept. **Accepting that reply (Accept or Accept & Send) removes
+     the script's chip**: the reply isn't the script, so it won't tick the script off.
+     To send the script itself, Dismiss the reply and send the script's text.
+4. **Check the price** (PPV scripts). Under the chip SSAI shows its own read, e.g.
    `AI: $12 · cold lurker, first PPV must be low-risk [Use]` (`AI agrees: $20`
-   when it matches). It's a second opinion only — the set's price stays
-   unless you click **Use**. Click the chip to change the price by hand —
-   free, or $3–$200. Send is disabled on anything else (OnlyFans would refuse it).
-   If the caption card shows an amber line like **"SSAI planned a rapport beat
-   next"**, the last plan SSAI made for this fan was *not* to sell yet. The
-   caption is written anyway — send only if he's ready to unlock.
-4. **Send PPV $20** posts a locked message. The thread shows an amber
+   when it matches). It's a second opinion only — the script's price stays unless
+   you click **Use**. Click the chip to change the price by hand — free, or
+   $3–$200. Send is disabled on anything else (OnlyFans would refuse it). If the
+   caption card shows an amber line like **"SSAI planned a rapport beat next"**,
+   the last plan SSAI made for this fan was *not* to sell yet. The caption is
+   written anyway — send only if he's ready to unlock.
+5. **Send**. A PPV posts a locked message; the thread shows an amber
    `$20.00 · Unpaid` pill until he buys, then green `Paid`.
 
+**The "Script · …" chip.** A text script shows a small chip above the box,
+`Script · {title} ×`. It means "when I send this, count it as that script". It
+stays while you edit or generate, and goes away if you accept an AI reply
+instead (see step 3). Click **×** to remove it if you've gone off
+script and don't want the send to tick the script off (the text stays). It clears
+by itself after you send.
+
+**Mark sent / Unmark.** SSAI only knows about scripts sent *from SSAI*. If you
+sent one from CreatorHero or OnlyFans directly, open the script's **⋯** menu in the
+panel and choose **Mark sent** so progress and **Next** stay right. **Unmark**
+undoes a mark you made by hand (a script that was really sent from SSAI says "Sent
+from SSAI" and can't be unmarked).
+
+**The PPV tab.** The right side of the chat has three tabs: **Fan**, **AI Intel**
+and **PPV**. PPV lists every PPV (a priced message with media) sent to this fan,
+newest first, whoever sent it: SSAI, CreatorHero or OnlyFans, because it reads
+the chat that is open. Each card shows the price and:
+- **Bought**: he unlocked it.
+- **Not bought**: still locked.
+- **Mass**: it went out as a mass message, not just to him.
+
+Click a card to jump to that message in the chat.
+
+### For managers
+
+- **Scripts page.** Managers see **Scripts** in the sidebar. Pick the creator,
+  then **New folder** or **New script** (or **⋯ → Edit** on a script). A script has a
+  title, text (buttons insert the name labels), a fallback name, optional media
+  from the vault (vault folders on the left, ticks survive switching folders, up to 40
+  items) and a price. You can search, and reorder folders and scripts with the
+  arrows or by dragging. Deleting keeps the send history.
+- **Import from CreatorHero.** In CreatorHero go to Creator Settings → Scripts →
+  Export, then on the Scripts page click **Import CSV** and choose the file.
+  You get a preview first (folders, scripts, scripts needing media, anything
+  skipped); confirm to import. A folder whose name already exists for this
+  creator is skipped, never merged, and the file isn't kept.
+- **Attach media to Needs media scripts.** The CreatorHero export has no media, so
+  scripts that were PPV or free-media come in tagged **Needs media**. Open each
+  (**⋯ → Edit**), add its media from the vault and check the price. Until then
+  chatters can't use it, and it can't be sent.
+
 Notes:
-- The card's **Sent / Bought** pill is for the fan you have open. It only knows
-  about PPVs sent *from SSAI* — a set sent from CreatorHero or OnlyFans directly
-  shows no pill.
 - A caption generate does not change the fan's AI Intel or memory — it is a
   caption, not a read of the conversation.
-- Attaching a GIF or a file while a set is loaded removes the set (they can't
-  go in the same message).
+- If you load a different script while a draft is still generating, the old draft
+  is thrown away when it arrives — it belonged to the previous script.
+- Attaching a GIF or a file while a media script is loaded removes the script
+  (they can't go in the same message).
 
 ---
 
 ## 8. Known limits (today)
 
-- **SSAI suggests a price, but doesn't pick the set yet.** You choose the set;
+- **SSAI suggests a price, but doesn't pick the script yet.** You choose the script;
   SSAI writes the caption and offers a price you can Use or ignore. The price
-  read only appears after **Generate caption**. Tip requests are still
+  read only appears after you Generate on a media script. Tip requests are still
   not sendable from the CRM.
 - **Mass PPVs are handled automatically.** A locked mass message (MPPV) the fan
   hasn't bought shows a `· Mass` label on its pill and SSAI ignores it, so it no

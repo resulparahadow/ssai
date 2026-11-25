@@ -56,10 +56,14 @@ function nodeSoon(node: NavNode): boolean {
 }
 
 /** Built items first, "coming soon" ones sink to the bottom (stable within each group). */
-const orderedNav = computed(() => [
-    ...NAV.filter((n) => !nodeSoon(n)),
-    ...NAV.filter((n) => nodeSoon(n)),
-]);
+const orderedNav = computed(() => {
+    const visible = NAV.filter((n) => allowed(n) || !n.hideWhenLocked);
+
+    return [
+        ...visible.filter((n) => !nodeSoon(n)),
+        ...visible.filter((n) => nodeSoon(n)),
+    ];
+});
 </script>
 
 <template>

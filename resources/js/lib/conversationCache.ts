@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 import type {
     AiStrategy,
     ComposerAttachment,
-    ComposerPpv,
+    ComposerStep,
     DraftRejection,
     OfChat,
     OfChatFilter,
@@ -10,7 +10,7 @@ import type {
     OfFan,
     OfGif,
     OfMessage,
-    PpvSet,
+    Script,
 } from '@/types/crm';
 
 // Module-scoped stale-while-revalidate caches for the live Conversations view.
@@ -34,12 +34,8 @@ export const chatListView = reactive<{
     filter: OfChatFilter;
     order: OfChatOrder;
 }>({ filter: '', order: 'recent' });
-/** Creator id → PPV sets (loaded once per page session; invalidated on any manager edit). */
-export const ppvSetsCache = new Map<number, PpvSet[]>();
-
-export function invalidatePpvSets(modelId: number): void {
-    ppvSetsCache.delete(modelId);
-}
+/** Creator id → scripts with their steps (loaded once per page session; refetched after any manager edit). */
+export const scriptsCache = new Map<number, Script[]>();
 
 export const msgCache = new Map<string, OfMessage[]>();
 export const fanCache = new Map<string, OfFan>();
@@ -60,13 +56,15 @@ export interface ComposerState {
     draft: string; // what's in the typing bar (unsent) — drives the list "Draft:" badge
     context: string; // agent directive for the next generate ("he just tipped $50", etc.) — steers the AI, not sent to the fan
     suggestion: string | null; // the AI-generated message awaiting Accept / Accept & Send
-    // What `suggestion` was generated for: null = a normal reply, else the PPV set id whose
-    // caption it is. Accept commits strategy memory only for a reply, and a draft whose
-    // mode/set no longer matches the composer is dropped (lib/ppvComposer.ts).
+    // What `suggestion` was generated for: null = a normal reply (also with a Text step loaded),
+    // else the media step id whose caption it is. Accept commits strategy memory only for a
+    // reply, and a draft whose mode/step no longer matches the composer is dropped
+    // (lib/ppvComposer.ts).
     suggestionFor: number | null;
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
-    ppv: ComposerPpv | null; // a loaded PPV set: vault media + price for the next send (excl. with gif/attachment)
+    stepLoads: number; // steps loaded so far; a Generate started before the latest load is dropped (lib/ppvComposer.ts)
+    step: ComposerStep | null; // a loaded script step: logged on send; a media step adds vault media + price (excl. with gif/attachment)
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -88,7 +86,8 @@ export function chatComposer(chatId: string): ComposerState {
             suggestionFor: null,
             gif: null,
             attachment: null,
-            ppv: null,
+            step: null,
+            stepLoads: 0,
             generating: false,
             sending: false,
             error: null,
@@ -166,4 +165,47 @@ export function rememberOpenChat(modelId: number, chatId: string | null): void {
 /** The chat that was open for a creator before the reload, if any. */
 export function recallOpenChat(modelId: number): string | null {
     return readOpen()[modelId] ?? null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Which script the composer's Scripts panel last had open, per creator, so it reopens on the
+// same script fan after fan. Per TAB (sessionStorage), like the open chat above; ids only. A
+// convenience — any storage failure just opens on the script list.
+const SCRIPT_OPEN_KEY = 'ss_script_open';
+
+function readScriptOpen(): Record<string, number> {
+    try {
+        const parsed = JSON.parse(
+            sessionStorage.getItem(SCRIPT_OPEN_KEY) ?? 'null',
+        );
+
+        return parsed && typeof parsed === 'object'
+            ? (parsed as Record<string, number>)
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+/** The script the panel last had open for a creator (null = the script list). */
+export function recallOpenScript(modelId: number): number | null {
+    const id = readScriptOpen()[modelId];
+
+    return Number.isInteger(id) ? id : null;
+}
+
+export function rememberOpenScript(modelId: number, id: number | null): void {
+    const map = readScriptOpen();
+
+    if (id === null) {
+        delete map[modelId];
+    } else {
+        map[modelId] = id;
+    }
+
+    try {
+        sessionStorage.setItem(SCRIPT_OPEN_KEY, JSON.stringify(map));
+    } catch {
+        // See readScriptOpen.
+    }
 }

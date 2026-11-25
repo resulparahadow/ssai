@@ -6,6 +6,7 @@ import {
     LayoutGrid,
     Megaphone,
     MessageSquare,
+    ScrollText,
     Shield,
     SlidersHorizontal,
     Sparkles,
@@ -62,6 +63,8 @@ export interface NavNode {
     children?: NavChild[];
     /** Phase-1: Overview is the only built view, so it is visible to every role. */
     alwaysOn?: boolean;
+    /** Leave it out of the sidebar entirely (rather than showing it locked) for roles without `cap`. */
+    hideWhenLocked?: boolean;
 }
 
 export const NAV: NavNode[] = [
@@ -87,6 +90,15 @@ export const NAV: NavNode[] = [
         icon: Images,
         cap: 'chat',
         href: '/media-vault',
+    },
+    {
+        key: 'scripts',
+        label: 'Scripts',
+        icon: ScrollText,
+        cap: 'manageTeam',
+        href: '/scripts',
+        // A management page chatters never need; they work scripts from the composer panel.
+        hideWhenLocked: true,
     },
     {
         key: 'models',

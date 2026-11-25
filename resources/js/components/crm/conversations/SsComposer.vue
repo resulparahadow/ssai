@@ -3,6 +3,7 @@ import {
     AlertTriangle,
     Check,
     Images,
+    ListOrdered,
     MessageSquareText,
     Paperclip,
     RefreshCw,
@@ -12,12 +13,20 @@ import {
     ThumbsDown,
     X,
 } from '@lucide/vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
+import { findScriptNote } from '@/lib/scriptLabels';
 import type {
     ComposerAttachment,
-    ComposerPpv,
+    ComposerStep,
     DraftRejection,
     OfGif,
     OfMedia,
@@ -30,12 +39,13 @@ import SsVaultModal from './SsVaultModal.vue';
 const props = defineProps<{
     creator: string;
     modelId: number;
+    chatId: string; // the open chat — a switch closes the Scripts panel
     draft: string;
     context: string;
     suggestion: string | null;
     attachedGif: OfGif | null;
     attachment: ComposerAttachment | null;
-    ppv: ComposerPpv | null; // a loaded PPV set (exclusive with gif/attachment)
+    step: ComposerStep | null; // a loaded script step (exclusive with gif/attachment)
     generating: boolean;
     sending: boolean;
     error: string | null;
@@ -50,7 +60,7 @@ const emit = defineEmits<{
     'update:context': [value: string];
     'update:attachedGif': [value: OfGif | null];
     'update:attachment': [value: ComposerAttachment | null];
-    'update:ppv': [value: ComposerPpv | null];
+    'update:step': [value: ComposerStep | null];
     'pick-file': [file: File];
     'pick-vault': [item: OfMedia];
     generate: [];
@@ -63,6 +73,59 @@ const emit = defineEmits<{
 }>();
 
 const showPicker = ref(false);
+
+// Scripts panel (CreatorHero's): a sheet over the bottom of the thread, toggled by the button at
+// the top-right of the message box. The page fills the `scripts` slot (it owns the chat data
+// and `loadStep`); the composer owns open/close: the button, Esc, a click outside, a chat switch.
+const showScripts = ref(false);
+const scriptsBtn = ref<HTMLButtonElement | null>(null);
+const scriptsSheet = ref<HTMLElement | null>(null);
+
+function closeScripts(refocus = false) {
+    if (!showScripts.value) {
+        return;
+    }
+
+    showScripts.value = false;
+
+    if (refocus) {
+        scriptsBtn.value?.focus();
+    }
+}
+
+watch(
+    () => props.chatId,
+    () => closeScripts(),
+);
+
+function onDocPointer(e: PointerEvent) {
+    const t = e.target as Node | null;
+
+    if (
+        showScripts.value &&
+        t &&
+        !scriptsSheet.value?.contains(t) &&
+        !scriptsBtn.value?.contains(t)
+    ) {
+        closeScripts();
+    }
+}
+
+function onDocKey(e: KeyboardEvent) {
+    if (showScripts.value && e.key === 'Escape') {
+        e.preventDefault();
+        closeScripts(true);
+    }
+}
+
+onMounted(() => {
+    document.addEventListener('pointerdown', onDocPointer);
+    document.addEventListener('keydown', onDocKey);
+});
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onDocPointer);
+    document.removeEventListener('keydown', onDocKey);
+});
 // Reject with feedback: the reason box under the suggestion. Reset whenever the draft changes,
 // so a half-typed reason never gets attached to a different draft.
 const showReject = ref(false);
@@ -99,10 +162,19 @@ const attachBusy = computed(
         props.attachment?.status === 'processing',
 );
 
-// A loaded PPV set is sendable on its own (caption optional) — but never on a price the
+// A step with media goes out as a PPV / free media send (the strip); a Text step is plain text
+// whose only extra is its chip, which logs the send as that step.
+const mediaStep = computed(() =>
+    props.step && props.step.media.length > 0 ? props.step : null,
+);
+const textStep = computed(() =>
+    props.step && props.step.media.length === 0 ? props.step : null,
+);
+
+// A loaded media step is sendable on its own (caption optional) — but never on a price the
 // vendor would 422 (free, or $3–$200), so Send stays disabled until the chip is fixed.
 const ppvPriceOk = computed(
-    () => props.ppv === null || isValidPpvPrice(props.ppv.price),
+    () => mediaStep.value === null || isValidPpvPrice(mediaStep.value.price),
 );
 
 const sendable = computed(
@@ -116,7 +188,7 @@ const sendable = computed(
         (props.draft.trim().length > 0 ||
             props.attachedGif !== null ||
             props.attachment?.status === 'ready' ||
-            props.ppv !== null),
+            mediaStep.value !== null),
 );
 
 const sendLabel = computed(() => {
@@ -124,9 +196,9 @@ const sendLabel = computed(() => {
         return 'Sending…';
     }
 
-    if (props.ppv) {
-        return props.ppv.price > 0
-            ? `Send PPV ${usd(props.ppv.price)}`
+    if (mediaStep.value) {
+        return mediaStep.value.price > 0
+            ? `Send PPV ${usd(mediaStep.value.price)}`
             : 'Send free media';
     }
 
@@ -134,15 +206,68 @@ const sendLabel = computed(() => {
 });
 
 function setPpvPrice(price: number) {
-    if (props.ppv) {
-        emit('update:ppv', { ...props.ppv, price });
+    if (props.step) {
+        emit('update:step', { ...props.step, price });
     }
 }
 
-function setPpvMedia(media: ComposerPpv['media']) {
-    if (props.ppv) {
-        emit('update:ppv', { ...props.ppv, media });
+function setPpvMedia(media: ComposerStep['media']) {
+    if (props.step) {
+        emit('update:step', { ...props.step, media });
     }
+}
+
+// ---- script-note guard ------------------------------------------------------------
+// A step's `[bracketed]` chatter instructions must not reach a fan. Every send (script or
+// not — a pasted script line is the same risk) asks first; Cancel selects the note.
+const NOTE_CONFIRM =
+    'This message still contains script notes in [brackets]. Send anyway?';
+
+function notesOk(text: string): boolean {
+    return findScriptNote(text) === null || window.confirm(NOTE_CONFIRM);
+}
+
+/** Focus the typing bar with its first script note selected (after the draft re-renders). */
+function selectNote() {
+    nextTick(() => {
+        const el = textarea.value;
+        const note = el ? findScriptNote(el.value) : null;
+
+        if (el && note) {
+            el.focus();
+            el.setSelectionRange(note.start, note.end);
+        }
+    });
+}
+
+function requestSend() {
+    if (!sendable.value) {
+        return;
+    }
+
+    if (!notesOk(props.draft)) {
+        selectNote();
+
+        return;
+    }
+
+    emit('send');
+}
+
+/** Accept & Send, guarded: on Cancel the draft is accepted into the typing bar to edit. */
+function requestAcceptSend() {
+    if (!props.suggestion) {
+        return;
+    }
+
+    if (!notesOk(props.suggestion)) {
+        emit('accept');
+        selectNote();
+
+        return;
+    }
+
+    emit('accept-send');
 }
 
 const MAX_ROWS = 5;
@@ -268,16 +393,22 @@ function onKeydown(e: KeyboardEvent) {
     // isComposing guards IME/emoji input — Enter commits the composition, it must not send.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-
-        if (sendable.value) {
-            emit('send');
-        }
+        requestSend();
     }
 }
 </script>
 
 <template>
-    <div class="space-y-2 border-t border-ss-border p-3">
+    <div class="relative space-y-2 border-t border-ss-border p-3">
+        <!-- Scripts panel: over the thread's bottom, full composer width (CreatorHero's sheet) -->
+        <div
+            v-if="showScripts && $slots.scripts"
+            ref="scriptsSheet"
+            class="absolute inset-x-3 bottom-full z-20 mb-1"
+        >
+            <slot name="scripts" :close="() => closeScripts()" />
+        </div>
+
         <!-- AI suggestion card (above the typing bar) -->
         <div
             v-if="props.suggestion || props.generating"
@@ -326,7 +457,7 @@ function onKeydown(e: KeyboardEvent) {
             <template v-else>
                 <!-- PPV caption only: SSAI's saved plan was a non-selling move (PpvReadiness). -->
                 <p
-                    v-if="props.ppv?.notReadyPlan"
+                    v-if="props.step?.notReadyPlan"
                     class="mb-2 flex items-start gap-1.5 rounded-lg border border-ss-warn/30 bg-ss-warn/10 px-2 py-1.5 text-[12px] leading-snug text-ss-text"
                     data-testid="ppv-not-ready"
                 >
@@ -338,7 +469,7 @@ function onKeydown(e: KeyboardEvent) {
                     <span>
                         <b class="font-semibold"
                             >SSAI planned
-                            {{ humanPlan(props.ppv.notReadyPlan) }} next.</b
+                            {{ humanPlan(props.step.notReadyPlan) }} next.</b
                         >
                         Caption written anyway, send only if he's ready to
                         unlock.
@@ -405,7 +536,7 @@ function onKeydown(e: KeyboardEvent) {
                         :disabled="props.sending || !props.canSend"
                         class="flex items-center gap-1.5 rounded-lg bg-ss-accent px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
                         title="Send this message to OnlyFans now"
-                        @click="emit('accept-send')"
+                        @click="requestAcceptSend"
                     >
                         <Send :size="13" />
                         {{ props.sending ? 'Sending…' : 'Accept & Send' }}
@@ -451,16 +582,36 @@ function onKeydown(e: KeyboardEvent) {
             {{ props.error }}
         </p>
 
-        <!-- Loaded PPV set: media + price for the next send -->
+        <!-- Loaded media step: media + price for the next send -->
         <SsPpvStrip
-            v-if="props.ppv"
-            :ppv="props.ppv"
+            v-if="mediaStep"
+            :step="mediaStep"
             :model-id="props.modelId"
             :generating="props.generating"
             @update:price="setPpvPrice"
             @update:media="setPpvMedia"
-            @remove="emit('update:ppv', null)"
+            @remove="emit('update:step', null)"
         />
+
+        <!-- Loaded Text step: the chip is what logs this send as the step. × keeps the text. -->
+        <div v-if="textStep" class="flex" data-testid="script-chip">
+            <span
+                class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-ss-accent-soft py-0.5 pr-0.5 pl-2 text-[11px] font-semibold text-ss-accent-text"
+                title="This send counts as this script. Remove it if what you send is no longer that script."
+            >
+                <ListOrdered :size="11" class="shrink-0" />
+                <span class="truncate">Script · {{ textStep.title }}</span>
+                <button
+                    type="button"
+                    class="grid h-4 w-4 shrink-0 place-items-center rounded-full hover:bg-ss-accent/20"
+                    title="Not this script any more — keep the text, don't log it"
+                    aria-label="Remove script"
+                    @click="emit('update:step', null)"
+                >
+                    <X :size="10" />
+                </button>
+            </span>
+        </div>
 
         <!-- Attached GIF preview -->
         <div v-if="props.attachedGif" class="relative inline-block">
@@ -612,15 +763,36 @@ function onKeydown(e: KeyboardEvent) {
                 aria-label="Message"
                 :placeholder="
                     props.canSend
-                        ? props.ppv
+                        ? mediaStep
                             ? 'Add a caption (optional)… Enter sends, Shift+Enter for a new line'
                             : 'Type a message… Enter sends, Shift+Enter for a new line'
                         : 'Sending is disabled for this chat'
                 "
-                class="block min-h-10 w-full resize-none rounded-t-xl bg-transparent px-3 pt-2.5 pb-1 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:outline-none disabled:cursor-not-allowed"
+                class="block min-h-10 w-full resize-none rounded-t-xl bg-transparent pt-2.5 pr-11 pb-1 pl-3 text-[14px] leading-5 text-ss-text placeholder:text-ss-text-3 focus:outline-none disabled:cursor-not-allowed"
                 @input="onInput"
                 @keydown="onKeydown"
             />
+
+            <!-- Scripts: top-right of the message box, where CreatorHero puts it -->
+            <button
+                v-if="$slots.scripts"
+                ref="scriptsBtn"
+                type="button"
+                class="absolute top-1.5 right-1.5 grid h-8 w-8 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-ss-accent focus-visible:outline-none"
+                :class="
+                    showScripts
+                        ? 'bg-ss-accent-soft text-ss-accent-text'
+                        : 'text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text'
+                "
+                :aria-expanded="showScripts"
+                aria-haspopup="dialog"
+                title="Scripts"
+                aria-label="Scripts"
+                data-testid="scripts-button"
+                @click="showScripts = !showScripts"
+            >
+                <ListOrdered :size="16" />
+            </button>
 
             <input
                 ref="fileInput"
@@ -636,7 +808,7 @@ function onKeydown(e: KeyboardEvent) {
                     :disabled="props.generating"
                     class="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] font-semibold text-ss-accent-text transition-colors hover:bg-ss-accent-soft disabled:opacity-50"
                     :title="
-                        props.ppv
+                        mediaStep
                             ? 'Generate caption — SSAI writes the PPV pitch for this fan'
                             : 'Generate an AI draft'
                     "
@@ -649,7 +821,7 @@ function onKeydown(e: KeyboardEvent) {
                     <span class="hidden @[26rem]:inline">{{
                         props.generating
                             ? 'Writing…'
-                            : props.ppv
+                            : mediaStep
                               ? 'Caption'
                               : 'Generate'
                     }}</span>
@@ -755,7 +927,7 @@ function onKeydown(e: KeyboardEvent) {
                     type="button"
                     :disabled="!sendable"
                     class="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-ss-accent px-3.5 text-[13px] font-semibold whitespace-nowrap text-white transition-[filter,opacity] hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
-                    @click="emit('send')"
+                    @click="requestSend"
                 >
                     <Send :size="14" /> {{ sendLabel }}
                 </button>

@@ -963,6 +963,9 @@ class OnlyFansService
         return [
             'id' => $id,
             'name' => $name,
+            // The two halves `name` merges, kept apart for script placeholders.
+            'fanName' => trim((string) ($fan['name'] ?? '')),
+            'customName' => trim((string) ($fan['displayName'] ?? '')),
             'username' => $fan['username'] ?? null,
             'avatar' => $fan['avatar'] ?? null,
             'initials' => $this->initials($name),

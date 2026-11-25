@@ -83,6 +83,8 @@ export type OfChatOrder = 'recent' | 'old';
 export interface OfChat {
     id: string; // fan user id (= chat id)
     name: string;
+    fanName: string; // the fan's real OnlyFans name ('' when absent)
+    customName: string; // the team's rename ('' when unset)
     username: string | null;
     avatar: string | null;
     initials: string;
@@ -142,45 +144,75 @@ export interface OfGif {
     height: number;
 }
 
-/** One item of a saved PPV set: a Media Vault id + its type + an onlyfans-hosted thumb (or null). */
-export interface PpvSetMedia {
-    id: string;
-    type: 'photo' | 'video' | 'gif' | 'audio';
-    thumb: string | null; // onlyfans.com CDN url (via the media proxy), a same-origin /ppv-sets/thumb path (cached on our disk), or null
-}
-
-/** A creator-wide saved PPV (manager-owned): media + price + default caption. */
-export interface PpvSet {
-    id: number;
-    name: string;
-    caption: string | null;
-    price: number; // 0 = free, else 3..200
-    media: PpvSetMedia[];
-    sortOrder: number;
-    createdAt: string | null;
-}
-
-/** SSAI's own send ledger for one fan: set id → sends, newest first. */
-export type PpvSetStatus = Record<
-    string,
-    { sentAt: string; messageId: string | null; price: number }[]
->;
-
-/** A PPV set loaded into the composer for the next send (exclusive with gif/attachment). */
 /** The AI's price for a PPV caption (legacy fetchPpvSuggestion, clamped server-side to $3–$200). */
 export type PpvPriceSuggestion =
     | { price: number; reason: string }
     | { error: string };
 
-export interface ComposerPpv {
-    setId: number;
-    setName: string;
-    price: number; // editable; validated by isValidPpvPrice before Send
-    media: PpvSetMedia[];
-    // From the last caption Generate for this set; both reset when a set is (re)loaded. The
-    // suggestion never changes `price` — only the chatter's "Use" does.
+/** One item of a script step: a Media Vault id + its type + a renderable thumb (or null). */
+export interface ScriptStepMedia {
+    id: string;
+    type: 'photo' | 'video' | 'gif' | 'audio';
+    thumb: string | null; // onlyfans.com CDN url (via the media proxy), a same-origin /scripts/thumb path (cached on our disk), or null
+}
+
+export interface ScriptStep {
+    id: number;
+    scriptId: number;
+    title: string;
+    text: string | null;
+    fallbackName: string | null;
+    price: number; // 0 = free, else 3..200
+    media: ScriptStepMedia[];
+    kind: 'text' | 'free' | 'ppv'; // NB a needs-media step reads 'text' — check needsMedia first
+    needsMedia: boolean; // waiting for a manager to add its media: shown, never loadable
+    sortOrder: number;
+}
+
+export interface Script {
+    id: number;
+    name: string;
+    sortOrder: number;
+    steps: ScriptStep[];
+}
+
+/** A CreatorHero CSV import preview (or, with `created`, its committed result). */
+export interface ScriptImportResult {
+    scripts: {
+        name: string;
+        steps: number;
+        needsMedia: number;
+        skipped: boolean; // a script with this name already exists — never merged
+    }[];
+    warnings: string[];
+    totals: {
+        scripts: number;
+        steps: number;
+        needsMedia: number;
+        skipped: number;
+    };
+    created?: number;
+}
+
+/** One fan's ledger: step id → sends/manual marks, newest first. */
+export type ScriptStatus = Record<
+    string,
+    {
+        sentAt: string;
+        messageId: string | null;
+        price: number | null;
+        source: 'send' | 'manual';
+    }[]
+>;
+
+/** A script step loaded into the composer for the next send (exclusive with gif/attachment). */
+export interface ComposerStep {
+    stepId: number;
+    title: string;
+    price: number;
+    media: ScriptStepMedia[];
     priceSuggestion: PpvPriceSuggestion | null;
-    notReadyPlan: string | null; // SSAI's saved non-selling plan (e.g. 'rapport_beat'), else null
+    notReadyPlan: string | null;
 }
 
 /** One media item attached to the next send: an upload in flight, or a vault pick. */
@@ -229,6 +261,8 @@ export interface DraftRejection {
 export interface OfFan {
     id: string;
     name: string | null;
+    fanName: string;
+    customName: string;
     username: string | null;
     avatar: string | null;
     about: string;

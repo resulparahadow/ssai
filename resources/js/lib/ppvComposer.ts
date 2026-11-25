@@ -2,6 +2,7 @@
  * Pure decisions behind the PPV composer, kept out of the components so they can be checked
  * without a browser (the repo has no TS unit runner; `engine/`-style node checks cover them).
  */
+import type { ComposerStep } from '@/types/crm';
 
 /**
  * Parse a Price-to-View edit. An empty or unparseable edit REVERTS to the previous price —
@@ -26,25 +27,109 @@ export function parsePpvPriceInput(
 }
 
 /**
- * A draft belongs to the mode and set it was generated for. `captionFor` is the loaded set's id
- * at generate time (null = a normal reply); `currentSetId` is the loaded set now. Any change in
- * between means the draft must be dropped: a reply landing while a set is loaded would be sent
- * as the PPV caption, and a caption for set A must not ride on set B.
+ * The loaded step's id when Generate should write a CAPTION for it (legacy caption mode,
+ * `sender: 'ppv'`), else null. Only a step with media is captioned; a Text step is a normal
+ * reply that ignores the step (spec: "Generate with a step loaded").
+ */
+export function captionStepId(step: ComposerStep | null): number | null {
+    return step !== null && step.media.length > 0 ? step.stepId : null;
+}
+
+/**
+ * A draft belongs to the mode and step it was generated for. Both arguments are
+ * `captionStepId()` values — at generate time, and now (null = a normal reply). Any change in
+ * between means the draft must be dropped: a reply landing while a media step is loaded would
+ * be sent as its caption, and a caption for step A must not ride on step B. A Text step reads
+ * as null on both sides, so a reply generated with one loaded still applies.
  */
 export function suggestionStillApplies(
     captionFor: number | null,
-    currentSetId: number | null,
+    currentStepId: number | null,
 ): boolean {
-    return captionFor === currentSetId;
+    return captionFor === currentStepId;
 }
 
-/** Anything a loaded set would replace — including a generate still in flight. */
+/**
+ * Whether a Generate's result may still land, comparing the composer when it started with now.
+ * `captionFor` is `captionStepId()`; `loads` counts steps loaded into this composer
+ * (`ComposerState.stepLoads`). Loading ANY step replaces the pending draft — that is what its
+ * confirm promises — so a draft still in flight from before the load is dropped, even when
+ * both ends read as a normal reply (a Text step, or Text step A → B). A reply generated after
+ * a Text step was loaded still applies.
+ */
+export function generationStillApplies(
+    started: { captionFor: number | null; loads: number },
+    now: { captionFor: number | null; loads: number },
+): boolean {
+    return (
+        suggestionStillApplies(started.captionFor, now.captionFor) &&
+        started.loads === now.loads
+    );
+}
+
+/**
+ * What a send adds for the loaded step: `scriptStepId` whenever a step is loaded (the ledger
+ * row that drives per-fan progress), and its vault media + price only when it has media. A
+ * Text step is sent as plain text.
+ */
+export function stepSendExtras(step: ComposerStep | null): {
+    price?: number;
+    scriptStepId?: number;
+    mediaFiles?: string[];
+} {
+    if (step === null) {
+        return {};
+    }
+
+    if (step.media.length === 0) {
+        return { scriptStepId: step.stepId };
+    }
+
+    return {
+        scriptStepId: step.stepId,
+        price: step.price,
+        mediaFiles: step.media.map((m) => m.id),
+    };
+}
+
+/**
+ * Whether a successful send may clear the composer (draft, suggestion, step). `loadsAtSend` and
+ * `loadsNow` are `ComposerState.stepLoads` when the send started and when it finished. A step
+ * loaded while the send was in flight owns the composer now: wiping its text would leave its
+ * chip behind, and the next, unrelated message would be logged as that step.
+ */
+export function sendClearsComposer(
+    loadsAtSend: number,
+    loadsNow: number,
+): boolean {
+    return loadsAtSend === loadsNow;
+}
+
+/**
+ * The loaded step after a suggestion is accepted. `suggestionFor` is the suggestion's
+ * `captionStepId()` (null = a normal reply). With a Text step loaded, Generate writes a normal
+ * reply that ignores the step, so accepting it drops the step: sent with the step's id, the
+ * reply would mark a step the fan never got as Sent. A caption on a media step IS the step's
+ * text, so that step stays.
+ */
+export function stepAfterAccept<T extends { media: ReadonlyArray<unknown> }>(
+    step: T | null,
+    suggestionFor: number | null,
+): T | null {
+    if (step !== null && step.media.length === 0 && suggestionFor === null) {
+        return null;
+    }
+
+    return step;
+}
+
+/** Anything a loaded step would replace — including a generate still in flight. */
 export function composerDirty(st: {
     draft: string;
     suggestion: string | null;
     gif: unknown;
     attachment: unknown;
-    ppv: unknown;
+    step: unknown;
     generating: boolean;
 }): boolean {
     return (
@@ -53,13 +138,13 @@ export function composerDirty(st: {
         st.suggestion !== null ||
         st.gif !== null ||
         st.attachment !== null ||
-        st.ppv !== null
+        st.step !== null
     );
 }
 
 type PpvMediaType = 'photo' | 'video' | 'gif' | 'audio';
 
-/** The loaded set's contents for the price prompt: counts by type, non-zero keys only. */
+/** The loaded step's media for the price prompt: counts by type, non-zero keys only. */
 export function ppvMediaCounts(
     media: ReadonlyArray<{ type: PpvMediaType }>,
 ): Partial<Record<PpvMediaType, number>> {

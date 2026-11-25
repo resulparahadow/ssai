@@ -12,17 +12,20 @@ import type {
     OfPreviewKind,
     OfVaultList,
     PpvPriceSuggestion,
-    PpvSet,
-    PpvSetMedia,
-    PpvSetStatus,
+    Script,
+    ScriptImportResult,
+    ScriptStatus,
+    ScriptStep,
+    ScriptStepMedia,
 } from '@/types/crm';
 
-/** Create/update body for a PPV set (media = vault ids + type + raw thumb; the server nulls non-onlyfans thumbs). */
-export interface PpvSetBody {
-    name: string;
-    caption: string | null;
+/** Create/update body for a script step (price needs media; a step needs text or media). */
+export interface ScriptStepBody {
+    title: string;
+    text: string | null;
+    fallbackName: string | null;
     price: number;
-    media: PpvSetMedia[];
+    media: ScriptStepMedia[];
 }
 
 /**
@@ -337,8 +340,11 @@ export const ofApi = {
         text: string,
         giphyId?: string,
         mediaFiles?: string[],
-        // PPV: `price` 0 (free) or 3..200; `ppvSetId` records the send in the set ledger.
-        extra: { price?: number; ppvSetId?: number } = {},
+        // PPV: `price` 0 (free) or 3..200; `scriptStepId` records the send in the step ledger.
+        extra: {
+            price?: number;
+            scriptStepId?: number;
+        } = {},
     ) =>
         postJson<{ message: unknown }>(`${base(m)}/chats/${chat}/messages`, {
             text,
@@ -463,22 +469,105 @@ export const ofApi = {
             `${base(m)}/chats/${chat}/rejections/${id}`,
         ),
 
-    // ---- PPV sets (creator-wide; writes are manager+, server-gated) -----------
-    ppvSets: (m: number) =>
-        req<{ sets: PpvSet[] }>('GET', `${base(m)}/ppv-sets`),
-    ppvSetStatus: (m: number, chat: string) =>
-        req<{ status: PpvSetStatus }>(
+    // ---- Scripts (creator-wide; writes are manager+, marks any assigned) -----
+    scripts: (m: number) =>
+        req<{ scripts: Script[] }>('GET', `${base(m)}/scripts`),
+    scriptStatus: (m: number, chat: string) =>
+        req<{ status: ScriptStatus }>(
             'GET',
-            `${base(m)}/chats/${chat}/ppv-sets/status`,
+            `${base(m)}/chats/${chat}/scripts/status`,
         ),
-    createPpvSet: (m: number, body: PpvSetBody) =>
-        postJson<{ set: PpvSet }>(`${base(m)}/ppv-sets`, body),
-    updatePpvSet: (m: number, id: number, body: Partial<PpvSetBody>) =>
-        req<{ set: PpvSet }>('PUT', `${base(m)}/ppv-sets/${id}`, body),
-    deletePpvSet: (m: number, id: number) =>
-        req<{ ok: boolean }>('DELETE', `${base(m)}/ppv-sets/${id}`),
-    reorderPpvSets: (m: number, ids: number[]) =>
-        req<{ ok: boolean }>('PUT', `${base(m)}/ppv-sets/order`, { ids }),
+    createScript: (m: number, name: string) =>
+        postJson<{ script: Script }>(`${base(m)}/scripts`, { name }),
+    renameScript: (m: number, id: number, name: string) =>
+        req<{ script: Script }>('PUT', `${base(m)}/scripts/${id}`, { name }),
+    deleteScript: (m: number, id: number) =>
+        req<{ ok: boolean; steps: number }>(
+            'DELETE',
+            `${base(m)}/scripts/${id}`,
+        ),
+    reorderScripts: (m: number, ids: number[]) =>
+        req<{ ok: boolean }>('PUT', `${base(m)}/scripts/order`, { ids }),
+    /**
+     * Preview (commit false) or run (commit true) a CreatorHero scripts CSV import. Multipart,
+     * so not `req()` (which forces a JSON body); the file lives only in this request.
+     */
+    importScripts: async (
+        m: number,
+        file: File,
+        commit: boolean,
+    ): Promise<ScriptImportResult> => {
+        const form = new FormData();
+        form.append('file', file);
+        // Laravel's `boolean` rule takes 1/0, not the strings "true"/"false".
+        form.append('commit', commit ? '1' : '0');
+
+        let res: Response;
+
+        try {
+            res = await fetch(`${base(m)}/scripts/import`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
+                },
+                body: form,
+            });
+        } catch {
+            throw new Error(
+                'Could not reach the server — check your connection and retry.',
+            );
+        }
+
+        if (!res.ok) {
+            const b = await res.json().catch(() => ({}));
+
+            throw new Error(
+                b.message ||
+                    b.error ||
+                    (res.status === 413
+                        ? 'That file is too large (max 1 MB).'
+                        : `Import failed (HTTP ${res.status}).`),
+            );
+        }
+
+        return res.json();
+    },
+    createStep: (m: number, scriptId: number, body: ScriptStepBody) =>
+        postJson<{ step: ScriptStep }>(
+            `${base(m)}/scripts/${scriptId}/steps`,
+            body,
+        ),
+    // `scriptId` moves the step to the end of another script.
+    updateStep: (
+        m: number,
+        id: number,
+        body: Partial<ScriptStepBody> & { scriptId?: number },
+    ) =>
+        req<{ step: ScriptStep }>(
+            'PUT',
+            `${base(m)}/scripts/steps/${id}`,
+            body,
+        ),
+    deleteStep: (m: number, id: number) =>
+        req<{ ok: boolean }>('DELETE', `${base(m)}/scripts/steps/${id}`),
+    reorderSteps: (m: number, scriptId: number, ids: number[]) =>
+        req<{ ok: boolean }>(
+            'PUT',
+            `${base(m)}/scripts/${scriptId}/steps/order`,
+            { ids },
+        ),
+    markStep: (m: number, chat: string, stepId: number) =>
+        postJson<{ ok: boolean }>(
+            `${base(m)}/chats/${chat}/scripts/steps/${stepId}/mark`,
+            {},
+        ),
+    unmarkStep: (m: number, chat: string, stepId: number) =>
+        req<{ ok: boolean }>(
+            'DELETE',
+            `${base(m)}/chats/${chat}/scripts/steps/${stepId}/mark`,
+        ),
 
     // ---- Chat actions -----------------------------------------------------
     mute: (m: number, chat: string) =>

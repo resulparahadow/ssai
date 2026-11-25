@@ -5,10 +5,13 @@ const mod = await import('../../resources/js/lib/ppvComposer.ts');
 const {
     parsePpvPriceInput,
     suggestionStillApplies,
+    generationStillApplies,
     composerDirty,
     ppvMediaCounts,
     humanPlan,
     priceSuggestionView,
+    sendClearsComposer,
+    stepAfterAccept,
 } = mod;
 
 // #1 — an empty/junk edit reverts to the previous price; 0 must be typed on purpose.
@@ -25,40 +28,79 @@ assert.equal(
     'out-of-rule values pass through (validation disables Send)',
 );
 
-// #3 — a draft belongs to the mode/set it was generated for.
+// #3 — a draft belongs to the mode/step it was generated for (captionStepId values).
 assert.equal(
     suggestionStillApplies(null, null),
     true,
-    'reply generated, no set loaded now',
+    'reply generated, no media step loaded now',
 );
 assert.equal(
     suggestionStillApplies(null, 7),
     false,
-    'reply generated, set loaded meanwhile → drop',
+    'reply generated, media step loaded meanwhile → drop',
 );
 assert.equal(
     suggestionStillApplies(7, 7),
     true,
-    'caption for set 7, still set 7',
+    'caption for step 7, still step 7',
 );
 assert.equal(
     suggestionStillApplies(7, 9),
     false,
-    'caption for set 7, set 9 loaded now → drop',
+    'caption for step 7, step 9 loaded now → drop',
 );
 assert.equal(
     suggestionStillApplies(7, null),
     false,
-    'caption for set 7, set removed → drop',
+    'caption for step 7, step removed → drop',
 );
 
-// #3 — loading a set while a generate is in flight counts as dirty.
+// #3b — any step LOADED while a generate runs drops the result, even when both ends read
+// as a normal reply (Text steps): the replace confirm promised to replace the pending draft.
+const at = (captionFor, loads) => ({ captionFor, loads });
+assert.equal(
+    generationStillApplies(at(null, 0), at(null, 1)),
+    false,
+    'reply in flight → Text step loaded → dropped',
+);
+assert.equal(
+    generationStillApplies(at(null, 3), at(null, 4)),
+    false,
+    'Text step A → Text step B mid-generate → dropped',
+);
+assert.equal(
+    generationStillApplies(at(null, 4), at(null, 4)),
+    true,
+    'reply generated after loading a Text step → kept',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(7, 2)),
+    true,
+    'caption for step 7, nothing loaded since → kept',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(null, 2)),
+    false,
+    'caption for step 7, step removed → dropped (caption rule unchanged)',
+);
+assert.equal(
+    generationStillApplies(at(null, 2), at(9, 3)),
+    false,
+    'reply in flight, media step loaded → dropped',
+);
+assert.equal(
+    generationStillApplies(at(7, 2), at(7, 3)),
+    false,
+    'step 7 reloaded mid-generate → dropped (the load reset the payload)',
+);
+
+// #3 — loading a step while a generate is in flight counts as dirty.
 const base = {
     draft: '',
     suggestion: null,
     gif: null,
     attachment: null,
-    ppv: null,
+    step: null,
     generating: false,
 };
 assert.equal(composerDirty(base), false, 'empty composer is clean');
@@ -74,12 +116,38 @@ assert.equal(
     'suggestion is dirty',
 );
 assert.equal(
-    composerDirty({ ...base, ppv: { setId: 1 } }),
+    composerDirty({ ...base, step: { stepId: 1 } }),
     true,
-    'a loaded set is dirty',
+    'a loaded step is dirty',
 );
 
-// #4 — set contents for the price prompt: counts by type, non-zero keys only.
+// #7 — a send clears the composer only when no step was loaded while it was in flight:
+// a step loaded during "Sending…" owns the text/chip now, and wiping its text would leave a
+// chip that logs the next, unrelated message as that step.
+assert.equal(sendClearsComposer(3, 3), true, 'nothing loaded mid-send → clear');
+assert.equal(
+    sendClearsComposer(3, 4),
+    false,
+    'step loaded mid-send → keep its text, suggestion and chip',
+);
+
+// #8 — accepting a suggestion: a NORMAL reply accepted with a Text step loaded drops the step
+// (the fan never got the step's text); a caption on a media step IS the step, so it stays.
+const textStep = { stepId: 5, media: [] };
+const mediaStep = { stepId: 6, media: [{ id: 'v1', type: 'photo' }] };
+assert.equal(
+    stepAfterAccept(textStep, null),
+    null,
+    'Text step + normal reply accepted → step dropped',
+);
+assert.equal(
+    stepAfterAccept(mediaStep, 6),
+    mediaStep,
+    'media step + its caption accepted → step kept',
+);
+assert.equal(stepAfterAccept(null, null), null, 'no step → nothing');
+
+// #4 — step media for the price prompt: counts by type, non-zero keys only.
 assert.deepEqual(
     ppvMediaCounts([{ type: 'photo' }, { type: 'photo' }, { type: 'video' }]),
     { photo: 2, video: 1 },
@@ -117,5 +185,5 @@ assert.equal(
 );
 
 console.log(
-    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view',
+    '✓ ppv-composer-check: price edits, suggestion ownership, dirty check, media counts, plan wording, price suggestion view, send clear guard, accept drops Text step',
 );

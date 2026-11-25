@@ -259,6 +259,9 @@ function jumpTo(m: OfMessage) {
     });
 }
 
+// The page's PPV rail tab scrolls the thread to a message with the same highlight.
+defineExpose({ jumpTo });
+
 async function togglePin(m: OfMessage) {
     if (!m.id || m.pinning) {
         return;
@@ -542,7 +545,10 @@ function fmtDuration(sec: number | null): string {
             :chat-id="chat.id"
             :current="chat.name"
             @close="showRename = false"
-            @renamed="emit('chat-changed', { name: $event })"
+            @renamed="
+                (name: string, customName: string) =>
+                    emit('chat-changed', { name, customName })
+            "
         />
 
         <!-- Thread -->
