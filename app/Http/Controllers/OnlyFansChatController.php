@@ -835,6 +835,8 @@ class OnlyFansChatController extends Controller
             'id' => $user,
             // Same custom-name-aware label as the chat list, so a rename shows in both.
             'name' => $this->of->displayNameOf($d),
+            'fanName' => trim((string) ($d['name'] ?? '')),
+            'customName' => trim((string) ($d['displayName'] ?? '')),
             'username' => $d['username'] ?? null,
             'avatar' => $d['avatar'] ?? null,
             'about' => $this->of->htmlToText($d['about'] ?? ''),

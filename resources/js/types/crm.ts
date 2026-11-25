@@ -83,6 +83,8 @@ export type OfChatOrder = 'recent' | 'old';
 export interface OfChat {
     id: string; // fan user id (= chat id)
     name: string;
+    fanName?: string; // the fan's real OnlyFans name ('' when absent)
+    customName?: string; // the team's rename ('' when unset)
     username: string | null;
     avatar: string | null;
     initials: string;
@@ -229,6 +231,8 @@ export interface DraftRejection {
 export interface OfFan {
     id: string;
     name: string | null;
+    fanName: string;
+    customName: string;
     username: string | null;
     avatar: string | null;
     about: string;
