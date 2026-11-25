@@ -2,7 +2,7 @@
 import { ImagePlus, LoaderCircle, Music, Play, X } from '@lucide/vue';
 import { computed, nextTick, ref } from 'vue';
 import SsVaultPickerModal from '@/components/crm/conversations/SsVaultPickerModal.vue';
-import { isValidPpvPrice } from '@/lib/money';
+import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc, ofApi } from '@/lib/onlyfans';
 import type { ScriptStep, ScriptStepMedia } from '@/types/crm';
 
@@ -49,9 +49,13 @@ const targetScript = ref(props.scriptId);
 const media = ref<ScriptStepMedia[]>(
     (props.step?.media ?? []).map((m) => ({ ...m })),
 );
+// A needs-media step (CSV import) keeps its price while it waits for media, so prefill it.
+const waitingForMedia = computed(() => !!props.step?.needsMedia);
 // NB: Vue casts v-model on a type=number input to a number, so this holds string | number.
 const price = ref<string | number>(
-    props.step && props.step.media.length ? String(props.step.price) : '',
+    props.step && (props.step.media.length || props.step.needsMedia)
+        ? String(props.step.price)
+        : '',
 );
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const showPicker = ref(false);
@@ -146,8 +150,15 @@ async function save() {
 
     try {
         if (props.step) {
+            // A step still waiting for media keeps its imported price: don't send the 0.
+            const patch: Partial<typeof body> = { ...body };
+
+            if (waitingForMedia.value && !hasMedia.value) {
+                delete patch.price;
+            }
+
             await ofApi.updateStep(props.modelId, props.step.id, {
-                ...body,
+                ...patch,
                 ...(mediaChanged.value ? { media: media.value } : {}),
                 ...(targetScript.value !== props.step.scriptId
                     ? { scriptId: targetScript.value }
@@ -289,6 +300,17 @@ async function save() {
                         </button>
                     </div>
 
+                    <p
+                        v-if="waitingForMedia && !hasMedia"
+                        class="mb-1.5 text-[11px] text-ss-warn"
+                        data-testid="step-needs-media"
+                    >
+                        Needs media — imported without its photos/videos{{
+                            props.step && props.step.price > 0
+                                ? ` (price ${usd(props.step.price)} kept)`
+                                : ''
+                        }}. Chatters can't load it until media is added.
+                    </p>
                     <button
                         v-if="!hasMedia"
                         type="button"

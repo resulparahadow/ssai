@@ -176,6 +176,24 @@ export interface Script {
     steps: ScriptStep[];
 }
 
+/** A CreatorHero CSV import preview (or, with `created`, its committed result). */
+export interface ScriptImportResult {
+    scripts: {
+        name: string;
+        steps: number;
+        needsMedia: number;
+        skipped: boolean; // a script with this name already exists — never merged
+    }[];
+    warnings: string[];
+    totals: {
+        scripts: number;
+        steps: number;
+        needsMedia: number;
+        skipped: number;
+    };
+    created?: number;
+}
+
 /** One fan's ledger: step id → sends/manual marks, newest first. */
 export type ScriptStatus = Record<
     string,

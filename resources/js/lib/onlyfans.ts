@@ -13,6 +13,7 @@ import type {
     OfVaultList,
     PpvPriceSuggestion,
     Script,
+    ScriptImportResult,
     ScriptStatus,
     ScriptStep,
     ScriptStepMedia,
@@ -487,6 +488,52 @@ export const ofApi = {
         ),
     reorderScripts: (m: number, ids: number[]) =>
         req<{ ok: boolean }>('PUT', `${base(m)}/scripts/order`, { ids }),
+    /**
+     * Preview (commit false) or run (commit true) a CreatorHero scripts CSV import. Multipart,
+     * so not `req()` (which forces a JSON body); the file lives only in this request.
+     */
+    importScripts: async (
+        m: number,
+        file: File,
+        commit: boolean,
+    ): Promise<ScriptImportResult> => {
+        const form = new FormData();
+        form.append('file', file);
+        // Laravel's `boolean` rule takes 1/0, not the strings "true"/"false".
+        form.append('commit', commit ? '1' : '0');
+
+        let res: Response;
+
+        try {
+            res = await fetch(`${base(m)}/scripts/import`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-XSRF-TOKEN': cookie('XSRF-TOKEN'),
+                },
+                body: form,
+            });
+        } catch {
+            throw new Error(
+                'Could not reach the server — check your connection and retry.',
+            );
+        }
+
+        if (!res.ok) {
+            const b = await res.json().catch(() => ({}));
+
+            throw new Error(
+                b.message ||
+                    b.error ||
+                    (res.status === 413
+                        ? 'That file is too large (max 1 MB).'
+                        : `Import failed (HTTP ${res.status}).`),
+            );
+        }
+
+        return res.json();
+    },
     createStep: (m: number, scriptId: number, body: ScriptStepBody) =>
         postJson<{ step: ScriptStep }>(
             `${base(m)}/scripts/${scriptId}/steps`,
