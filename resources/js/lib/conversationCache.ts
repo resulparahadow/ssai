@@ -67,6 +67,9 @@ export interface ComposerState {
     // reply, and a draft whose mode/step no longer matches the composer is dropped
     // (lib/ppvComposer.ts).
     suggestionFor: number | null;
+    // The intent of the generate in flight; undefined = no generate owns the composer (dismiss, send or
+    // step load invalidated it), so a landing result is dropped (generationStillApplies).
+    requestedIntent: IntentKey | null | undefined;
     intent: IntentKey | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)
@@ -92,6 +95,7 @@ export function chatComposer(chatId: string): ComposerState {
             suggestion: null,
             suggestionFor: null,
             intent: null,
+            requestedIntent: undefined,
             gif: null,
             attachment: null,
             step: null,

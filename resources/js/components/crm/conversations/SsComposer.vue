@@ -58,7 +58,8 @@ const props = defineProps<{
     rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
     rejecting: boolean;
     counters: ChatCounters;
-    intent: IntentKey | null; // what the pending suggestion was generated for
+    intent: IntentKey | null; // the intent shown on the card: the one generating, else the pending suggestion's
+    requestedIntent: IntentKey | null; // the intent being generated right now (spinner on its chip)
 }>();
 
 const emit = defineEmits<{
@@ -461,6 +462,12 @@ function onKeydown(e: KeyboardEvent) {
 
             <p v-if="props.generating" class="py-2 text-[13px] text-ss-text-3">
                 Generating a draft…
+                <span
+                    v-if="props.requestedIntent"
+                    class="font-semibold"
+                    data-testid="intent-label"
+                    >Intent: {{ intentLabel(props.requestedIntent) }}</span
+                >
             </p>
             <template v-else>
                 <!-- PPV caption only: SSAI's saved plan was a non-selling move (PpvReadiness). -->
@@ -760,6 +767,7 @@ function onKeydown(e: KeyboardEvent) {
             :busy="props.generating"
             :media-loaded="mediaStep !== null"
             :active-intent="props.intent"
+            :generating-intent="props.requestedIntent"
             @fire="emit('intent', $event)"
         />
 

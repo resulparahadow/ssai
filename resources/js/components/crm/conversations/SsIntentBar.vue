@@ -9,6 +9,7 @@ const props = defineProps<{
     busy: boolean;
     mediaLoaded: boolean; // a PPV/media step is loaded in the composer
     activeIntent: IntentKey | null; // what the pending suggestion was generated for
+    generatingIntent: IntentKey | null; // the intent being generated right now
 }>();
 
 const emit = defineEmits<{ fire: [key: IntentKey] }>();
@@ -34,7 +35,8 @@ const chips = computed(() =>
             enabled: enabled && !props.busy,
             lit: key !== 'ppv' && lock.lit && enabled,
             reason: enabled ? null : reason,
-            active: props.activeIntent === key,
+            active: props.activeIntent === key && !props.busy,
+            spinning: props.busy && props.generatingIntent === key,
         };
     }),
 );
@@ -76,6 +78,12 @@ const summary = computed(() => {
             "
             @click="emit('fire', c.key)"
         >
+            <span
+                v-if="c.spinning"
+                class="mr-1.5 h-3 w-3 animate-spin rounded-full border-2 border-ss-accent/30 border-t-ss-accent"
+                data-testid="intent-spinner"
+                aria-hidden="true"
+            />
             {{ c.label }}
             <span v-if="c.reason" :id="`intent-why-${c.key}`" class="sr-only">{{
                 c.reason

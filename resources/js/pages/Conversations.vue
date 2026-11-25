@@ -254,6 +254,7 @@ async function generate(intent: IntentKey | null = null) {
     // applies and is dropped.
     const captionFor = captionStepId(st.step);
     const loadsAtStart = st.stepLoads;
+    st.requestedIntent = intent;
     // A free step is captioned too, but its price read is thrown away (there is nothing to price).
     const pricedCaption = captionFor !== null && (st.step?.price ?? 0) > 0;
 
@@ -310,7 +311,7 @@ async function generate(intent: IntentKey | null = null) {
                 {
                     captionFor: captionStepId(st.step),
                     loads: st.stepLoads,
-                    intent,
+                    intent: st.requestedIntent,
                 },
             )
         ) {
@@ -362,6 +363,10 @@ async function generate(intent: IntentKey | null = null) {
         st.error = e instanceof Error ? e.message : String(e);
     } finally {
         st.generating = false;
+
+        if (st.requestedIntent === intent) {
+            st.requestedIntent = undefined;
+        }
     }
 
     // However it ended, tell a chatter who has moved on (another chat, page or tab) —
@@ -580,6 +585,7 @@ function dismissSuggestion() {
         cur.value.suggestion = null;
         cur.value.suggestionFor = null;
         cur.value.intent = null;
+        cur.value.requestedIntent = undefined;
     }
 }
 
@@ -760,6 +766,9 @@ async function send(override?: string) {
         if (sendClearsComposer(loadsAtSend, st.stepLoads)) {
             st.draft = '';
             st.suggestion = null;
+            st.suggestionFor = null;
+            st.intent = null;
+            st.requestedIntent = undefined;
             st.step = null;
         }
 
@@ -1122,6 +1131,7 @@ function loadStep(step: ScriptStep): boolean {
     st.suggestion = null;
     st.suggestionFor = null;
     st.intent = null;
+    st.requestedIntent = undefined;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
     st.stepLoads++; // a Generate still in flight was written before this step: drop it
     st.step = {
@@ -2048,7 +2058,16 @@ onBeforeUnmount(() => {
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
                         :counters="counters"
-                        :intent="cur.intent"
+                        :intent="
+                            cur.generating
+                                ? (cur.requestedIntent ?? null)
+                                : cur.intent
+                        "
+                        :requested-intent="
+                            cur.generating
+                                ? (cur.requestedIntent ?? null)
+                                : null
+                        "
                         @generate="generate()"
                         @regenerate="generate(cur.intent)"
                         @intent="fireIntent"

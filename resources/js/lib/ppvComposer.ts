@@ -66,7 +66,8 @@ export function generationStillApplies(
     now: {
         captionFor: number | null;
         loads: number;
-        intent: IntentKey | null;
+        // undefined = nothing owns the composer any more (dismissed / sent / step loaded).
+        intent: IntentKey | null | undefined;
     },
 ): boolean {
     return (

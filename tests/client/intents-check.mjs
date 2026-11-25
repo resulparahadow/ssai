@@ -148,4 +148,21 @@ assert.equal(intentLabel('repitch'), 'Re-pitch');
 assert.equal(intentLabel('reoffer_mppv'), 'Re-offer MPPV');
 assert.equal(intentLabel('ppv'), 'PPV');
 
+// an invalidated request (requestedIntent undefined) never applies, even for the same intent
+assert.equal(
+    generationStillApplies(
+        { ...s, intent: 'repitch' },
+        { ...s, intent: undefined },
+    ),
+    false,
+);
+assert.equal(
+    generationStillApplies(
+        { ...s, intent: 'repitch' },
+        { ...s, intent: 'repitch' },
+    ),
+    true,
+);
+assert.equal(generationStillApplies(s, { ...s, intent: undefined }), false);
+
 console.log('intents-check: OK');
