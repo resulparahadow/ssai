@@ -383,6 +383,24 @@ const stateSeq = new Map<string, number>();
 // Values still on their way to the server, re-applied over any response that predates them.
 const statePending = new Map<string, Map<SwitchKey, SwitchValue | null>>();
 
+/** A row's last value the server confirmed. A failed save rolls back to THIS, not to the value
+ *  shown when that call started: with two quick changes A → B on one row, B's "before" is A's
+ *  optimistic value, which may never have been saved. */
+type RowSnapshot = {
+    override: unknown;
+    trust: number;
+    locked: OfLockableField[];
+};
+const stateConfirmed = new Map<string, RowSnapshot>();
+
+function rowSnapshot(p: OfFanProfile, key: SwitchKey): RowSnapshot {
+    return {
+        override: p.state_overrides[key as keyof typeof p.state_overrides],
+        trust: p.trust_level,
+        locked: [...p.locked_fields],
+    };
+}
+
 /** Put one switch value on a stored profile (the optimistic write, and its re-apply). */
 function putSwitch(
     p: OfFanProfile,
@@ -452,12 +470,13 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
         return;
     }
 
-    const before = {
-        override: p.state_overrides[key as keyof typeof p.state_overrides],
-        trust: p.trust_level,
-        locked: [...p.locked_fields],
-    };
     const rowId = `${fanId}:${key}`;
+
+    // The first unconfirmed change on this row records the server's value to fall back to.
+    if (!stateConfirmed.has(rowId)) {
+        stateConfirmed.set(rowId, rowSnapshot(p, key));
+    }
+
     const seq = (stateSeq.get(rowId) ?? 0) + 1;
     stateSeq.set(rowId, seq);
     const pending = statePending.get(fanId) ?? new Map();
@@ -480,10 +499,15 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
             switchPatch(key, value),
         );
 
+        // Saved, even if a newer change on this row is still in flight: that is now the value
+        // to roll back to.
+        stateConfirmed.set(rowId, rowSnapshot(next, key));
+
         if (stateSeq.get(rowId) !== seq) {
             return; // a newer change on this row owns it
         }
 
+        stateConfirmed.delete(rowId);
         pending.delete(key);
         applyStateKeys(fanId, next);
     } catch (e) {
@@ -491,6 +515,8 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
             return;
         }
 
+        const before = stateConfirmed.get(rowId) ?? rowSnapshot(p, key);
+        stateConfirmed.delete(rowId);
         pending.delete(key);
         // Roll back THIS row only: another row may have changed meanwhile.
         const cur = fanProfiles.get(fanId);

@@ -838,6 +838,14 @@ async function send(override?: string) {
         return;
     }
 
+    // Support mode: no priced send, even for a step loaded before support was turned on, or a
+    // free step the chatter then priced. loadStep's check alone misses both; the server 422s too.
+    if (ppv && ppv.price > 0 && supportOn(fanProfiles.get(chatId))) {
+        st.error = SUPPORT_REASON;
+
+        return;
+    }
+
     st.sending = true;
     st.error = null;
     st.gif = null; // drop the attached-GIF preview from the composer the moment Send is clicked
