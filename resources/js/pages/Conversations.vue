@@ -214,8 +214,14 @@ watch(curSupport, (on) => {
 });
 
 // Support mode, counters and the ladder for the intent bar + PPV strip.
+// The fan details feed the Hook hint (new subscriber); only when they belong to the open chat.
 const curFanState = computed(() =>
-    composerFanState(curProfile.value, messages.value, tags.value),
+    composerFanState(
+        curProfile.value,
+        messages.value,
+        tags.value,
+        fan.value && fan.value.id === selected.value?.id ? fan.value : null,
+    ),
 );
 
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
@@ -326,6 +332,11 @@ async function generate(intent: IntentRef | null = null) {
                     isOpened: mm.isOpened,
                     isTip: mm.isTip,
                     fromQueue: mm.fromQueue,
+                    // A photo/video the fan sent → legacy's CAME-WITH-MEDIA tag on his line.
+                    mediaCount: Math.max(
+                        mm.media?.length ?? 0,
+                        mm.mediaCount ?? 0,
+                    ),
                 })),
             // Name + username are load-bearing, not decoration: the legacy prompt prints
             // "Customer: {name} (@{username})" and then tells the model "You already know

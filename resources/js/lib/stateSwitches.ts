@@ -8,6 +8,8 @@ import type {
     StateAutoRead,
     StateOverrides,
 } from '@/types/crm';
+import { autoHints } from './autoHints.ts';
+import type { FanSubscription } from './autoHints.ts';
 import { effectiveTag } from './chatCounters.ts';
 
 // §5b state switches + the rest of the §5c counters, client side. The server owns the values
@@ -385,6 +387,10 @@ export interface StateChipState {
     support: boolean;
     objections: number;
     sexOnly: number;
+    /** §5a slice 3 auto hints, read from the loaded thread (lib/autoHints.ts). */
+    postPurchase: boolean;
+    postTip: boolean;
+    hook: boolean;
 }
 
 export interface StateChipLock extends IntentLock {
@@ -420,6 +426,18 @@ export function stateChipLock(
             lit: true,
             hint: `He's objected ${s.objections} times — a free teaser can help`,
         };
+    }
+
+    if (key === 'post_tip' && base.enabled && s.postTip) {
+        return { ...base, lit: true, hint: 'He just tipped — thank him' };
+    }
+
+    if (key === 'hook' && base.enabled && s.hook) {
+        return { ...base, lit: true, hint: 'New subscriber — say hi' };
+    }
+
+    if (key === 'post_purchase' && base.enabled && s.postPurchase) {
+        return { ...base, lit: true, hint: 'He bought the PPV — follow up' };
     }
 
     if (key === 'ppv' && base.enabled && s.sexOnly >= SEX_ONLY_LIT) {
@@ -535,6 +553,9 @@ export const EMPTY_FAN_STATE: ComposerFanState = {
     support: false,
     objections: 0,
     sexOnly: 0,
+    postPurchase: false,
+    postTip: false,
+    hook: false,
     nextRung: null,
     parts: [],
 };
@@ -545,16 +566,21 @@ export function composerFanState(
     p: OfFanProfile | null | undefined,
     messages: OfMessage[],
     tags: Record<string, MessageTag>,
+    sub: FanSubscription | null = null,
 ): ComposerFanState {
     const last = lastRungBought(messages, tags);
     const next = nextRung(p?.price_ladder ?? DEFAULT_LADDER, last);
     const objections = p?.counters.objection_redirects ?? 0;
     const sexOnly = p?.counters.sex_only_pulls ?? 0;
+    const hints = autoHints(messages, tags, sub);
 
     return {
         support: supportOn(p),
         objections,
         sexOnly,
+        postPurchase: hints.postPurchase,
+        postTip: hints.postTip,
+        hook: hints.hook,
         nextRung: next,
         parts: stateSummaryParts({
             lastRung: last,
