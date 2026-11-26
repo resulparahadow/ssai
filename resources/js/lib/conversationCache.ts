@@ -10,6 +10,7 @@ import type {
     OfChatFilter,
     OfChatOrder,
     OfFan,
+    OfFanProfile,
     OfGif,
     OfMessage,
     Script,
@@ -52,6 +53,13 @@ export const nextCache = new Map<string, Record<string, string> | null>();
 // Stored per-message PPV tags for each chat (message id → tag), fetched beside the thread and
 // served stale-while-revalidate like msgCache. Feeds the intent bar's counters.
 export const tagsCache = new Map<string, Record<string, MessageTag>>();
+
+// Each fan's persisted profile (memory, toggles, §5b state switches, §5c counters), keyed by chat
+// id. Reactive because two places read it: the Fan tab edits it, and the page derives support
+// mode, the Fan type override, counters and the ladder from it for the intent bar / strip / pill.
+// Every writer keys by the chat id it captured BEFORE its await (a generate lands 25-45s later,
+// often with another chat open).
+export const fanProfiles = reactive(new Map<string, OfFanProfile>());
 
 // Per-chat composer state, keyed by chat id. Each chat keeps its own draft,
 // loading/sending flags, error, and AI strategy — so generating in chat A and

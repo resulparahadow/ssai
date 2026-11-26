@@ -767,6 +767,60 @@ export interface OfFanProfile {
     tips_spend: number; // read-only, from OnlyFans
     subscription_status: string | null;
     locked_fields: OfLockableField[];
+    // §5b state switches (always present after `normalizeProfile`, which defaults them for an
+    // older server). Only manual keys appear in `state_overrides`; absent = Auto.
+    state_overrides: StateOverrides;
+    auto_read: StateAutoRead;
+    counters: FanStateCounters;
+    is_bilingual: boolean;
+    price_ladder: number[];
+}
+
+export type StatePhase =
+    | 'warm_up'
+    | 'rapport'
+    | 'link'
+    | 'sale'
+    | 'loop'
+    | 'aftersale';
+export type StateFanType = 'new' | 'returning' | 'spender';
+export type StatePosture = 'normal' | 'frame_hold' | 'timewaster';
+export type StatePromise =
+    | 'not_asked'
+    | 'asked'
+    | 'reinforced_1'
+    | 'reinforced_2';
+export type StateLanguage = 'es' | 'en';
+
+/** The fan's manual switch values (customer_profiles.state_overrides). Absent key = Auto; lane
+ *  normal and support off are absent too. */
+export interface StateOverrides {
+    phase?: StatePhase;
+    rls_beat?: number; // 1–12
+    fan_type?: StateFanType;
+    lane?: 'sex_only' | 'rude';
+    posture?: StatePosture;
+    promise?: StatePromise;
+    language?: StateLanguage;
+    support?: true;
+}
+
+export type StateOverrideKey = keyof StateOverrides;
+
+/** SSAI's own read, shown on Auto rows. null = no read yet. */
+export interface StateAutoRead {
+    phase: StatePhase | null;
+    fan_type: StateFanType | null;
+    fan_type_from_trust: boolean;
+    posture: StatePosture | null;
+    promise: StatePromise | null;
+    language: StateLanguage | null;
+}
+
+/** Server-side §5c counters (aich_chat_state), profile-shaped (snake_case). */
+export interface FanStateCounters {
+    objection_redirects: number;
+    sex_only_pulls: number;
 }
 
 /** Per-message PPV tag (mirror of the server's chat_ppv / mppv / free_preview). */

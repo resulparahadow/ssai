@@ -7,6 +7,7 @@ import {
     Heart,
     Image,
     ImageOff,
+    LifeBuoy,
     LoaderCircle,
     Lock,
     NotebookPen,
@@ -55,6 +56,8 @@ const props = defineProps<{
     spend: number | null; // fan's live lifetime spend; null while loading
     /** Stored PPV tag overrides for this chat, by message id. */
     tags: Record<string, MessageTag>;
+    /** The fan's Support mode switch is on (§5b): selling is blocked, so say so up here. */
+    supportMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -407,8 +410,20 @@ function fmtDuration(sec: number | null): string {
                         Restricted
                     </span>
                 </div>
-                <div class="truncate text-[12px] text-ss-text-3">
-                    @{{ chat.username }}
+                <!-- Support mode sits on this line so it never squeezes the fan's name away. -->
+                <div class="flex min-w-0 items-center gap-1.5">
+                    <span class="truncate text-[12px] text-ss-text-3">
+                        @{{ chat.username }}
+                    </span>
+                    <span
+                        v-if="supportMode"
+                        class="inline-flex shrink-0 items-center gap-1 rounded-full bg-ss-accent-soft px-1.5 py-px text-[10px] font-semibold text-ss-accent-text"
+                        title="Support mode is on — no selling. Turn it off in the Fan tab's SSAI state card."
+                        data-testid="support-pill"
+                    >
+                        <LifeBuoy :size="11" />
+                        Support mode
+                    </span>
                 </div>
             </div>
             <!-- fan's total lifetime spend (currency-masked); hidden until loaded -->
