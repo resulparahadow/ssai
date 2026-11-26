@@ -695,7 +695,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     reinforce2, Post-purchase, Post-tip, Tip ask (never a number), Breadcrumb, Hook, ChitChat, Follow-up, Goodbye phase 1-3.
     **Aftersale is NOT a directive** — it is legacy's aftercare mode: `EngineClient` sets session `_aftercareMode` +
     `_aftercareContext` (`after_sexting` → `aftersex`, `after_no` → `ladder_stop`), sends **no `context`**, so a typed note
-    is dropped and the response carries **`noteDropped: true`** (draft card: "Your note wasn't used for Aftersale").
+    is dropped (the mode switches off selling; spot check: after-sexting drafts react + ask how he feels, after-a-no drafts are a warm sign-off) and the response carries **`noteDropped: true`** (draft card: "Your note wasn't used for Aftersale").
     **FreePicture** is a client flow like `ppv`: `SsVaultPickerModal` in photo-only mode → an **ad-hoc step with
     `stepId 0` (`AD_HOC_STEP_ID`)** → ONE caption generate (`sender:'ppv'`); its send posts `mediaFiles` (+ `price` only when
     > 0) and NEVER `scriptStepId` (no ledger row — id 0 is not a script step). Guards: `engine/intent_check.js` check 4

@@ -326,8 +326,9 @@ Anything you type in the box when you click is added to the button as an extra n
   answer. No selling.
 - **Follow-up** (More): he went quiet after spending. One light, warm message that calls back to
   the last specific thing he shared. No chasing, no guilt, no pitch.
-- **Aftersale** (More): pick **After sexting** or **After a no**. SSAI writes a caring aftercare
-  message and does not pitch. **Anything you typed in the box is not used for Aftersale**, and the
+- **Aftersale** (More): pick **After sexting** or **After a no**. SSAI switches into its aftercare mode:
+  no selling, no pitch. After sexting it reacts and asks how he is feeling; after a no it is a warm,
+  short sign-off. **Anything you typed in the box is not used for Aftersale**, and the
   draft card tells you ("Your note wasn't used for Aftersale"). If you need a specific message,
   write it yourself.
 

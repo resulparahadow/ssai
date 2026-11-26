@@ -77,21 +77,50 @@ const threadC = [
     her('gaming and going out, a man of many talents 😜', 55),
     fan('haha thanks. what about you, what are you up to tonight?', 8),
 ];
-const slice2Runs = [
-    ['objection expensive', 'objection:expensive'], ['CTA 1', 'cta:cta1'], ['CTA 2', 'cta:cta2'],
-    ['Sexting', 'sexting'], ['Promise ask', 'promise:ask'], ['Post-purchase', 'post_purchase'],
-    ['Post-tip', 'post_tip'], ['Tip ask', 'tip_ask'], ['Breadcrumb', 'breadcrumb'], ['Hook', 'hook'],
-    ['ChitChat', 'chitchat'], ['Follow-up', 'follow_up'], ['Goodbye phase 3', 'goodbye:phase3'],
-    ['Aftersale after_no', null, { _aftercareMode: true, _aftercareContext: 'ladder_stop' }],
-    ['Aftersale after_sexting', null, { _aftercareMode: true, _aftercareContext: 'aftersex' }],
+// Premise-matched threads (invented text): a directive states its own premise ("he just unlocked her PPV"),
+// so the thread must make that true or the draft has nothing to act on. Each ends on a line that is NOT a
+// "what are you up to?" chit-chat question where the premise allows.
+const ppvOpened = (price, ago) => ({ sender: 'ppv', text: 'something just for you 😈', price, opened: true, ts_iso: iso(ago) });
+const ppvLocked = (price, ago) => ({ sender: 'ppv', text: 'a little something for your eyes 😈', price, opened: false, ts_iso: iso(ago) });
+const base = [
+    fan('hey, just got home from the gym', 300),
+    her('hey you 😊 how was the workout?', 296),
+    fan('brutal, legs are dead lol', 290),
+    her('haha poor legs, did you treat yourself after?', 286),
+    fan('yeah got a burger, no regrets', 280),
+    her('no regrets is the best kind 😏', 276),
 ];
+const T = {
+    postPurchase: [...base, her('i made something just for you tonight 🙈', 120), ppvOpened(21, 118), fan('ok just opened it... wow', 3)],
+    postTip: [...base, her('you always make my night better 💕', 60), fan('just sent you a little tip, you deserve it 😘', 2)],
+    expensive: [...base, her('i filmed something for you baby 🙈', 90), ppvLocked(35, 88), fan('$35 is kinda a lot for one video tbh', 5)],
+    afterSexting: [...base, her('close your eyes and imagine my hands on you 😈', 70), fan('mmm i am so into this', 66), ppvOpened(49, 62), fan('holy shit that was incredible... i am done lol', 4)],
+    afterNo: [...base, ppvOpened(21, 100), her('did you like it baby? i have a bigger one for you 😈', 96), ppvLocked(35, 94), fan("nah i'm good for tonight, thanks. gonna head to bed soon", 3)],
+    followUp: [...base, her('i filmed something for you 🙈', 2000), ppvOpened(21, 1990), fan('wow thank you, you are amazing', 1985), her('sleep well baby, talk tomorrow 😘', 1800)],
+    flirty: [...base, her('you always know what to say 😏', 50), fan("you're kind of dangerous, i cannot stop smiling at my phone", 4)],
+    sextingWarm: [...base, ppvOpened(21, 120), her('did that make you think about me later? 😏', 100), fan("honestly yes, i can't stop thinking about you in that last pic, got me all worked up 🔥", 3)],
+};
+const slice2Runs = [
+    ['objection expensive', 'objection:expensive', null, T.expensive],
+    ['CTA 1', 'cta:cta1', null, T.flirty], ['CTA 2', 'cta:cta2'],
+    ['Sexting', 'sexting', null, T.sextingWarm], ['Promise ask', 'promise:ask'],
+    ['Post-purchase', 'post_purchase', { total_spend: '$21' }, T.postPurchase],
+    ['Post-tip', 'post_tip', { tips_spend: '$20' }, T.postTip], ['Tip ask', 'tip_ask'], ['Breadcrumb', 'breadcrumb'], ['Hook', 'hook'],
+    ['ChitChat', 'chitchat'], ['Follow-up', 'follow_up', { total_spend: '$21' }, T.followUp], ['Goodbye phase 3', 'goodbye:phase3'],
+    ['Aftersale after_no', null, { total_spend: '$21', _aftercareMode: true, _aftercareContext: 'ladder_stop' }, T.afterNo],
+    ['Aftersale after_sexting', null, { total_spend: '$49', _aftercareMode: true, _aftercareContext: 'aftersex' }, T.afterSexting],
+];
+
+// Pin the creator's clock to mid-afternoon whatever the real time is (Etc/GMT zones are inverted: GMT-3 = UTC+3).
+const offset = ((15 - new Date().getUTCHours() + 36) % 24) - 12;
+const SPOT_TZ = offset === 0 ? 'UTC' : `Etc/GMT${offset > 0 ? '-' : '+'}${Math.abs(offset)}`;
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
 async function runSlice2() {
     // --only="Tip ask,Hook" limits the run to those labels (a hung provider call can be re-run alone).
     const only = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7).split(',').filter(Boolean);
-    for (const [label, key, extra] of slice2Runs) {
+    for (const [label, key, extra, thread] of slice2Runs) {
         if (only.length && !only.includes(label)) continue;
         const context = key ? directives.slice2[key] : '';
         if (key && !context) throw new Error(`no directive for ${key}`);
@@ -101,9 +130,9 @@ async function runSlice2() {
                 session: {
                     id: `spot2-${label}-${i}`, creator_model: 'Camila', customer_name: 'Jake', customer_username: 'jake_w',
                     subscription_status: 'subscribed', total_spend: '$0', tips_spend: '$0', crm_notes: '', vn_used: [],
-                    inputMode: 'chat', messages: threadC, ...(extra || {}),
+                    inputMode: 'chat', messages: thread || threadC, ...(extra || {}),
                 },
-                creatorStatus: [], api: 'claude', sender: 'customer', context,
+                creatorStatus: [], api: 'claude', sender: 'customer', context, timezone: SPOT_TZ,
             }), 240000).catch((e) => ({ draft: `<<${e.message}>>` }));
             console.log(`[${label} #${i}] ${JSON.stringify(r.draft)}`);
         }
