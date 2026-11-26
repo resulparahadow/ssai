@@ -5,6 +5,7 @@ import type {
     MessageTag,
     OfMessage,
 } from '@/types/crm';
+import { findIntent } from './intents.ts';
 
 // Client mirror of the server rules in App\Services\OnlyFans\LiveThreadMapper (effective tag,
 // hidden mass PPV, session start) and App\Support\AgentIntents::unpaidPpv. Keep the two in step.
@@ -176,14 +177,8 @@ export function intentLock(key: IntentKey, c: ChatCounters): IntentLock {
     return { enabled: true, lit: false, reason: null };
 }
 
-const INTENT_LABELS: Record<IntentKey, string> = {
-    ppv: 'PPV',
-    repitch: 'Re-pitch',
-    reoffer_mppv: 'Re-offer MPPV',
-};
-
 export function intentLabel(key: IntentKey): string {
-    return INTENT_LABELS[key];
+    return findIntent(key)?.label ?? key;
 }
 
 const TAG_LABELS: Record<MessageTag, string> = {

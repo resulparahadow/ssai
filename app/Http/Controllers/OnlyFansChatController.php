@@ -911,7 +911,8 @@ class OnlyFansChatController extends Controller
             'customer' => 'array',
             'context' => 'nullable|string',
             // One-turn intent button (Re-pitch / Re-offer MPPV): the server builds the directive.
-            'intent' => ['nullable', Rule::in(AgentIntents::SERVER_KEYS)],
+            'intent' => ['nullable', Rule::in(AgentIntents::serverKeys())],
+            'intentOption' => 'nullable|string|max:32',
             'api' => 'nullable|in:claude,auto,mistral',
             // 'ppv' = legacy's PPV caption mode (the chatter is about to send paid content;
             // the engine writes ONE curiosity caption, no reply). See the skip rules below.
@@ -937,17 +938,34 @@ class OnlyFansChatController extends Controller
 
         $intent = $data['intent'] ?? null;
         $context = $data['context'] ?? '';
+        $intentOption = null;
+        $aftercare = null;
+        $noteDropped = false;
         if ($intent !== null) {
             if ($captionMode) {
                 return response()->json(['error' => "An intent can't be combined with a PPV caption."], 422);
             }
-            try {
-                $context = AgentIntents::compose(
-                    AgentIntents::directive($intent, $mapped['thread'], $mapped['droppedMass']),
-                    $context,
-                );
-            } catch (IntentUnavailable $e) {
-                return response()->json(['error' => $e->getMessage()], 422);
+            $allowed = AgentIntents::options($intent);
+            if ($allowed !== []) {
+                $intentOption = $data['intentOption'] ?? null;
+                if (! in_array($intentOption, $allowed, true)) {
+                    return response()->json(['error' => 'Pick an option for this intent.'], 422);
+                }
+            }
+            if ($intent === 'aftersale') {
+                // Any context makes legacy skip the aftercare template, so the typed note is dropped.
+                $noteDropped = trim($context) !== '';
+                $context = '';
+                $aftercare = ['mode' => true, 'context' => AgentIntents::aftercareContext($intentOption)];
+            } else {
+                try {
+                    $context = AgentIntents::compose(
+                        AgentIntents::directive($intent, $intentOption, $mapped['thread'], $mapped['droppedMass']),
+                        $context,
+                    );
+                } catch (IntentUnavailable $e) {
+                    return response()->json(['error' => $e->getMessage()], 422);
+                }
             }
         }
 
@@ -962,6 +980,7 @@ class OnlyFansChatController extends Controller
         try {
             $out = $this->engine->generateFromLive($model, $messages, $customer, [
                 'context' => $context,
+                'aftercare' => $aftercare,
                 'api' => $data['api'] ?? 'claude',
                 'sender' => $sender,
                 'ppvMedia' => $captionMode ? ($data['ppvMedia'] ?? null) : null,
@@ -1049,6 +1068,8 @@ class OnlyFansChatController extends Controller
             'telemetry' => $out['telemetry'] ?? null,
             'generatedAt' => $generatedAt,
             'intent' => $intent,
+            'intentOption' => $intentOption,
+            'noteDropped' => $noteDropped,
             // Caption mode only: legacy's price suggestion, clamped to a sendable price.
             ...($captionMode ? [
                 'ppvSuggestion' => PpvPriceSuggestion::normalize($out['ppvSuggestion'] ?? null),

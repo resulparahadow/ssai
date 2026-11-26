@@ -14,7 +14,7 @@ const DIRECTIVE = 'INTENT BUTTON — Re-pitch: He has not opened the PPV already
 const now = Date.now();
 const iso = (minAgo) => new Date(now - minAgo * 60000).toISOString();
 
-async function prompts(context, messages) {
+async function prompts(context, messages, extra = {}) {
     const out = { strategy: '', generator: '' };
     const flat = (x) => (Array.isArray(x) ? x.map((b) => b.text || '').join('\n') : String(x));
     const callApi = async (sys, user, _m, _f, tag) => {
@@ -28,7 +28,7 @@ async function prompts(context, messages) {
         session: {
             id: 'int', creator_model: 'Camila', customer_name: 'Jake', customer_username: 'jake_w',
             subscription_status: 'subscribed', total_spend: '$0', tips_spend: '$0', crm_notes: '', vn_used: [],
-            inputMode: 'chat', messages,
+            inputMode: 'chat', messages, ...extra,
         },
         creatorStatus: [], api: 'claude', sender: 'customer', context,
     }, { callApi, callMistral: async () => 'hola' });
@@ -67,6 +67,25 @@ const creatorLast = [
     // No context → no override block.
     const d = await prompts('', fanLast);
     assert.ok(!d.strategy.includes('AGENT OVERRIDE — AUTHORITATIVE') && !d.generator.includes('AGENT OVERRIDE — AUTHORITATIVE'), 'empty context → no override block');
+
+    // Aftersale: aftercare mode + empty context injects legacy's template and hard block.
+    const ls = await prompts('', fanLast, { _aftercareMode: true, _aftercareContext: 'ladder_stop' });
+    const asx = await prompts('', fanLast, { _aftercareMode: true, _aftercareContext: 'aftersex' });
+    const off = await prompts('', fanLast);
+    const ladder = 'AFTERCARE MODE — POST-SOFT-NO / LADDER-STOP VARIANT';
+    const sexv = 'AFTERCARE MODE — POST-SEXTING/CLIMAX VARIANT';
+    const hard = 'HARD BLOCK: aftercare mode is ON';
+    assert.ok(ls.generator.includes(ladder) && ls.generator.includes(hard), 'ladder_stop template + hard block in generator prompt');
+    assert.ok(!ls.generator.includes(sexv), 'ladder_stop does not show the sexting variant');
+    assert.ok(asx.generator.includes(sexv) && asx.generator.includes(hard) && !asx.generator.includes(ladder), 'aftersex variant only');
+    assert.ok(!off.generator.includes(ladder) && !off.generator.includes(sexv) && !off.generator.includes(hard), 'no mode → no aftercare text');
+
+    // Aftersale on a creator-last thread: aftercare template, NOT the follow-up note; control keeps the note.
+    const af = await prompts('', creatorLast, { _aftercareMode: true, _aftercareContext: 'ladder_stop' });
+    assert.ok(af.generator.includes(ladder), 'creator-last + aftercare: template present');
+    assert.ok(!af.generator.includes('FOLLOW-UP — ') && !af.strategy.includes('FOLLOW-UP — '), 'creator-last + aftercare: no follow-up note');
+    const noAf = await prompts('', creatorLast);
+    assert.ok(noAf.generator.includes('FOLLOW-UP — '), 'creator-last without aftercare still gets the follow-up note');
 
     console.log('✓ intent_check: intent directive reaches both override blocks; follow-up uses its override variant; empty context adds no block');
 })().catch((e) => { console.error('INTENT_CHECK FAILED:', e.message); process.exit(1); });

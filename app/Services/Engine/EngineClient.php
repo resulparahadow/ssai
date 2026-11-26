@@ -77,6 +77,11 @@ class EngineClient
                 // Rejected drafts + reasons for this conversation (DraftRejectionService) — legacy
                 // prints them as "REJECTED RESPONSES IN THIS SESSION — learn from these mistakes".
                 '_sessionFeedback' => $opts['rejections'] ?? [],
+                // Aftersale intent: legacy's aftercare wall template (only while no context is set).
+                ...(! empty($opts['aftercare']) ? [
+                    '_aftercareMode' => true,
+                    '_aftercareContext' => $opts['aftercare']['context'],
+                ] : []),
             ],
             'creatorStatus' => $status->map(fn (CreatorStatus $e) => [
                 'category' => $e->category,

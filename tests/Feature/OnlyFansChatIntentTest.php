@@ -67,3 +67,49 @@ it('no intent leaves context exactly as typed', function () {
     intentGenerate(['context' => 'just this'])->assertOk()->assertJsonPath('intent', null);
     expect(intentEngineContext())->toBe('just this');
 });
+
+function intentEngineBody(): array
+{
+    $rec = Http::recorded(fn ($r) => str_contains($r->url(), '8787'))->first();
+
+    return $rec ? $rec[0]->data() : [];
+}
+
+it('objection with an option puts the directive then the typed note in context', function () {
+    intentGenerate(['intent' => 'objection', 'intentOption' => 'later', 'context' => 'be kind'])
+        ->assertOk()->assertJsonPath('intent', 'objection')->assertJsonPath('intentOption', 'later');
+    expect(intentEngineContext())
+        ->toStartWith('INTENT BUTTON — Objection – Later / not now: He has raised PART 11 objection 10')
+        ->toEndWith("\n\nAgent note (apply within the intent above): be kind");
+});
+
+it('an option intent without an option is 422 and the engine is never called', function () {
+    intentGenerate(['intent' => 'objection'])->assertStatus(422)->assertJsonPath('error', 'Pick an option for this intent.');
+    expect(Http::recorded(fn ($r) => str_contains($r->url(), '8787')))->toHaveCount(0);
+});
+
+it('an option from another intent is 422', function () {
+    intentGenerate(['intent' => 'goodbye', 'intentOption' => 'expensive'])->assertStatus(422)
+        ->assertJsonPath('error', 'Pick an option for this intent.');
+    expect(Http::recorded(fn ($r) => str_contains($r->url(), '8787')))->toHaveCount(0);
+});
+
+it('aftersale sends aftercare mode, empty context and noteDropped when text was typed', function () {
+    intentGenerate(['intent' => 'aftersale', 'intentOption' => 'after_no', 'context' => 'ignore me'])
+        ->assertOk()->assertJsonPath('noteDropped', true)->assertJsonPath('intentOption', 'after_no');
+    $body = intentEngineBody();
+    expect($body['context'])->toBe('')
+        ->and($body['session']['_aftercareMode'])->toBeTrue()
+        ->and($body['session']['_aftercareContext'])->toBe('ladder_stop');
+});
+
+it('aftersale without typed text has noteDropped false', function () {
+    intentGenerate(['intent' => 'aftersale', 'intentOption' => 'after_sexting', 'context' => '  '])
+        ->assertOk()->assertJsonPath('noteDropped', false);
+    expect(intentEngineBody()['session']['_aftercareContext'])->toBe('aftersex');
+});
+
+it('no intent sends no _aftercareMode key', function () {
+    intentGenerate(['context' => 'x'])->assertOk();
+    expect(intentEngineBody()['session'])->not->toHaveKeys(['_aftercareMode', '_aftercareContext']);
+});

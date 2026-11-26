@@ -1,4 +1,5 @@
 import { postJson } from '@/lib/api';
+import type { ServerIntentKey } from '@/lib/intents';
 import type {
     AiStrategy,
     DraftRejection,
@@ -17,7 +18,6 @@ import type {
     ScriptStatus,
     ScriptStep,
     ScriptStepMedia,
-    IntentKey,
     MessageTag,
 } from '@/types/crm';
 
@@ -145,14 +145,16 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
 }
 
 /** The generate request. `messages` is open-ended (the server whitelists keys); `id` lets the
- *  server apply stored per-message PPV tags. `intent` is only ever repitch / reoffer_mppv. */
+ *  server apply stored per-message PPV tags. `intent` is only ever a server intent (not ppv / free_picture). */
 export interface GeneratePayload {
     messages: Array<Record<string, unknown> & { id?: string }>;
     customer: { id: string; name: string | null; username: string | null };
     api: string;
     context: string;
     sender: 'customer' | 'ppv';
-    intent?: Exclude<IntentKey, 'ppv'>;
+    // Server intents only (PPV / Free picture are client-side).
+    intent?: ServerIntentKey;
+    intentOption?: string;
     ppvMedia?: object;
 }
 
@@ -422,7 +424,10 @@ export const ofApi = {
             ppvSuggestion?: PpvPriceSuggestion | null;
             ppvNotReady?: string | null;
             // Echoed when the request carried an agent intent.
-            intent?: 'repitch' | 'reoffer_mppv' | null;
+            intent?: ServerIntentKey | null;
+            intentOption?: string | null;
+            // True only when typed override text was dropped (Aftersale ignores it).
+            noteDropped?: boolean;
         }>(`${base(m)}/chats/${chat}/generate`, payload),
     intel: (m: number, chat: string) =>
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(

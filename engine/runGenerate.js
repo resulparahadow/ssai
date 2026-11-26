@@ -60,7 +60,8 @@ async function generateDraft(input, opts = {}) {
     // which assumes the newest line is the fan's — answers her own message. See followUp.js.
     // Only for a normal reply: PPV caption mode (sender 'ppv') is a different task.
     const replying = session.inputMode === 'chat' && (input.sender || 'customer') === 'customer';
-    const followUp = replying ? followUpContext(session.messages) : null;
+    // Aftersale (`_aftercareMode`) has legacy's own aftercare template; the follow-up note would fight it.
+    const followUp = replying && session._aftercareMode !== true ? followUpContext(session.messages) : null;
     if (followUp) {
         transport = withFollowUp(transport, followUp, {
             creator: session.creator_model,

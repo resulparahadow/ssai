@@ -21,7 +21,7 @@ import {
     ref,
     watch,
 } from 'vue';
-import { intentLabel } from '@/lib/chatCounters';
+import { intentRefLabel } from '@/lib/intents';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
@@ -30,7 +30,7 @@ import type {
     ChatCounters,
     ComposerStep,
     DraftRejection,
-    IntentKey,
+    IntentRef,
     OfGif,
     OfMedia,
 } from '@/types/crm';
@@ -58,8 +58,9 @@ const props = defineProps<{
     rejections: DraftRejection[]; // the rejected drafts the next generate sends to the AI
     rejecting: boolean;
     counters: ChatCounters;
-    intent: IntentKey | null; // the intent shown on the card: the one generating, else the pending suggestion's
-    requestedIntent: IntentKey | null; // the intent being generated right now (spinner on its chip)
+    intent: IntentRef | null; // the intent shown on the card: the one generating, else the pending suggestion's
+    noteDropped?: boolean; // the typed override note was not used (Aftersale)
+    requestedIntent: IntentRef | null; // the intent being generated right now (spinner on its chip)
 }>();
 
 const emit = defineEmits<{
@@ -72,7 +73,7 @@ const emit = defineEmits<{
     'pick-vault': [item: OfMedia];
     generate: [];
     regenerate: [];
-    intent: [key: IntentKey];
+    intent: [ref: IntentRef];
     /** The Scripts panel opened (`focusPpv`: from the PPV chip) or closed. */
     'scripts-toggle': [open: boolean, focusPpv: boolean];
     send: [];
@@ -119,8 +120,8 @@ watch(showScripts, (open) => {
 
 /** The intent bar. PPV with nothing loaded opens the Scripts panel on the next PPV step; every
  *  other chip (and PPV with a media step loaded = caption it) goes to the page. */
-async function fireIntent(key: IntentKey) {
-    if (key === 'ppv' && mediaStep.value === null) {
+async function fireIntent(ref: IntentRef) {
+    if (ref.key === 'ppv' && mediaStep.value === null) {
         // Already open (e.g. the chatter browsed into a folder): close it first and let it
         // unmount, so the reopen is a fresh PPV open — it re-lands on the next PPV step and
         // the page re-arms `ppvPending`. Toggling within one tick would change nothing.
@@ -135,7 +136,7 @@ async function fireIntent(key: IntentKey) {
         return;
     }
 
-    emit('intent', key);
+    emit('intent', ref);
 }
 
 function toggleScripts() {
@@ -506,7 +507,7 @@ function onKeydown(e: KeyboardEvent) {
                     v-if="props.requestedIntent"
                     class="font-semibold"
                     data-testid="intent-label"
-                    >Intent: {{ intentLabel(props.requestedIntent) }}</span
+                    >Intent: {{ intentRefLabel(props.requestedIntent) }}</span
                 >
             </p>
             <template v-else>
@@ -535,7 +536,14 @@ function onKeydown(e: KeyboardEvent) {
                     class="mb-1 text-[11px] font-semibold text-ss-text-3"
                     data-testid="intent-label"
                 >
-                    Intent: {{ intentLabel(props.intent) }}
+                    Intent: {{ intentRefLabel(props.intent) }}
+                </p>
+                <p
+                    v-if="props.intent && props.noteDropped"
+                    class="mb-1 text-[11px] text-ss-text-3"
+                    data-testid="note-dropped"
+                >
+                    Your note wasn't used for Aftersale
                 </p>
                 <p
                     class="text-[14px] leading-relaxed whitespace-pre-wrap text-ss-text"

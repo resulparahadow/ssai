@@ -16,6 +16,10 @@ const props = withDefaults(
         modelId: number;
         initial?: ScriptStepMedia[];
         max?: number;
+        /** Restrict the type pills (e.g. `['photo']` = photo-only, list pre-filtered). */
+        types?: string[];
+        title?: string;
+        confirmLabel?: string;
     }>(),
     { initial: () => [], max: 40 },
 );
@@ -29,12 +33,20 @@ const FILTERS = [
     { label: 'Audio', value: 'audio' },
 ] as const;
 
+const visibleFilters = computed(() =>
+    props.types && props.types.length > 0
+        ? FILTERS.filter(
+              (f) => f.value !== '' && props.types!.includes(f.value),
+          )
+        : FILTERS,
+);
+
 const PAGE = 48;
 
 const listId = ref<string | null>(null);
 const listName = ref('All media');
 const items = ref<OfMedia[]>([]);
-const filter = ref('');
+const filter = ref(props.types?.length === 1 ? props.types[0] : '');
 const query = ref('');
 const loading = ref(false);
 const hasMore = ref(false);
@@ -107,7 +119,7 @@ async function load(reset: boolean) {
 function onList(l: OfVaultList | null) {
     listId.value = l?.id ?? null;
     listName.value = l?.name ?? 'All media';
-    filter.value = '';
+    filter.value = props.types?.length === 1 ? props.types[0] : '';
     query.value = '';
     load(true);
 }
@@ -193,9 +205,16 @@ onBeforeUnmount(() => {
             <div
                 class="flex items-center gap-3 border-b border-ss-border px-4 py-3"
             >
-                <p class="text-[14px] font-semibold text-ss-text">Vault</p>
+                <p class="text-[14px] font-semibold text-ss-text">
+                    {{ props.title ?? 'Vault' }}
+                </p>
                 <p class="text-[12px] text-ss-text-3">
-                    Pick up to {{ props.max }} items for the set
+                    Pick up to {{ props.max }}
+                    {{
+                        props.types?.length === 1 && props.types[0] === 'photo'
+                            ? 'photos'
+                            : 'items for the set'
+                    }}
                 </p>
                 <span class="flex-1" />
                 <button
@@ -231,7 +250,7 @@ onBeforeUnmount(() => {
                         </h3>
                         <div class="flex flex-wrap gap-1">
                             <button
-                                v-for="f in FILTERS"
+                                v-for="f in visibleFilters"
                                 :key="f.value"
                                 type="button"
                                 class="rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors"
@@ -387,9 +406,11 @@ onBeforeUnmount(() => {
                     @click="add"
                 >
                     {{
-                        count
-                            ? `Add ${count} item${count === 1 ? '' : 's'}`
-                            : 'Add media'
+                        props.confirmLabel
+                            ? props.confirmLabel
+                            : count
+                              ? `Add ${count} item${count === 1 ? '' : 's'}`
+                              : 'Add media'
                     }}
                 </button>
             </div>

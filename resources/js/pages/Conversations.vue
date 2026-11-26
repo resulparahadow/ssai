@@ -9,6 +9,7 @@ import SsConvoList from '@/components/crm/conversations/SsConvoList.vue';
 import SsFanPanel from '@/components/crm/conversations/SsFanPanel.vue';
 import SsScriptsPanel from '@/components/crm/conversations/SsScriptsPanel.vue';
 import SsSentPpvs from '@/components/crm/conversations/SsSentPpvs.vue';
+import SsVaultPickerModal from '@/components/crm/conversations/SsVaultPickerModal.vue';
 import SsCreatorPrompt from '@/components/crm/SsCreatorPrompt.vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
 import { chatCounters } from '@/lib/chatCounters';
@@ -29,6 +30,7 @@ import type { ComposerState } from '@/lib/conversationCache';
 import { setWatchedCreator } from '@/lib/creatorInbox';
 import { alertDraftDone } from '@/lib/draftAlerts';
 import { activeRejections } from '@/lib/draftRejections';
+import { AD_HOC_STEP_ID, isServerIntent } from '@/lib/intents';
 import { isValidPpvPrice } from '@/lib/money';
 import { mediaSrc, messagePreviewKind, ofApi } from '@/lib/onlyfans';
 import {
@@ -51,7 +53,7 @@ import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
     ComposerStep,
-    IntentKey,
+    IntentRef,
     MessageTag,
     OfChat,
     OfChatFilter,
@@ -61,6 +63,7 @@ import type {
     OfGif,
     OfMessage,
     ScriptStep,
+    ScriptStepMedia,
     SidebarCreator,
 } from '@/types/crm';
 
@@ -234,9 +237,9 @@ function dropChat() {
     fan.value = null;
 }
 
-/** `intent`: null = a plain reply (or the loaded media step's caption); repitch / reoffer_mppv
- *  = an agent intent. Only those two reach the server. */
-async function generate(intent: IntentKey | null = null) {
+/** `intent`: null = a plain reply (or the loaded media step's caption); otherwise an agent
+ *  intent ref. Only server intents (`isServerIntent`) reach the server, as `intent` + `intentOption`. */
+async function generate(intent: IntentRef | null = null) {
     const m = model.value;
     const chat = selected.value;
 
@@ -298,8 +301,13 @@ async function generate(intent: IntentKey | null = null) {
             customer: { id: chatId, name: chat.name, username: chat.username },
             api: 'claude',
             context: st.context.trim(),
-            ...(intent === 'repitch' || intent === 'reoffer_mppv'
-                ? { intent }
+            ...(intent !== null && isServerIntent(intent.key)
+                ? {
+                      intent: intent.key,
+                      ...(intent.option !== null
+                          ? { intentOption: intent.option }
+                          : {}),
+                  }
                 : {}),
             // A loaded media step → legacy's caption mode: ONE curiosity caption, not a reply.
             // The step's title/text is deliberately NOT put in `context` — any context text
@@ -334,6 +342,7 @@ async function generate(intent: IntentKey | null = null) {
             st.suggestion = draft;
             st.suggestionFor = captionFor;
             st.intent = intent;
+            st.noteDropped = data.noteDropped === true;
 
             // Merge into the CURRENT step, read after the await: a price the chatter edited while
             // this ran must survive. The suggestion is advice next to the chip, never the price.
@@ -535,9 +544,10 @@ async function fetchTags(chatId: string) {
     }
 }
 
-/** An intent chip. Re-pitch / Re-offer generate through the server's intent path; PPV with a
- *  media step loaded is the existing caption flow (picking a step for the chatter comes later). */
-function fireIntent(key: IntentKey) {
+/** An intent chip. Every intent generates through the server's intent path (a directive in the
+ *  override box), except Free picture (vault photo pick, then one caption generate) and PPV with a
+ *  media step loaded (the existing caption flow). */
+function fireIntent(ref: IntentRef) {
     const st = cur.value;
 
     // While a send is in flight its pending bubble is in the generate payload — a Re-pitch could
@@ -546,7 +556,14 @@ function fireIntent(key: IntentKey) {
         return;
     }
 
-    if (key === 'ppv') {
+    // Free picture: pick vault photos first; the flow continues in `loadFreePicture`.
+    if (ref.key === 'free_picture') {
+        freePictureChat.value = selected.value?.id ?? null;
+
+        return;
+    }
+
+    if (ref.key === 'ppv') {
         if (captionStepId(st.step) !== null) {
             void generate(null);
         }
@@ -554,7 +571,55 @@ function fireIntent(key: IntentKey) {
         return;
     }
 
-    void generate(key);
+    void generate(ref);
+}
+
+/** The chat the Free-picture vault picker is open for (null = closed). Closes on a chat switch. */
+const freePictureChat = ref<string | null>(null);
+
+watch(
+    () => selected.value?.id ?? null,
+    () => {
+        freePictureChat.value = null;
+    },
+);
+
+/** Picker → Add. Same replace-confirm as a step load (cancel = nothing changes), then the photos
+ *  become an ad-hoc media step and ONE caption generate runs (caption mode, `sender: 'ppv'`). */
+function loadFreePicture(media: ScriptStepMedia[]) {
+    const st = cur.value;
+
+    freePictureChat.value = null;
+
+    if (!st || media.length === 0 || st.sending) {
+        return;
+    }
+
+    if (composerDirty(st) && !window.confirm(FREE_PICTURE_REPLACE_MSG)) {
+        return;
+    }
+
+    revokeAttachment(st.attachment);
+    st.attachment = null;
+    st.gif = null;
+    st.suggestion = null;
+    st.suggestionFor = null;
+    st.intent = null;
+    st.noteDropped = false;
+    st.requestedIntent = undefined;
+    st.draft = '';
+    st.ppvPending = false;
+    st.stepLoads++;
+    st.step = {
+        stepId: AD_HOC_STEP_ID,
+        title: 'Free picture',
+        price: 0,
+        media: media.map((m) => ({ ...m })),
+        priceSuggestion: null,
+        notReadyPlan: null,
+    };
+    railOpen.value = false;
+    void generate(null);
 }
 
 // A chat switch closes the panel, but the composer's close event lands on the NEW chat — disarm the old one.
@@ -629,6 +694,7 @@ function acceptSuggestion() {
     st.draft = st.suggestion;
     st.suggestion = null;
     st.intent = null;
+    st.noteDropped = false;
 }
 
 /** Accept the suggestion and send it straight to OnlyFans (without parking it in the typing bar). */
@@ -649,6 +715,7 @@ async function acceptAndSend() {
     const text = st.suggestion;
     st.suggestion = null;
     st.intent = null;
+    st.noteDropped = false;
     await send(text);
 }
 
@@ -657,6 +724,7 @@ function dismissSuggestion() {
         cur.value.suggestion = null;
         cur.value.suggestionFor = null;
         cur.value.intent = null;
+        cur.value.noteDropped = false;
         cur.value.requestedIntent = undefined;
     }
 }
@@ -840,6 +908,7 @@ async function send(override?: string) {
             st.suggestion = null;
             st.suggestionFor = null;
             st.intent = null;
+            st.noteDropped = false;
             st.requestedIntent = undefined;
             st.step = null;
         }
@@ -1151,6 +1220,9 @@ function cur_(): ComposerState | null {
     return selected.value ? chatComposer(selected.value.id) : null;
 }
 
+const FREE_PICTURE_REPLACE_MSG =
+    "Replace what's in the message box with this free picture?";
+
 const REPLACE_MSG =
     'Replace current message? This replaces your text, media and price with the script.';
 
@@ -1203,6 +1275,7 @@ function loadStep(step: ScriptStep): boolean {
     st.suggestion = null;
     st.suggestionFor = null;
     st.intent = null;
+    st.noteDropped = false;
     st.requestedIntent = undefined;
     st.draft = fillLabels(step.text ?? '', names, step.fallbackName);
     st.ppvPending = false;
@@ -2222,6 +2295,7 @@ onBeforeUnmount(() => {
                                 ? (cur.requestedIntent ?? null)
                                 : cur.intent
                         "
+                        :note-dropped="cur.noteDropped && !cur.generating"
                         :requested-intent="
                             cur.generating
                                 ? (cur.requestedIntent ?? null)
@@ -2346,6 +2420,17 @@ onBeforeUnmount(() => {
                     @jump="jumpToMessage"
                 />
             </aside>
+            <SsVaultPickerModal
+                v-if="
+                    freePictureChat !== null && freePictureChat === selected?.id
+                "
+                :model-id="model.id"
+                :types="['photo']"
+                title="Free picture"
+                :max="40"
+                @add="loadFreePicture"
+                @close="freePictureChat = null"
+            />
         </template>
 
         <div
