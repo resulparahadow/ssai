@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { autoHints } from '../../resources/js/lib/autoHints.ts';
+import { autoHints, isRefusal } from '../../resources/js/lib/autoHints.ts';
 import { chatCounters } from '../../resources/js/lib/chatCounters.ts';
 import {
     DEFAULT_LADDER,
@@ -377,6 +377,7 @@ const S0 = {
     postPurchase: false,
     postTip: false,
     hook: false,
+    aftersale: false,
 };
 assert.equal(SUPPORT_REASON, 'Support mode is on — no selling.');
 {
@@ -561,6 +562,7 @@ assert.equal(ladderOffer(null, 21), null);
         postPurchase: false,
         postTip: false,
         hook: false,
+        aftersale: false,
         nextRung: 12,
         parts: [],
     });
@@ -600,6 +602,7 @@ assert.equal(ladderOffer(null, 21), null);
             postPurchase: false,
             postTip: true,
             hook: false,
+            aftersale: false,
         },
     );
     assert.equal(H([msg({ isTip: true, price: 10 }), me()]).postTip, false);
@@ -662,7 +665,84 @@ assert.equal(ladderOffer(null, 21), null);
         postPurchase: false,
         postTip: false,
         hook: false,
+        aftersale: false,
     });
+
+    // Aftersale (After a no): he refused the PPV still waiting, she hasn't answered.
+    for (const t of [
+        'no',
+        'Nope.',
+        'nah',
+        'no thanks',
+        'No babe',
+        'not now',
+        'maybe later',
+        "I'm good",
+        'im good',
+        'not interested',
+        "can't afford it",
+        'I\u2019m broke',
+        'ahora no',
+        'no gracias',
+        'no puedo',
+        'después',
+        'otro día',
+        '<p>not now</p>',
+    ]) {
+        assert.equal(isRefusal(t), true, `refusal: ${t}`);
+    }
+
+    for (const t of [
+        '',
+        'no way you are so hot',
+        'too expensive',
+        'can I get it for free?',
+        'nothing',
+        'know what',
+        'notice me',
+        'yes!',
+        'how much?',
+        'pass me the salt please',
+    ]) {
+        assert.equal(isRefusal(t), false, `not a refusal: ${t}`);
+    }
+
+    const unpaid = () => ppv({ isOpened: false });
+    const A = (ms, tags = {}) => autoHints(ms, tags).aftersale;
+    assert.equal(A([unpaid(), msg({ text: 'not now' })]), true);
+    assert.equal(A([unpaid(), msg({ text: 'not now' }), me()]), false); // she answered
+    assert.equal(
+        A([unpaid(), msg({ text: 'not now' }), me({ fromQueue: true })]),
+        true,
+    );
+    assert.equal(A([unpaid(), msg({ text: 'wow you look great' })]), false);
+    // His NEWEST message decides: a no then a warm-up isn't "after a no" any more.
+    assert.equal(
+        A([unpaid(), msg({ text: 'no' }), msg({ text: 'ok show me' })]),
+        false,
+    );
+    assert.equal(A([ppv({ isOpened: true }), msg({ text: 'no' })]), false); // he bought it
+    assert.equal(A([msg({ text: 'no' })]), false); // no PPV at all
+    assert.equal(A([msg({ text: 'no' }), unpaid()]), false); // the no came before the PPV
+    // A hidden unbought mass PPV isn't a pitch to him.
+    assert.equal(A([ppv({ fromQueue: true }), msg({ text: 'no' })]), false);
+    // A free preview isn't the PPV either.
+    {
+        const fp = ppv({ isOpened: false });
+        assert.equal(
+            A([fp, msg({ text: 'no' })], { [fp.id]: 'free_preview' }),
+            false,
+        );
+    }
+    // A tip after his no doesn't hide the no.
+    assert.equal(
+        A([
+            unpaid(),
+            msg({ text: 'no thanks' }),
+            msg({ isTip: true, price: 5, text: '' }),
+        ]),
+        true,
+    );
 
     // Hook: a new subscriber she hasn't written to herself yet.
     const DAY = 86400000;
@@ -727,6 +807,14 @@ assert.equal(ladderOffer(null, 21), null);
         false,
     );
     assert.equal(stateChipLock('post_tip', open, S0).lit, false);
+    {
+        const r = stateChipLock('aftersale', open, { ...S0, aftersale: true });
+        assert.equal(r.lit, true);
+        assert.equal(
+            r.hint,
+            'He said no to the PPV — wrap up warmly (After a no)',
+        );
+    }
     {
         const r = stateChipLock('hook', open, { ...S0, hook: true });
         assert.equal(r.lit, true);

@@ -297,6 +297,10 @@ glows too.
 - **Hook**: he subscribed in the last 7 days and nobody has written to him yet ("New subscriber —
   say hi"). Mass messages and OnlyFans' automatic Welcome Message don't count as writing to him.
   You only see this inside the open chat; the chat list doesn't mark new subscribers.
+- **Aftersale**: he said no to the PPV you sent ("no", "not now", "maybe later", "no gracias"…)
+  and you haven't answered yet ("He said no to the PPV — wrap up warmly (After a no)"). Pick
+  **After a no** for a warm sign-off. A price push-back like "too expensive" is an objection:
+  use the **Objection** button instead.
 - **Re-pitch**, **FreePicture** and **PPV** also light up, as explained above and in section 7c.
 
 The light goes off by itself once you send him a message. A lit button is only a hint: nothing is

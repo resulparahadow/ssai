@@ -391,6 +391,7 @@ export interface StateChipState {
     postPurchase: boolean;
     postTip: boolean;
     hook: boolean;
+    aftersale: boolean;
 }
 
 export interface StateChipLock extends IntentLock {
@@ -430,6 +431,14 @@ export function stateChipLock(
 
     if (key === 'post_tip' && base.enabled && s.postTip) {
         return { ...base, lit: true, hint: 'He just tipped — thank him' };
+    }
+
+    if (key === 'aftersale' && base.enabled && s.aftersale) {
+        return {
+            ...base,
+            lit: true,
+            hint: 'He said no to the PPV — wrap up warmly (After a no)',
+        };
     }
 
     if (key === 'hook' && base.enabled && s.hook) {
@@ -556,6 +565,7 @@ export const EMPTY_FAN_STATE: ComposerFanState = {
     postPurchase: false,
     postTip: false,
     hook: false,
+    aftersale: false,
     nextRung: null,
     parts: [],
 };
@@ -581,6 +591,7 @@ export function composerFanState(
         postPurchase: hints.postPurchase,
         postTip: hints.postTip,
         hook: hints.hook,
+        aftersale: hints.aftersale,
         nextRung: next,
         parts: stateSummaryParts({
             lastRung: last,
