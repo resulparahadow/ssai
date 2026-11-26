@@ -111,3 +111,17 @@ it('aftercareContext maps both options', function () {
     expect(AgentIntents::aftercareContext('after_sexting'))->toBe('aftersex')
         ->and(AgentIntents::aftercareContext('after_no'))->toBe('ladder_stop');
 });
+
+it('engine/intent_directives.json slice2 block matches every PHP slice-2 directive', function () {
+    $json = json_decode(file_get_contents(dirname(__DIR__, 2).'/engine/intent_directives.json'), true)['slice2'];
+    $expected = [];
+    foreach (AgentIntents::serverKeys() as $key) {
+        if (in_array($key, ['repitch', 'reoffer_mppv', 'aftersale'], true)) {
+            continue;
+        }
+        foreach (AgentIntents::options($key) ?: [null] as $o) {
+            $expected[$key.($o ? ':'.$o : '')] = AgentIntents::directive($key, $o, [], []);
+        }
+    }
+    expect($json)->toBe($expected);
+});

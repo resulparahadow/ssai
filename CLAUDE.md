@@ -681,7 +681,28 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `SsPayPill` (replaces `· Mass`; shows "· auto" without an override; per-message re-tags are sequenced so a fast double
     change can't land out of order) and the rail PPV tab (`lib/sentPpvs.ts`) follows tags. Guards: `tests/Feature/{MessageTagTest,
     OnlyFansChatGenerateTagsTest,OnlyFansChatIntentTest}.php`, `tests/Unit/AgentIntentsTest.php`, `tests/client/intents-check.mjs`,
-    `node engine/intent_check.js`. NOT in slice 1: 5b state switches, objection/goodbye/promise intents, the other 5c counters.
+    `node engine/intent_check.js`. NOT yet: 5b state switches, the other 5c counters.
+    **Slice 2 (2026-11-27, plan `docs/superpowers/plans/2026-11-27-agent-intents-slice2.md`)** — the bar is now **PPV ·
+    Re-pitch · CTA ▾ · Objection ▾ · ChitChat · Sexting · Tip ask · Goodbye ▾ · More ▾** (More: Re-offer MPPV, Promise ▾,
+    Post-purchase, Post-tip, FreePicture, Breadcrumb, Hook, Follow-up, Aftersale ▾). **`resources/js/lib/intent-catalogue.json`
+    is the ONE list** (key, label, group `bar|more`, `server`, `options[]`): PHP reads it via a `__DIR__` path
+    (`AgentIntents::catalogue()/serverKeys()/options()`), the client via `lib/intents.ts` (`INTENT_KEYS` pinned to it by
+    `tests/client/intents-check.mjs`). Add an intent there first. A chip is an **`IntentRef {key, option}`** (`sameIntent`,
+    `intentRefLabel` = `Intent – Option`); `generate` takes `intent` + **`intentOption`**, validated server-side (a
+    dropdown intent without a valid option → 422 "Pick an option for this intent."). `AgentIntents::directive($key,
+    $option, $thread, $droppedMass)` builds 14 more fixed directives from the same override channel: CTA 1/2, Objection
+    ×11 (numbered "PART 11 objection N" by catalogue order; holds the price, no number), Sexting, Promise ask/reinforce1/
+    reinforce2, Post-purchase, Post-tip, Tip ask (never a number), Breadcrumb, Hook, ChitChat, Follow-up, Goodbye phase 1-3.
+    **Aftersale is NOT a directive** — it is legacy's aftercare mode: `EngineClient` sets session `_aftercareMode` +
+    `_aftercareContext` (`after_sexting` → `aftersex`, `after_no` → `ladder_stop`), sends **no `context`**, so a typed note
+    is dropped and the response carries **`noteDropped: true`** (draft card: "Your note wasn't used for Aftersale").
+    **FreePicture** is a client flow like `ppv`: `SsVaultPickerModal` in photo-only mode → an **ad-hoc step with
+    `stepId 0` (`AD_HOC_STEP_ID`)** → ONE caption generate (`sender:'ppv'`); its send posts `mediaFiles` (+ `price` only when
+    > 0) and NEVER `scriptStepId` (no ledger row — id 0 is not a script step). Guards: `engine/intent_check.js` check 4
+    (the aftercare template + hard block reach the generator prompt, and only with the mode on), `tests/Unit/AgentIntentsTest.php`
+    (incl. the JSON drift test). **Spot check:** `node engine/intent_spot.js --slice2` (manual, ~30 real generations, invented
+    thread only) reads the `slice2` block of `engine/intent_directives.json`, pinned to PHP by the drift test; reword a directive
+    in `AgentIntents`, the JSON and the pinned test strings together.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check). The Maps are module-scoped and NOT cleared on a

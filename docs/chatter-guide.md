@@ -267,12 +267,15 @@ Notes:
 
 ## 7b. The intent bar — take control of the next message
 
-Above the message box there is a row of buttons: **PPV**, **Re-pitch** and **Re-offer MPPV**,
-with a small line of counts under it (messages in the chat, messages since the last PPV).
-Use them when SSAI is looping or reading the chat wrong and you know what the next message
-should be. One click writes a draft for that move — it never sends by itself. You still
-**Accept** or **Send**. It applies to that one message only; the next plain Generate is SSAI
-back on its own pacing.
+Above the message box there is a row of buttons: **PPV**, **Re-pitch**, **CTA**, **Objection**,
+**ChitChat**, **Sexting**, **Tip ask**, **Goodbye** and a **More** menu, with a small line of
+counts under it (messages in the chat, messages since the last PPV). Buttons with a small arrow
+(CTA, Objection, Goodbye, and Promise / Aftersale inside More) open a short list: pick one
+option and the draft is written. Use them when SSAI is looping or reading the chat wrong and you
+know what the next message should be. One click writes a draft for that move — it never sends
+by itself. You still **Accept** or **Send**. It applies to that one message only; the next
+plain Generate is SSAI back on its own pacing. The draft card says which button it came from
+("Intent: Objection – Too expensive / discount").
 
 Anything you type in the box when you click is added to the button as an extra note
 ("Agent note"), so you can say *how* to do it. A button can't be talked out of its job.
@@ -289,9 +292,44 @@ Anything you type in the box when you click is added to the button as an extra n
   and SSAI writes the caption for it, as in section 7.
 - **Re-pitch**: nudges him to open the PPV that is already in the chat. Same price, no discount,
   no new content, no number in the text. Curiosity and a light push, not pressure.
-- **Re-offer MPPV**: takes a mass message he didn't buy and offers that same content to him
-  personally, as if it were just for him. No price in the text; you attach the content and
+- **Re-offer MPPV** (in **More**): takes a mass message he didn't buy and offers that same content
+  to him personally, as if it were just for him. No price in the text; you attach the content and
   set the price yourself.
+- **CTA 1 / CTA 2**: CTA 1 builds the personal connection that makes him want to see more (no
+  offer, no price yet). CTA 2 gives him the reason to open or buy now, with curiosity (never
+  describes the content, never names a price).
+- **Objection**: pick what he said (Only want naked, Is it worth it?, You lied / expected more,
+  Only want a body part / menu, Other girls show more for less, Too expensive / discount,
+  Something for free, Bad experiences, Send a preview, Later / not now, Didn't like it). SSAI
+  answers it the way the playbook says: understands him, brings it back to the connection, adds
+  curiosity. It holds the price: no discount and no number in the text.
+- **ChitChat**: a friendly rapport message, flirts on what he said and asks about him. No selling.
+- **Sexting**: one warm-up sexting message that builds the scene and hands the next move back to
+  him with a question. No PPV pitch, no price.
+- **Tip ask**: one tip ask, kept vague, in her voice (spoil her / take care of her). Never an
+  amount or number.
+- **Goodbye**: pick Phase 1 (bounce back and pivot), Phase 2 (chill chat and vetting) or
+  Phase 3 (smooth exit), one message each.
+- **Promise** (More): **Ask** opens the promise ritual (the trust ask before any content);
+  **Reinforce x1** and **Reinforce x2** are the follow-up messages after he agrees. They
+  reinforce, they don't ask again.
+- **Post-purchase** (More): he just opened her PPV. SSAI reacts to it and asks him one deeper
+  question. No new pitch, no price.
+- **Post-tip** (More): he just tipped. Real thanks plus a question about him. No content, no
+  pitch, no price.
+- **FreePicture** (More): opens your vault with photos only. Pick one or more photos and SSAI
+  writes a short caption for them. Sending posts the photos for free (no price unless you set one)
+  and does not tick any script step as sent.
+- **Breadcrumb** (More): moves from chit-chat toward a pitch by dropping one scene hint tied to
+  something he said. No offer, no price.
+- **Hook** (More): an eye-catching first message to a new subscriber. Short, personal, easy to
+  answer. No selling.
+- **Follow-up** (More): he went quiet after spending. One light, warm message that calls back to
+  the last specific thing he shared. No chasing, no guilt, no pitch.
+- **Aftersale** (More): pick **After sexting** or **After a no**. SSAI writes a caring aftercare
+  message and does not pitch. **Anything you typed in the box is not used for Aftersale**, and the
+  draft card tells you ("Your note wasn't used for Aftersale"). If you need a specific message,
+  write it yourself.
 
 **The tag chip.** Every priced message you sent has a small chip on its bubble: **Chat PPV**,
 **Mass** or **Free preview**. SSAI guesses it (it says "· auto"). Click it to correct it, or
