@@ -349,6 +349,10 @@ export interface CreatorModel {
     of_account_id: string | null;
     /** IANA zone the AI's clock reads in; null → the agency default. */
     timezone: string | null;
+    /** Shows the Language state switch for this creator's fans. */
+    is_bilingual?: boolean;
+    /** PPV price ladder (next-rung suggestion only); the server fills the default. */
+    price_ladder?: number[];
     assigned: number[];
 }
 

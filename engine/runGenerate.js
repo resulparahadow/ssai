@@ -8,6 +8,7 @@
 const { createEngine, makeSbCapture } = require('./loadEngine');
 const { makeRealCallApi, makeRealCallMistral } = require('./callModel');
 const { followUpContext, withFollowUp } = require('./followUp');
+const { stateBlock, withStateNote, installHooks, pinPromise, repinTelemetry } = require('./stateNote');
 
 /**
  * @param {object} input
@@ -20,6 +21,7 @@ const { followUpContext, withFollowUp } = require('./followUp');
  *   pasteInput: raw text (only used when session.inputMode === 'paste')
  *   doctrine: optional doctrine override (defaults to the legacy DEFAULT_TRAINING constant)
  *   timezone: the creator's IANA zone — legacy's "current time" prompt lines read this clock (default: host)
+ *   stateOverrides: §5b manual state switches, legacy-shaped; present only when one is manual (see stateNote.js)
  * @param {object} [opts] { callApi, callMistral } injected for tests
  */
 async function generateDraft(input, opts = {}) {
@@ -31,6 +33,11 @@ async function generateDraft(input, opts = {}) {
     session.creator_model = session.creator_model || input.model.name;
     session.messages = session.messages || [];
     if (!('inputMode' in session)) session.inputMode = 'chat';
+    // §5b: absent/empty → no note, no hooks, byte-identical to before.
+    const overrides = input.stateOverrides && typeof input.stateOverrides === 'object' && Object.keys(input.stateOverrides).length
+        ? input.stateOverrides
+        : null;
+    pinPromise(session, overrides);
 
     const writes = [];
     const sb = makeSbCapture(writes);
@@ -56,6 +63,9 @@ async function generateDraft(input, opts = {}) {
         callApi: opts.callApi || makeRealCallApi(usage),
         callMistral: opts.callMistral || makeRealCallMistral(usage),
     };
+    // The agent-set state block goes on FIRST, i.e. innermost: every outer wrapper appends before
+    // passing down, so this lands after everything else in the prompt (the follow-up note too).
+    if (overrides) transport = withStateNote(transport, stateBlock(overrides));
     // The creator spoke last (the fan hasn't answered): tell every reply-writing call, or legacy —
     // which assumes the newest line is the fan's — answers her own message. See followUp.js.
     // Only for a normal reply: PPV caption mode (sender 'ppv') is a different task.
@@ -91,6 +101,7 @@ async function generateDraft(input, opts = {}) {
     };
     eng.set('callApi', transport.callApi);
     eng.set('callMistral', transport.callMistral);
+    if (overrides) installHooks(eng, overrides);
 
     // DOM-fed inputs.
     document.getElementById('ctxIn').value = input.context || '';
@@ -132,7 +143,7 @@ async function generateDraft(input, opts = {}) {
     return {
         draft: s.draft || '',
         strategy,
-        telemetry: {
+        telemetry: repinTelemetry({
             posture: s._posture ?? null,
             customerTier: s._customerTier ?? null,
             freeMsgCount: s._freeMsgCount ?? null,
@@ -151,7 +162,10 @@ async function generateDraft(input, opts = {}) {
             tosWarning: s._tosWarning ?? null,
             registerHits: s._registerHitsFirstPass ?? null,
             reasoningLeakStripped: s._reasoningLeakStripped ?? null,
-        },
+            // §5c counter signals legacy already computes; only exposing them is new.
+            forkType: s._pendingPassCAdvance?.ladderState?.fork?.type ?? null,
+            wallDetected: strategy?.wall_detected ?? null,
+        }, overrides),
         ppvSuggestion,
         usage,
         writes,

@@ -34,6 +34,8 @@ class CustomerProfile extends Model
         'sexting_mode',
         'tip_mode',
         'last_seen_at',
+        'state_overrides',
+        'rls_beat_sent_at',
     ];
 
     /** AI-owned fields the folded analysis writes; each can be pinned in locked_fields. */
@@ -59,5 +61,7 @@ class CustomerProfile extends Model
         'locked_fields' => 'array',
         'key_details_written_at' => 'datetime',
         'last_seen_at' => 'datetime',
+        'state_overrides' => 'array',
+        'rls_beat_sent_at' => 'datetime',
     ];
 }
