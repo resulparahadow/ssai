@@ -32,7 +32,8 @@ creatorContext.reconcile(creators.value, can(user.value.role, 'manageTeam'));
 // were scoped to the wrong creator. The cookie is corrected now — reload once so SSR data
 // matches the selector. No-op in the common case (cookie + store agree), so no first-load cost.
 onMounted(() => {
-    const serverCtx = (page.props.creatorContext as CreatorContext | null) ?? null;
+    const serverCtx =
+        (page.props.creatorContext as CreatorContext | null) ?? null;
 
     if (serverCtx && creatorContext.selectedId.value !== serverCtx.selectedId) {
         router.reload();
@@ -44,6 +45,10 @@ const title = computed(() => {
 
     if (path.startsWith('/settings')) {
         return 'Settings';
+    }
+
+    if (path === '/guide') {
+        return 'Chatter guide';
     }
 
     return NAV.find((n) => n.href === path)?.label ?? 'Overview';

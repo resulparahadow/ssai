@@ -1014,6 +1014,11 @@ engine uses its in-process copy. Provider keys live in the engine's env
   delivery needs a public URL (tunnel) + the webhook subscribed to `messages.received` (no secret
   yet). Deferred: `messages.sent`/outbound echo, signature verification, inbound media/PPV rendering,
   browser/system (Notification API) alerts.
+- **Chatter guide page — DONE.** `/guide` (`GuideController`, every signed-in role) renders
+  `docs/chatter-guide.md` server-side (GitHub-flavoured Markdown, raw HTML escaped, h2/h3 get slug
+  ids + a contents list) into `pages/Guide.vue`, so **the .md file is the one source**: edit it and
+  the page follows. Opened from the header's **Guide** button (`SsTopbar`), shown only on
+  `/conversations`, in a new tab so the open chat and any draft stay put. Guard: `tests/Feature/GuideTest.php`.
 - **Production data migration** from the old Supabase project.
 
 ## Deployment (production — Docker + Caddy, DONE)

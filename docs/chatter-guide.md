@@ -1,6 +1,6 @@
 # SSAI Chatter Guide — How to Talk to SSAI
 
-*For chatters working in the SSAI Conversations page. Last updated 2026-10-30.*
+*For chatters working in the SSAI Conversations page. Last updated 2026-11-27.*
 
 SSAI is not a magic button — it is a copilot you steer. This guide shows every
 control you have, what it actually does, and what to type when SSAI is going in
@@ -13,7 +13,8 @@ the wrong direction.
 Every time you press **Generate**, SSAI looks at:
 
 - **The conversation on your screen** — the loaded messages (about the last 100),
-  including who sent what, PPVs and whether they were opened, tips, and timing.
+  including who sent what, PPVs and whether they were opened, tips (with the amount),
+  photos or videos **he** sent, and timing.
 - **The fan's money history** — lifetime spend, tips, subscription status
   (pulled live from OnlyFans).
 - **The Fan tab** — the memory log, the fan note, and the control toggles
@@ -286,6 +287,21 @@ Anything you type in the box when you click is added to the button as an extra n
 - **Re-pitch** needs a PPV he hasn't opened (`No unpaid PPV`) and at least 5 messages since it
   (`3 of 5 messages since the unpaid PPV`). When it is ready it lights up.
 - **Re-offer MPPV** needs a mass message he never bought (`No unbought mass PPV`).
+
+**Buttons that light up by themselves.** Some buttons glow when the chat shows it is their
+moment. Hover a lit button to see why. If the lit button is inside **More**, the **More** button
+glows too.
+- **Post-tip**: he tipped after your last message ("He just tipped — thank him").
+- **Post-purchase**: he bought the newest PPV and you haven't written since ("He bought the PPV —
+  follow up").
+- **Hook**: he subscribed in the last 7 days and nobody has written to him yet ("New subscriber —
+  say hi"). Mass messages and OnlyFans' automatic Welcome Message don't count as writing to him.
+  You only see this inside the open chat; the chat list doesn't mark new subscribers.
+- **Re-pitch**, **FreePicture** and **PPV** also light up, as explained above and in section 7c.
+
+The light goes off by itself once you send him a message. A lit button is only a hint: nothing is
+written or sent until you click it. A plain **Generate** sees the tip too, but it may not thank
+him. If you want the thank-you, click the lit **Post-tip**.
 
 **What each one does**
 - **PPV**: opens the Scripts panel on the next PPV script you haven't sent. Pick it with **Use**
