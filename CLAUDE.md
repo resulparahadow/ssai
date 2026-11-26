@@ -684,7 +684,7 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `SsPayPill` (replaces `· Mass`; shows "· auto" without an override; per-message re-tags are sequenced so a fast double
     change can't land out of order) and the rail PPV tab (`lib/sentPpvs.ts`) follows tags. Guards: `tests/Feature/{MessageTagTest,
     OnlyFansChatGenerateTagsTest,OnlyFansChatIntentTest}.php`, `tests/Unit/AgentIntentsTest.php`, `tests/client/intents-check.mjs`,
-    `node engine/intent_check.js`. NOT yet: 5b state switches, the other 5c counters.
+    `node engine/intent_check.js`. The 5b state switches and the remaining 5c counters came later (see State switches below).
     **Slice 2 (2026-11-27, plan `docs/superpowers/plans/2026-11-27-agent-intents-slice2.md`)** — the bar is now **PPV ·
     Re-pitch · CTA ▾ · Objection ▾ · ChitChat · Sexting · Tip ask · Goodbye ▾ · More ▾** (More: Re-offer MPPV, Promise ▾,
     Post-purchase, Post-tip, FreePicture, Breadcrumb, Hook, Follow-up, Aftersale ▾). **`resources/js/lib/intent-catalogue.json`
@@ -746,7 +746,8 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `node engine/switch_spot.js` (manual, NOT CI, invented threads, one case per process via `--only=`); on 2026-11-26
     (5 switches × 2 drafts) no forbidden content 10/10, switch followed 8/10 — both Lane rude drafts were calm and
     unsold but never stated a boundary; the rule now says "state one clear boundary in plain words" and the rerun
-    followed it 2/2. Guards:
+    stated one 2/2 (one of them also opened by denying being a bot, which the reworded rule's "don't defend
+    yourself" frowns on). Guards:
     `tests/{Unit,Feature}/StateSwitchesTest.php`, `tests/client/state-check.mjs`, `node engine/switch_check.js`.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the

@@ -393,6 +393,30 @@ type RowSnapshot = {
 };
 const stateConfirmed = new Map<string, RowSnapshot>();
 
+// Rows whose latest change failed and was rolled back while an OLDER save was still in flight:
+// if that older save then lands, it is the server's value and the row must show it.
+const stateRolledBack = new Set<string>();
+
+/** Show a row's snapshot on the stored profile (a rollback, or a late older save landing). */
+function applyRow(fanId: string, key: SwitchKey, snap: RowSnapshot): void {
+    const cur = fanProfiles.get(fanId);
+
+    if (!cur) {
+        return;
+    }
+
+    if (key === 'trust') {
+        cur.trust_level = snap.trust;
+        cur.locked_fields = snap.locked;
+
+        if (profileKey.value === fanId) {
+            form.trust_level = snap.trust;
+        }
+    } else {
+        putSwitch(cur, key, (snap.override ?? null) as SwitchValue | null);
+    }
+}
+
 function rowSnapshot(p: OfFanProfile, key: SwitchKey): RowSnapshot {
     return {
         override: p.state_overrides[key as keyof typeof p.state_overrides],
@@ -479,6 +503,7 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
 
     const seq = (stateSeq.get(rowId) ?? 0) + 1;
     stateSeq.set(rowId, seq);
+    stateRolledBack.delete(rowId); // this change owns the row now
     const pending = statePending.get(fanId) ?? new Map();
     statePending.set(fanId, pending);
     pending.set(key, value);
@@ -499,15 +524,21 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
             switchPatch(key, value),
         );
 
-        // Saved, even if a newer change on this row is still in flight: that is now the value
-        // to roll back to.
-        stateConfirmed.set(rowId, rowSnapshot(next, key));
-
         if (stateSeq.get(rowId) !== seq) {
-            return; // a newer change on this row owns it
+            if (stateRolledBack.has(rowId)) {
+                // The newer change already failed and rolled back to a value from before this
+                // one: this save is the server's truth now, so show it.
+                applyRow(fanId, key, rowSnapshot(next, key));
+            } else {
+                // A newer change is still in flight: this is now the value to roll back to.
+                stateConfirmed.set(rowId, rowSnapshot(next, key));
+            }
+
+            return;
         }
 
         stateConfirmed.delete(rowId);
+        stateRolledBack.delete(rowId);
         pending.delete(key);
         applyStateKeys(fanId, next);
     } catch (e) {
@@ -517,26 +548,10 @@ async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
 
         const before = stateConfirmed.get(rowId) ?? rowSnapshot(p, key);
         stateConfirmed.delete(rowId);
+        stateRolledBack.add(rowId);
         pending.delete(key);
         // Roll back THIS row only: another row may have changed meanwhile.
-        const cur = fanProfiles.get(fanId);
-
-        if (cur) {
-            if (key === 'trust') {
-                cur.trust_level = before.trust;
-                cur.locked_fields = before.locked;
-
-                if (profileKey.value === fanId) {
-                    form.trust_level = before.trust;
-                }
-            } else {
-                putSwitch(
-                    cur,
-                    key,
-                    (before.override ?? null) as SwitchValue | null,
-                );
-            }
-        }
+        applyRow(fanId, key, before);
 
         if (profileKey.value === fanId) {
             stateError.value =
