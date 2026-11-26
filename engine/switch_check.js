@@ -128,7 +128,7 @@ const CASES = [
     ],
     [
         { lane: 'rude' },
-        "- Lane: Rude — stay calm and short, set one clear boundary, no selling while he's rude, don't argue or chase",
+        "- Lane: Rude — stay calm and short; state one clear boundary in plain words (how you will not be talked to); no selling while he's rude; don't argue, defend yourself or chase",
     ],
     [{ posture: 'WARM_BUILD' }, '- Posture: Normal — '],
     [
