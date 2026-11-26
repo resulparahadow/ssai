@@ -366,7 +366,8 @@ Generate for this fan, for every chatter, until someone sets it back to **Auto**
 | **Support mode** | Off · On | See below. |
 
 **Two settings beat the card.** The **Mark as timewaster** box on the Fan tab wins over Posture:
-while it is ticked the Posture row is grey and reads "Timewaster (flag on Fan tab)". And an
+while it is ticked the Posture row is grey and reads "Timewaster (flag on Fan tab)", and SSAI also
+ignores a Fan type you set (it treats him as a flagged timewaster). And an
 intent button still decides its own one message; the card is the background it works in.
 
 **Support mode** is for a fan who is going through something (illness, a loss, a crisis). While it
@@ -387,8 +388,8 @@ thread header so nobody forgets it is on. Turn it off on the card when he's read
   button lights up when it is unlocked ("He keeps pushing for sexual content — time to sell").
 
 Both counts go up once per fan message when you **Accept** or send a draft (accepting two drafts
-for the same message counts once), and go back to 0 when he buys a PPV or the chat goes quiet for
-12 hours.
+for the same message counts once), and go back to 0 when he buys a PPV sent after the last count,
+or the chat goes quiet for 12 hours.
 
 ---
 

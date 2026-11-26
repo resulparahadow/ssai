@@ -283,14 +283,43 @@ it('saves is_bilingual and the price ladder on the creator model', function () {
         ->assertSessionHasErrors('price_ladder.0');
 });
 
-it('sends the timewaster flag alongside a Posture override so the engine can let the flag win', function () {
+it('drops a Posture override when the timewaster flag is on, so the flag wins', function () {
     $p = stateFeatureOverrides(['posture' => 'normal']);
     $p->update(['is_timewaster' => true]);
     stateFeatureFake();
     stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk();
     $body = stateFeatureEngineBody();
-    expect($body['stateOverrides'])->toBe(['posture' => 'WARM_BUILD'])
+    expect($body)->not->toHaveKey('stateOverrides')
         ->and($body['session']['_profile']['is_timewaster'])->toBeTrue();
+});
+
+it('drops Posture and Fan type but keeps other switches when the timewaster flag is on', function () {
+    $p = stateFeatureOverrides(['phase' => 'rapport', 'fan_type' => 'spender', 'posture' => 'frame_hold']);
+    $p->update(['is_timewaster' => true]);
+    stateFeatureFake();
+    stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk();
+    expect(stateFeatureEngineBody()['stateOverrides'])->toBe(['phase' => 'rapport']);
+});
+
+it('does not store a promise forced at generate when the switch is back to Auto at accept', function () {
+    AichChatState::withoutGlobalScopes()->create(['creator_model' => 'Camila', 'chat_id' => '101', 'promise_status' => 'not_started']);
+    $p = stateFeatureOverrides(['promise' => 'asked']);
+    stateFeatureFake();
+    $gen = stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk()->json();
+    expect($gen['telemetry']['promisePinned'])->toBeTrue();
+
+    $p->update(['state_overrides' => null]); // switch back to Auto before Accept
+    $this->actingAs($this->admin)->postJson($this->base.'/state', ['strategy' => $gen['strategy'], 'telemetry' => $gen['telemetry']])->assertOk();
+    expect(AichChatState::withoutGlobalScopes()->first()->promise_status)->toBe('not_started');
+});
+
+it('stores promise progress from a draft generated with the switch on Auto', function () {
+    stateFeatureOverrides(['phase' => 'rapport']);
+    stateFeatureFake();
+    $gen = stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk()->json();
+    expect($gen['telemetry']['promisePinned'])->toBeFalse();
+    $this->actingAs($this->admin)->postJson($this->base.'/state', ['strategy' => $gen['strategy'], 'telemetry' => $gen['telemetry']])->assertOk();
+    expect(AichChatState::withoutGlobalScopes()->first()->promise_status)->toBe('verbally_committed');
 });
 
 it('clears the RLS sent-marker when the beat is set by hand', function () {

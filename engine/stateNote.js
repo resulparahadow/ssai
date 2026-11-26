@@ -16,7 +16,8 @@
  *    - posture / customer tier: legacy calls `computePosture` / `computeCustomerTier` by global
  *      name inside `recomputePosture`, so a per-VM wrapper (eng.set re-binds the global) forces
  *      them. The Fan-tab timewaster flag (`_profile.is_timewaster === true`) wins over both: the
- *      wrappers then return legacy's own result unchanged.
+ *      wrappers then return legacy's own result unchanged, and the note leaves out its Posture and
+ *      Fan type lines (Laravel already drops both for a flagged fan; this is the engine's own guard).
  *    - promise: runGenerate pins `_promiseStatus` before the run and re-applies it after
  *      (pinPromise / repinTelemetry), and `detectPromiseCommitment` is held off so legacy's
  *      in-turn in_progress → verbally_committed flip can't fire.
@@ -99,12 +100,19 @@ const LANGUAGES = {
 const isEmpty = (o) =>
     !o || typeof o !== 'object' || Object.keys(o).length === 0;
 
+/** True when the Fan-tab timewaster flag is on — the stronger, older human setting wins. */
+const flagged = (profile) => !!profile && profile.is_timewaster === true;
+
 /**
  * The note: the verbatim header plus one line per manual switch, in spec §4 order
  * (Phase, RLS beat, Fan type, Lane, Posture, Promise state, Language, Support mode). '' when none.
+ * With the Fan-tab timewaster flag on (`profile.is_timewaster === true`) the Posture and Fan type
+ * lines are left out, like the hooks give way: legacy's FLAGGED_TW posture / flagged_tw tier rule,
+ * and a "treat as true" line contradicting them would break that precedence.
  */
-function stateBlock(o) {
+function stateBlock(o, profile) {
     if (isEmpty(o)) return '';
+    const tw = flagged(profile);
     const lines = [];
     const line = (name, value, rule) =>
         lines.push(`- ${name}: ${value} — ${rule}`);
@@ -116,21 +124,24 @@ function stateBlock(o) {
             String(o.rlsBeat),
             `write the message for beat ${o.rlsBeat} of the RLS script (PART 14)`,
         );
-    if (o.fanTier === 'new') line('Fan type', 'New', 'treat him as a new fan');
-    else if (o.fanTier === 'old' && o.spender)
-        line(
-            'Fan type',
-            'Spender',
-            'he has bought before; treat him as a buying customer',
-        );
-    else if (o.fanTier === 'old')
-        line(
-            'Fan type',
-            'Returning',
-            'he has been here before; treat him as a returning fan, not a stranger',
-        );
+    const fanType = tw
+        ? null
+        : o.fanTier === 'new'
+          ? ['New', 'treat him as a new fan']
+          : o.fanTier === 'old' && o.spender
+            ? [
+                  'Spender',
+                  'he has bought before; treat him as a buying customer',
+              ]
+            : o.fanTier === 'old'
+              ? [
+                    'Returning',
+                    'he has been here before; treat him as a returning fan, not a stranger',
+                ]
+              : null;
+    if (fanType) line('Fan type', ...fanType);
     if (LANES[o.lane]) line('Lane', ...LANES[o.lane]);
-    if (POSTURES[o.posture]) line('Posture', ...POSTURES[o.posture]);
+    if (!tw && POSTURES[o.posture]) line('Posture', ...POSTURES[o.posture]);
     if (PROMISES[o.promiseStatus])
         line('Promise state', ...PROMISES[o.promiseStatus]);
     if (LANGUAGES[o.language]) line('Language', ...LANGUAGES[o.language]);
@@ -176,9 +187,6 @@ function withStateNote({ callApi, callMistral }, block) {
             ),
     };
 }
-
-/** True when the Fan-tab timewaster flag is on — the stronger, older human setting wins. */
-const flagged = (profile) => !!profile && profile.is_timewaster === true;
 
 /**
  * Per-VM function hooks. Each generation runs in its own VM context (createEngine), so these

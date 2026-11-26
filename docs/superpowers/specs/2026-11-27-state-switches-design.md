@@ -201,7 +201,8 @@ The contracts in §6 are fixed up front, so the tracks run at the same time:
     (trust ≥ 2 → old), and the card says so under Fan type ("Auto · returning (from trust L3)").
   - **The Fan-tab timewaster flag wins over the Posture switch.** It is the stronger, older
     human setting. While it is on, the Posture row shows "Timewaster (flag on Fan tab)" and is
-    disabled.
+    disabled, and a flagged fan's Posture and Fan type overrides are not sent to the engine at all
+    (no note line, no hook), so the prompt never carries a line contradicting the flagged read.
   - A forced posture also overrides legacy's sexting posture freeze: a human setting wins. Legacy
     still sets `_autoFlagged` from the returned value as before.
 - **Counters count once per fan message, not once per accept.** Each counter stores the timestamp of

@@ -307,6 +307,34 @@ function sameExceptClock(a, b) {
         flaggedCtrl.res.telemetry.posture,
         'flag on → legacy posture, not the forced one',
     );
+    // ...and the note gives way too: no Posture / Fan type line contradicting the flagged read
+    // (with only those two set, no block at all); other switches still print.
+    for (const p of ['strategy', 'generator']) {
+        assert.ok(
+            !flagged[p].includes(HEADER),
+            `flag on → no state block in ${p} when only Posture/Fan type are set`,
+        );
+    }
+    const flaggedMixed = await run({
+        session: { _profile: profile({ is_timewaster: true }) },
+        stateOverrides: {
+            phase: 'rapport',
+            posture: 'WARM_BUILD',
+            fanTier: 'old',
+            spender: true,
+        },
+    });
+    for (const p of ['strategy', 'generator']) {
+        assert.ok(
+            flaggedMixed[p].includes('- Phase: Rapport — '),
+            `flag on → other switches still reach ${p}`,
+        );
+        assert.ok(
+            !flaggedMixed[p].includes('- Posture: ') &&
+                !flaggedMixed[p].includes('- Fan type: '),
+            `flag on → no Posture / Fan type line in ${p}`,
+        );
+    }
     // A forced value legacy would NOT reach on its own, so the precedence check can fail.
     for (const forced of ['TIMEWASTER', 'PRESSURE']) {
         assert.notStrictEqual(

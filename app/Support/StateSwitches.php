@@ -130,6 +130,30 @@ final class StateSwitches
     }
 
     /**
+     * The stored overrides that still apply at generate. A Language value stored while the
+     * creator was bilingual is ignored once she isn't (the card hides that row, so the chatter
+     * couldn't clear it). With the Fan-tab timewaster flag on, Posture and Fan type are dropped:
+     * the flag is the stronger human setting and legacy's FLAGGED_TW posture / flagged_tw tier
+     * rule, so a "treat as true" note line for either would contradict it (the card greys the
+     * Posture row, so that stored value couldn't be cleared either). The engine gives way on its
+     * own too (engine/stateNote.js); dropping them here keeps the payload honest.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public static function effective(array $overrides, bool $bilingual, bool $timewaster): array
+    {
+        if (! $bilingual) {
+            unset($overrides['language']);
+        }
+        if ($timewaster) {
+            unset($overrides['posture'], $overrides['fan_type']);
+        }
+
+        return $overrides;
+    }
+
+    /**
      * The engine's legacy-shaped `stateOverrides` (contract). [] when nothing is manual, and the
      * caller then omits the key, so an all-Auto generate reaches the engine byte-identical.
      *

@@ -47,7 +47,8 @@ class ChatStateService
      *
      * A field with a manual state switch is pinned, not earned: it is never written (spec
      * §10a), so Auto resumes from SSAI's own last value. Today that is `promise_status`
-     * (the Promise switch); Phase is note-only and has nothing to persist.
+     * (the Promise switch), skipped while it is set OR when the draft was generated under it
+     * (`telemetry.promisePinned`, stamped at generate); Phase is note-only and has nothing to persist.
      *
      * The §5c counters advance here too, once per fan message (see countOnCommit).
      *
@@ -69,7 +70,7 @@ class ChatStateService
             $attributes['last_analysis'] = $telemetry['lastAnalysis'] ?? null;
             $attributes['next_planned_move'] = $telemetry['nextPlannedMove'] ?? null;
             $attributes['next_planned_move_at_msg'] = $telemetry['nextPlannedMoveAtMsg'] ?? null;
-            if (! isset($overrides['promise'])) {
+            if (! isset($overrides['promise']) && empty($telemetry['promisePinned'])) {
                 $attributes['promise_status'] = $telemetry['promiseStatus'] ?? 'not_started';
             }
             $attributes['story_framework_step'] = (int) ($telemetry['storyFrameworkStep'] ?? 0);

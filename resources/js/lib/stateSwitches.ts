@@ -223,7 +223,8 @@ export function rowValue(key: SwitchKey, p: OfFanProfile): RowView {
 
         return locked
             ? view(`L${p.trust_level}`, true)
-            : auto(`L${p.trust_level}`);
+            : // Legacy reads an unset trust (0) as 1, like StateSwitches::autoRead.
+              auto(`L${p.trust_level || 1}`);
     }
 
     // The Fan-tab timewaster flag is the stronger, older human setting: it wins over the switch.

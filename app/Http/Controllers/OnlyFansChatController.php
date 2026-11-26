@@ -1009,6 +1009,9 @@ class OnlyFansChatController extends Controller
         $marks = $this->threadMarks($data['messages'] ?? []);
         $overrides = $this->advanceRlsBeat($profile, $marks['fanAt']);
         $counters = $this->states->refreshCounters($state, $marks['times'], $marks['openedAt']);
+        // What still applies this turn: a stale Language and, with the timewaster flag on,
+        // Posture / Fan type are dropped (the flag wins; see StateSwitches::effective).
+        $applied = StateSwitches::effective($overrides, (bool) $model->is_bilingual, (bool) $profile->is_timewaster);
 
         $startedAt = microtime(true);
 
@@ -1036,12 +1039,8 @@ class OnlyFansChatController extends Controller
                 'rejections' => $this->rejections->toEngineFeedback(
                     $this->rejections->active($model, $chat, array_column($data['messages'] ?? [], 'time')),
                 ),
-                // Legacy-shaped manual switches; [] (all Auto) → EngineClient omits the key. A
-                // Language value stored while the creator was bilingual is ignored once she isn't
-                // (the card hides that row, so the chatter couldn't clear it).
-                'stateOverrides' => StateSwitches::toEngine(
-                    $model->is_bilingual ? $overrides : array_diff_key($overrides, ['language' => true]),
-                ),
+                // Legacy-shaped manual switches; [] (all Auto) → EngineClient omits the key.
+                'stateOverrides' => StateSwitches::toEngine($applied),
             ]);
         } catch (ConnectionException $e) {
             // ConnectionException covers BOTH "nothing is listening" and "it answered too
@@ -1102,7 +1101,7 @@ class OnlyFansChatController extends Controller
                 [
                     'strategy' => $out['strategy'],
                     'generated_by' => $request->user()?->id,
-                    'telemetry' => $this->autoReadTelemetry($model, $chat, $telemetry, $overrides),
+                    'telemetry' => $this->autoReadTelemetry($model, $chat, $telemetry, $applied),
                 ],
             );
             $generatedAt = $row->updated_at?->toIso8601String();
@@ -1119,6 +1118,10 @@ class OnlyFansChatController extends Controller
                 'intent' => $intent,
                 'lane' => $overrides['lane'] ?? null,
                 'fanSexual' => $marks['fanSexual'],
+                // The promise was forced by the switch for THIS draft (telemetry repinned), so a
+                // later Accept must not store it as SSAI's progress even if the switch is back
+                // to Auto by then (commit() also skips while a current override is set).
+                'promisePinned' => isset($applied['promise']),
             ];
         }
 

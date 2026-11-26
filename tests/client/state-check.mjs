@@ -228,6 +228,8 @@ assert.equal(rowValue('language', P()).hidden, true);
 // trust: locked = manual, else the AI's level
 assert.equal(rowValue('trust', P({ trust_level: 2 })).text, 'Auto · L2');
 assert.equal(rowValue('trust', P({ trust_level: 2 })).manual, false);
+// no trust set: legacy (and StateSwitches::autoRead) read it as L1, never "L0"
+assert.equal(rowValue('trust', P({ trust_level: 0 })).text, 'Auto · L1');
 {
     const r = rowValue(
         'trust',

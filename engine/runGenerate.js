@@ -65,7 +65,7 @@ async function generateDraft(input, opts = {}) {
     };
     // The agent-set state block goes on FIRST, i.e. innermost: every outer wrapper appends before
     // passing down, so this lands after everything else in the prompt (the follow-up note too).
-    if (overrides) transport = withStateNote(transport, stateBlock(overrides));
+    if (overrides) transport = withStateNote(transport, stateBlock(overrides, session._profile));
     // The creator spoke last (the fan hasn't answered): tell every reply-writing call, or legacy —
     // which assumes the newest line is the fan's — answers her own message. See followUp.js.
     // Only for a normal reply: PPV caption mode (sender 'ppv') is a different task.

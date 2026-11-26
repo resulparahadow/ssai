@@ -727,13 +727,17 @@ engine uses its in-process copy. Provider keys live in the engine's env
     it):` block (one `- Switch: value — rule` line per manual switch, §4 order) as the INNERMOST transport wrapper, so it
     sits after everything (follow-up note included) on every strategy*/generator* call; it is not the AGENT OVERRIDE
     channel, so an intent's directive still wins for its one message. It also wraps `computePosture` /
-    `computeCustomerTier` per VM (the Fan-tab `is_timewaster` flag wins over both — the Posture row is disabled while it
-    is on), pins `_promiseStatus` (and re-pins it in telemetry), and `ChatStateService::commit` never writes a field with
-    a manual override. **RLS auto-advance:** a send under a manual beat stamps `customer_profiles.rls_beat_sent_at`; the
+    `computeCustomerTier` per VM, pins `_promiseStatus` (and re-pins it in telemetry), and `ChatStateService::commit`
+    never writes a field with a manual override, nor a promise the draft was generated under (`telemetry.promisePinned`).
+    **The Fan-tab `is_timewaster` flag beats Posture and Fan type everywhere:** `StateSwitches::effective` drops both
+    before `toEngine`, so a flagged fan's Posture/Fan type never reach the engine (no note line, no hook), and the engine
+    gives way on its own too (`stateBlock` skips those lines, the hooks return legacy's result); the Posture row is
+    disabled while the flag is on. **RLS auto-advance:** a send under a manual beat stamps `customer_profiles.rls_beat_sent_at`; the
     next generate with a NEWER fan message moves the beat N → N+1 (cap 12) and returns `rlsBeat`. **Support mode is the
-    one hard rule:** `StateSwitches::SELLING_INTENTS` (`ppv`, `repitch`, `reoffer_mppv`, `cta`, `tip_ask`, `promise`,
-    `free_picture`) 422 `Support mode is on — no selling.` before any upstream call, and so does a priced `send` (free
-    media and text still go); the client greys those chips, refuses a priced step load AND a priced send, and shows a
+    one hard rule:** the server-intent keys among `StateSwitches::SELLING_INTENTS` (`repitch`, `reoffer_mppv`, `cta`,
+    `tip_ask`, `promise`) 422 `Support mode is on — no selling.` before any upstream call; `ppv`/`free_picture` are client
+    flows (never a server `intent`) blocked on the client, and their priced send 422s server-side, as does any priced
+    `send` (free media and text still go; a PPV caption generate itself is not refused); the client greys those chips, refuses a priced step load AND a priced send, and shows a
     "Support mode" pill. **§5c counters** on `aich_chat_state`: `objection_redirects` (strategy `wall_detected ===
     'objection'` or the Objection intent) and `sex_only_pulls` (legacy fork `vending_machine_attempt`, or Lane sex-only +
     a sexual fan message — a narrow keyword read, everyday words excluded). They advance on commit-on-accept, ONCE per fan
