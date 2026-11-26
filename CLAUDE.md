@@ -708,6 +708,24 @@ engine uses its in-process copy. Provider keys live in the engine's env
     threads no forbidden content 16/16 and positive intent ≈14/16 (CTA 1 #2 and Objection #2 weak); the generic run's
     positive lines were weaker because drafts tend to answer the fan's last question) reads the `slice2` block of `engine/intent_directives.json`, pinned to PHP by the drift test; reword a directive
     in `AgentIntents`, the JSON and the pinned test strings together.
+    **Auto hints (§5a slice 3, part 1)** — **Post-tip** and **Post-purchase** light up by themselves
+    (`lib/autoHints.ts` → `composerFanState` → `stateChipLock`, title = the reason; More lights too):
+    Post-tip when the fan tipped after the creator's last message, Post-purchase when the NEWEST PPV
+    (chat or mass, never a free preview) is bought and the creator wrote nothing after it — OnlyFans
+    gives `isOpened` but no purchase time, so that is the stand-in. Mass blasts and optimistic/failed
+    bubbles don't count as her writing. Client-only, live via the inbound updater, nothing stored;
+    support mode does not block them. **Hook** lights for a fan who subscribed in the last 7 days
+    (`OfFan.subscribedAt`, only when the fan details belong to the open chat) when the creator hasn't
+    written to him herself since — mass blasts and anything in the first 10 min (OnlyFans' own
+    automatic Welcome Message) don't count. Light only, by choice: no background draft, never an
+    auto-send. NOT yet: Aftersale glow (trigger undefined). Guard: `tests/client/state-check.mjs`.
+    **"Came with tip / media" tags** — legacy's paste-in chips, now filled from OnlyFans:
+    `LiveThreadMapper` puts `tags: {tip, tipAmount}` on a fan tip and `{customerMedia}` on a fan
+    message with media (`mediaCount`, sent by `Conversations.vue`, a load-bearing `generate` rule),
+    which legacy prints as `CUSTOMER [TIPPED $15 · CAME-WITH-MEDIA]:`. Before this a tip reached
+    the AI as an empty fan line and a fan photo as nothing. No tags key when neither applies, so
+    such threads stay byte-identical. Guards: `LiveThreadMapperTest`, `OnlyFansChatGenerateTagsTest`,
+    `node engine/tags_check.js`.
     **State switches (§5b, 2026-11-27, spec `docs/superpowers/specs/2026-11-27-state-switches-design.md`, plan
     `docs/superpowers/plans/2026-11-27-state-switches.md`)** — the chatter's LASTING corrections of SSAI's read of a fan
     (intents steer one message; these steer every generate until set back to Auto). The Fan tab's **SSAI state** card

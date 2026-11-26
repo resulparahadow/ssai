@@ -928,6 +928,8 @@ class OnlyFansChatController extends Controller
             // Load-bearing like `time` above: unlisted keys are stripped, and without
             // `fromQueue` every mass blast would read as a chatter-sent PPV again.
             'messages.*.fromQueue' => 'nullable|boolean',
+            // Load-bearing too: the fan's media count becomes legacy's CAME-WITH-MEDIA tag.
+            'messages.*.mediaCount' => 'nullable|integer|min:0',
             // Deliberately rule-less nested keys: `customer` carries id/name/username, and
             // adding `customer.*` rules would strip anything not listed — the same trap
             // documented on `messages.*.time` above. The fan's name reaches the prompt.
