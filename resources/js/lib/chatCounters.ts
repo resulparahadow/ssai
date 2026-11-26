@@ -60,7 +60,13 @@ const ts = (m: OfMessage): number | null => {
 export function chatCounters(
     messages: OfMessage[],
     tags: Record<string, MessageTag>,
-    opts: { hasMore: boolean; sessionGapHours: number },
+    opts: {
+        hasMore: boolean;
+        sessionGapHours: number;
+        // The fan's manual Fan type switch (null/absent = Auto). The server forces legacy's tier
+        // from it (new → new, returning/spender → old), so the 10-message rule follows it too.
+        fanType?: 'new' | 'returning' | 'spender' | null;
+    },
 ): ChatCounters {
     const real = messages.filter((m) => !m.pending && !m.failed);
     const unboughtMass = real.filter((m) => isHiddenMass(m, tags)).length;
@@ -118,7 +124,10 @@ export function chatCounters(
         total: opts.hasMore ? Math.max(n, PAGE) : n,
         sinceLastPpv,
         unpaidPpv,
-        returning: sessionStart > 0 || opts.hasMore,
+        returning:
+            opts.fanType != null
+                ? opts.fanType !== 'new'
+                : sessionStart > 0 || opts.hasMore,
         unboughtMass,
     };
 }
