@@ -70,7 +70,7 @@ export interface ComposerState {
     // The intent of the generate in flight; undefined = no generate owns the composer (dismiss, send or
     // step load invalidated it), so a landing result is dropped (generationStillApplies).
     requestedIntent: IntentRef | null | undefined;
-    intent: IntentRef | null; // the agent intent `suggestion` was generated for (Re-pitch / Re-offer MPPV); null = a plain reply or caption
+    intent: IntentRef | null; // the agent intent `suggestion` was generated for (any agent intent chip); null = a plain reply or caption
     noteDropped: boolean; // `suggestion` was generated without the typed override note (Aftersale)
     gif: OfGif | null; // a Giphy GIF attached to the next send
     attachment: ComposerAttachment | null; // media attached to the next send (excl. with gif)

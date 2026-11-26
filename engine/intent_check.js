@@ -80,5 +80,12 @@ const creatorLast = [
     assert.ok(asx.generator.includes(sexv) && asx.generator.includes(hard) && !asx.generator.includes(ladder), 'aftersex variant only');
     assert.ok(!off.generator.includes(ladder) && !off.generator.includes(sexv) && !off.generator.includes(hard), 'no mode → no aftercare text');
 
+    // Aftersale on a creator-last thread: aftercare template, NOT the follow-up note; control keeps the note.
+    const af = await prompts('', creatorLast, { _aftercareMode: true, _aftercareContext: 'ladder_stop' });
+    assert.ok(af.generator.includes(ladder), 'creator-last + aftercare: template present');
+    assert.ok(!af.generator.includes('FOLLOW-UP — ') && !af.strategy.includes('FOLLOW-UP — '), 'creator-last + aftercare: no follow-up note');
+    const noAf = await prompts('', creatorLast);
+    assert.ok(noAf.generator.includes('FOLLOW-UP — '), 'creator-last without aftercare still gets the follow-up note');
+
     console.log('✓ intent_check: intent directive reaches both override blocks; follow-up uses its override variant; empty context adds no block');
 })().catch((e) => { console.error('INTENT_CHECK FAILED:', e.message); process.exit(1); });

@@ -700,8 +700,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     `stepId 0` (`AD_HOC_STEP_ID`)** → ONE caption generate (`sender:'ppv'`); its send posts `mediaFiles` (+ `price` only when
     > 0) and NEVER `scriptStepId` (no ledger row — id 0 is not a script step). Guards: `engine/intent_check.js` check 4
     (the aftercare template + hard block reach the generator prompt, and only with the mode on), `tests/Unit/AgentIntentsTest.php`
-    (incl. the JSON drift test). **Spot check:** `node engine/intent_spot.js --slice2` (manual, ~30 real generations, invented
-    thread only) reads the `slice2` block of `engine/intent_directives.json`, pinned to PHP by the drift test; reword a directive
+    (incl. the JSON drift test). **Spot check:** `node engine/intent_spot.js --slice2` (manual, ~30 real generations on invented
+    premise-matched threads (`T.*` in `engine/intent_spot.js`) plus a generic one; honest tally: on the premise-matched
+    threads no forbidden content 16/16 and positive intent ≈14/16 (CTA 1 #2 and Objection #2 weak); the generic run's
+    positive lines were weaker because drafts tend to answer the fan's last question) reads the `slice2` block of `engine/intent_directives.json`, pinned to PHP by the drift test; reword a directive
     in `AgentIntents`, the JSON and the pinned test strings together.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the

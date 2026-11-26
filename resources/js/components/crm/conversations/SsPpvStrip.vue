@@ -92,7 +92,7 @@ function cancel() {
 const broken = ref(new Set<string>());
 
 watch(
-    () => props.step.stepId,
+    () => [props.step.stepId, props.step.media.map((m) => m.id).join(',')],
     () => (broken.value = new Set()),
 );
 

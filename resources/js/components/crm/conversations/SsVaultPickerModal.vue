@@ -209,7 +209,12 @@ onBeforeUnmount(() => {
                     {{ props.title ?? 'Vault' }}
                 </p>
                 <p class="text-[12px] text-ss-text-3">
-                    Pick up to {{ props.max }} items for the set
+                    Pick up to {{ props.max }}
+                    {{
+                        props.types?.length === 1 && props.types[0] === 'photo'
+                            ? 'photos'
+                            : 'items for the set'
+                    }}
                 </p>
                 <span class="flex-1" />
                 <button

@@ -544,8 +544,9 @@ async function fetchTags(chatId: string) {
     }
 }
 
-/** An intent chip. Re-pitch / Re-offer generate through the server's intent path; PPV with a
- *  media step loaded is the existing caption flow (picking a step for the chatter comes later). */
+/** An intent chip. Every intent generates through the server's intent path (a directive in the
+ *  override box), except Free picture (vault photo pick, then one caption generate) and PPV with a
+ *  media step loaded (the existing caption flow). */
 function fireIntent(ref: IntentRef) {
     const st = cur.value;
 
@@ -594,7 +595,7 @@ function loadFreePicture(media: ScriptStepMedia[]) {
         return;
     }
 
-    if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
+    if (composerDirty(st) && !window.confirm(FREE_PICTURE_REPLACE_MSG)) {
         return;
     }
 
@@ -1218,6 +1219,9 @@ function setGif(value: OfGif | null) {
 function cur_(): ComposerState | null {
     return selected.value ? chatComposer(selected.value.id) : null;
 }
+
+const FREE_PICTURE_REPLACE_MSG =
+    "Replace what's in the message box with this free picture?";
 
 const REPLACE_MSG =
     'Replace current message? This replaces your text, media and price with the script.';

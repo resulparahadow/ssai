@@ -311,7 +311,7 @@ Anything you type in the box when you click is added to the button as an extra n
 - **Goodbye**: pick Phase 1 (bounce back and pivot), Phase 2 (chill chat and vetting) or
   Phase 3 (smooth exit), one message each.
 - **Promise** (More): **Ask** opens the promise ritual (the trust ask before any content);
-  **Reinforce x1** and **Reinforce x2** are the follow-up messages after he agrees. They
+  **Reinforce ×1** and **Reinforce ×2** are the follow-up messages after he agrees. They
   reinforce, they don't ask again.
 - **Post-purchase** (More): he just opened her PPV. SSAI reacts to it and asks him one deeper
   question. No new pitch, no price.
