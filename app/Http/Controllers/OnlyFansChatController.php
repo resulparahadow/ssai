@@ -1036,8 +1036,12 @@ class OnlyFansChatController extends Controller
                 'rejections' => $this->rejections->toEngineFeedback(
                     $this->rejections->active($model, $chat, array_column($data['messages'] ?? [], 'time')),
                 ),
-                // Legacy-shaped manual switches; [] (all Auto) → EngineClient omits the key.
-                'stateOverrides' => StateSwitches::toEngine($overrides),
+                // Legacy-shaped manual switches; [] (all Auto) → EngineClient omits the key. A
+                // Language value stored while the creator was bilingual is ignored once she isn't
+                // (the card hides that row, so the chatter couldn't clear it).
+                'stateOverrides' => StateSwitches::toEngine(
+                    $model->is_bilingual ? $overrides : array_diff_key($overrides, ['language' => true]),
+                ),
             ]);
         } catch (ConnectionException $e) {
             // ConnectionException covers BOTH "nothing is listening" and "it answered too
@@ -1246,11 +1250,16 @@ class OnlyFansChatController extends Controller
         return ['times' => $times, 'fanAt' => $fanAt, 'openedAt' => $openedAt, 'fanSexual' => self::readsSexual($fanText)];
     }
 
-    /** A plain keyword read (EN + ES) of whether a fan message is sexual. Counter signal only. */
+    /**
+     * A plain keyword read (EN + ES) of whether a fan message is sexual. Counter signal only.
+     * Only words that are sexual on their own: everyday ones that are sexual only in context
+     * ("wet", "suck", "ass", "caliente", "coger", "chupar", "pito", "coño") would count
+     * "soaking wet from the rain" or "this traffic sucks" as a sex-only pull.
+     */
     private static function readsSexual(string $text): bool
     {
         return (bool) preg_match(
-            '/\b(nudes?|naked|horny|dick|cock|pussy|tits|boobs|ass|sex|sexy|fuck|cum|suck|lick|wet|hard for|desnud[ao]s?|caliente|verga|pito|coño|chocha|tetas|culo|sexo|follar|coger|chupar|mojad[ao])\b/iu',
+            '/\b(nudes?|naked|horny|dick|cock|pussy|tits|boobs|sex|sexy|fuck(ing)?|cum|desnud[ao]s?|verga|chocha|tetas|sexo|follar|cachond[ao])\b/iu',
             $text,
         );
     }

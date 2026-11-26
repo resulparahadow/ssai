@@ -116,7 +116,10 @@ function saveSettings() {
             of_account_id: draft.of_account_id,
             timezone: draft.timezone,
             is_bilingual: !!draft.is_bilingual,
-            price_ladder: parseLadder(ladderText.value),
+            // Empty = null: the creator follows the default ladder (not a pinned copy of it).
+            price_ladder: parseLadder(ladderText.value).length
+                ? parseLadder(ladderText.value)
+                : null,
         },
         {
             preserveScroll: true,

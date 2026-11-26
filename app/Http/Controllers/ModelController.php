@@ -207,7 +207,9 @@ class ModelController extends Controller
             'of_account_id' => $model->of_account_id,
             'timezone' => $model->timezone,
             'is_bilingual' => (bool) $model->is_bilingual,
-            'price_ladder' => $model->priceLadder(),
+            // The raw column (null = follow the default ladder): the page shows the default only as
+            // a placeholder, so a save can't pin today's default onto this creator.
+            'price_ladder' => $model->price_ladder ?: null,
             'assigned' => $assigned,
         ];
     }

@@ -332,3 +332,43 @@ it('counts a sex-only pull for a sexual message under the sex-only lane, not for
     $commit(stateFeatureGenerate([stateFeatureFanMsg('m1', 10, 'how was work'), stateFeatureFanMsg('m2', 5, 'show me your tits')])->json());
     expect(AichChatState::withoutGlobalScopes()->first()->sex_only_pulls)->toBe(1);
 });
+
+it('ignores a stored Language once the creator is no longer bilingual', function () {
+    stateFeatureOverrides(['language' => 'es']);
+    stateFeatureFake();
+    stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk();
+    expect(stateFeatureEngineBody())->not->toHaveKey('stateOverrides');
+
+    $this->creator->update(['is_bilingual' => true]);
+    stateFeatureGenerate([stateFeatureFanMsg('m1', 5)])->assertOk();
+    expect(stateFeatureEngineBody()['stateOverrides'])->toBe(['language' => 'es']);
+});
+
+it('does not read everyday words as a sexual message', function () {
+    stateFeatureOverrides(['lane' => 'sex_only']);
+    stateFeatureFake();
+    $t = stateFeatureGenerate([stateFeatureFanMsg('m1', 5, 'soaking wet from the rain, this traffic sucks')])->assertOk()->json('telemetry');
+    expect($t['fanSexual'])->toBeFalse();
+});
+
+it('keeps a counter through a long continuous conversation on commit', function () {
+    // Counted 16h ago, but the chat never went quiet for 12h since: generate keeps it, and the
+    // commit must not zero it with a cruder two-stamp gap rule.
+    AichChatState::withoutGlobalScopes()->create([
+        'creator_model' => 'Camila', 'chat_id' => '101',
+        'objection_redirects' => 2, 'objection_counted_at' => now()->subHours(16),
+    ]);
+    stateFeatureFake();
+    $thread = [];
+    foreach ([16, 12, 8, 4, 1] as $h) {
+        $thread[] = stateFeatureFanMsg('m'.$h, $h * 60, 'too much');
+    }
+    $gen = stateFeatureGenerate($thread)->assertOk()->assertJsonPath('counters.objectionRedirects', 2)->json();
+    $this->actingAs($this->admin)->postJson($this->base.'/state', ['strategy' => $gen['strategy'], 'telemetry' => $gen['telemetry']])->assertOk();
+    expect(AichChatState::withoutGlobalScopes()->first()->objection_redirects)->toBe(3);
+});
+
+it('serializes a creator without a ladder as null, so a save does not pin the default', function () {
+    $this->actingAs($this->admin)->get('/models/'.$this->creator->id)->assertOk()
+        ->assertInertia(fn ($page) => $page->where('model.price_ladder', null));
+});

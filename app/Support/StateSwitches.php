@@ -179,7 +179,12 @@ final class StateSwitches
      * - phase / language: the last stored strategy;
      * - posture / promise: the last telemetry (promise: the committed chat state wins upstream);
      * - fan type: legacy's `computeCustomerTier` rule over the profile (spend > 0 or trust ≥ 2 →
-     *   old); `fan_type_from_trust` when only trust made him old.
+     *   old); `fan_type_from_trust` when only trust made him old. The profile is read rather
+     *   than the stored telemetry `customerTier` on purpose: it is the same formula over FRESHER
+     *   inputs, so a trust edit shows "Auto · Returning (from trust L3)" at once (spec §10a)
+     *   instead of after the next generate. Legacy's third tier, `flagged_tw`, is the Fan-tab
+     *   timewaster flag, not a fan type: the Posture row carries it, so here a flagged fan reads
+     *   as the tier his spend/trust give. The telemetry tier is the fallback with no profile.
      *
      * @param  array<string, mixed>|null  $lastStrategy
      * @param  array<string, mixed>|null  $telemetry
@@ -201,6 +206,9 @@ final class StateSwitches
             } else {
                 $fanType = 'new';
             }
+        } elseif (in_array($telemetry['customerTier'] ?? null, ['new', 'old'], true)) {
+            // No profile row: only SSAI's last read (no spend on hand, so old = returning).
+            $fanType = $telemetry['customerTier'] === 'new' ? 'new' : 'returning';
         }
 
         $lang = strtolower((string) ($lastStrategy['customer_language'] ?? ''));

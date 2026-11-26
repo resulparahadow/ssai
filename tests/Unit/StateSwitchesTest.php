@@ -102,6 +102,16 @@ it('reads the fan type from the tier rule, flagging a trust-only returning fan',
     expect(StateSwitches::autoRead(null, null, null)['fan_type'])->toBeNull();
 });
 
+it('reads a flagged timewaster by his spend/trust, and falls back to the telemetry tier without a profile', function () {
+    // Legacy reports flagged_tw for the Fan-tab flag; the Posture row carries that, not Fan type.
+    $flagged = StateSwitches::autoRead(null, ['customerTier' => 'flagged_tw'], stateSwitchProfile(['is_timewaster' => true, 'total_spend' => 30]));
+    expect($flagged['fan_type'])->toBe('spender');
+
+    expect(StateSwitches::autoRead(null, ['customerTier' => 'old'], null)['fan_type'])->toBe('returning')
+        ->and(StateSwitches::autoRead(null, ['customerTier' => 'new'], null)['fan_type'])->toBe('new')
+        ->and(StateSwitches::autoRead(null, ['customerTier' => 'flagged_tw'], null)['fan_type'])->toBeNull();
+});
+
 it('lists the selling intents', function () {
     expect(StateSwitches::SELLING_INTENTS)->toBe(['ppv', 'repitch', 'reoffer_mppv', 'cta', 'tip_ask', 'promise', 'free_picture']);
 });

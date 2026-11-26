@@ -105,9 +105,11 @@ class ChatStateService
         if ($fanAt === null) {
             return;
         }
-        $openedAt = $this->time($telemetry['openedPpvAt'] ?? null);
-        $gap = $this->gapSeconds();
-
+        // No resets here: refreshCounters() owns them (one rule). It runs on every generate with
+        // the full thread — the walked session-gap rule (DraftRejectionService::isActive) and the
+        // opened-PPV check — so by the time this generate's draft is committed the counters are
+        // already current for the thread it saw. Re-checking from two stamps here used a cruder
+        // gap rule and could zero a counter that generate had just kept.
         $hits = [
             'objection' => ($strategy['wall_detected'] ?? null) === 'objection'
                 || ($telemetry['intent'] ?? null) === 'objection',
@@ -118,13 +120,6 @@ class ChatStateService
         $dirty = false;
         foreach (self::COUNTERS as $kind => [$countCol, $atCol]) {
             $countedAt = $state->{$atCol}?->getTimestamp();
-            $stale = $countedAt !== null && (
-                ($openedAt !== null && $openedAt > $countedAt) || $fanAt - $countedAt > $gap
-            );
-            if ($stale && (int) $state->{$countCol} !== 0) {
-                $state->{$countCol} = 0;
-                $dirty = true;
-            }
             if ($hits[$kind] && ($countedAt === null || $fanAt > $countedAt)) {
                 $state->{$countCol} = (int) $state->{$countCol} + 1;
                 $state->{$atCol} = Carbon::createFromTimestamp($fanAt, config('app.timezone'));

@@ -351,8 +351,8 @@ export interface CreatorModel {
     timezone: string | null;
     /** Shows the Language state switch for this creator's fans. */
     is_bilingual?: boolean;
-    /** PPV price ladder (next-rung suggestion only); the server fills the default. */
-    price_ladder?: number[];
+    /** PPV price ladder (next-rung suggestion only); null = the default ladder. */
+    price_ladder?: number[] | null;
     assigned: number[];
 }
 
