@@ -344,6 +344,54 @@ since the page loaded.
 
 ---
 
+## 7c. The SSAI state card — correct how SSAI reads the fan
+
+The intent bar steers **one** message. The **SSAI state** card steers **every** message until you
+change it back. It sits on the **Fan** tab, under Memory & controls, one row per setting. Each row
+starts on **Auto**, which shows what SSAI currently thinks (for example `Auto · Sale` or
+`Auto · Returning (from trust L3)`). Pick a value when SSAI has him wrong. That row turns blue,
+the card header counts how many you set ("2 set by agent"), and SSAI follows it on every
+Generate for this fan, for every chatter, until someone sets it back to **Auto**.
+
+| Row | Values | What SSAI does |
+|---|---|---|
+| **Phase** | Warm up · Rapport · Link · Sale · Loop · Aftersale | Works in that stage of the playbook. **Warm up** = short, light, friendly replies, no selling and no personal questions yet: get him talking. |
+| **RLS beat** | 1–12 | Writes the message for that beat of the RLS script. After you send it and he replies, it moves to the next beat by itself (stops at 12). |
+| **Fan type** | New · Returning · Spender | Treats him as new, as someone who has been here before, or as a buyer. Returning/Spender also use the 10-message PPV rule. |
+| **Lane** | Normal · Sex-only · Rude | **Sex-only**: keeps it sexual and short, moves to paid content sooner, never gives explicit content free. **Rude**: stays calm and short, states one clear boundary, no selling while he's rude, doesn't argue or chase. |
+| **Posture** | Normal · Frame-hold · Timewaster | **Frame-hold** is for a fan fishing for free validation or free pics: she teases without confirming and holds back without rejecting him. |
+| **Trust** | L1–L5 | The same trust level as the Memory card (setting it locks it there too). |
+| **Promise** | Not asked · Asked · Reinforced ×1 · Reinforced ×2 | Where the promise ritual stands, so SSAI doesn't re-ask a promise he already made. |
+| **Language** | ES · EN | Replies only in that language. Shown only for creators marked bilingual on the Creator Models page. |
+| **Support mode** | Off · On | See below. |
+
+**Two settings beat the card.** The **Mark as timewaster** box on the Fan tab wins over Posture:
+while it is ticked the Posture row is grey and reads "Timewaster (flag on Fan tab)". And an
+intent button still decides its own one message; the card is the background it works in.
+
+**Support mode** is for a fan who is going through something (illness, a loss, a crisis). While it
+is on, SSAI only helps, reassures and is kind, and **nothing can sell**: the PPV, Re-pitch,
+Re-offer MPPV, CTA, Tip ask, Promise and FreePicture buttons are grey ("Support mode is on — no
+selling."), a priced script won't load or send, and the server refuses a priced send even if the
+page is out of date. Free media and plain messages still go. A **Support mode** pill shows in the
+thread header so nobody forgets it is on. Turn it off on the card when he's ready.
+
+**The counts line** under the intent bar now also shows, when they matter:
+- `last rung $21 → next $35`: the last PPV he bought and the next price on the creator's ladder
+  (set on the Creator Models page; default $12 / $21 / $35 / $49 / $69 / $100). When a loaded PPV
+  script has a different price, the price chip offers `Ladder: $35 [Use]`. It never changes the
+  price unless you click **Use**.
+- `objections 3`: how many of his objections SSAI has answered in this conversation. At 3 the
+  **FreePicture** button lights up ("He's objected 3 times — a free teaser can help").
+- `sex-only 2`: how many times he has pushed for sexual content without buying. At 2 the **PPV**
+  button lights up when it is unlocked ("He keeps pushing for sexual content — time to sell").
+
+Both counts go up once per fan message when you **Accept** or send a draft (accepting two drafts
+for the same message counts once), and go back to 0 when he buys a PPV or the chat goes quiet for
+12 hours.
+
+---
+
 ## 8. Known limits (today)
 
 - **SSAI suggests a price, but doesn't pick the script yet.** You choose the script;

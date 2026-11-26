@@ -145,6 +145,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
   `node engine/rejection_check.js` (`_sessionFeedback` `{feedback, rejectedMsg}` → the generator prompt),
   `node engine/intent_check.js` (an intent directive in `context` reaches BOTH override blocks; a creator-last thread gets the follow-up note's facts-only variant; no context → no block),
   `node engine/followup_check.js` (a thread ending with the creator's message → the FOLLOW-UP note),
+  `node engine/switch_check.js` (each §5b manual switch puts its line under the AGENT-SET STATE header, last, in
+  BOTH strategy and generator prompts; the posture/tier hooks take effect; the timewaster flag beats a forced
+  posture; a pinned promise survives legacy's in-turn advance; no `stateOverrides` → prompts byte-identical),
   `node engine/ppv_caption_check.js` (`sender:'ppv'` → legacy's PPV CAPTION MODE on the generator, no
   follow-up note, exactly ONE `price_ppv` call; a reply makes none),
   `node engine/ppv_price_check.js` (caption mode awaits legacy's fire-and-forget `fetchPpvSuggestion`
@@ -705,6 +708,46 @@ engine uses its in-process copy. Provider keys live in the engine's env
     threads no forbidden content 16/16 and positive intent ≈14/16 (CTA 1 #2 and Objection #2 weak); the generic run's
     positive lines were weaker because drafts tend to answer the fan's last question) reads the `slice2` block of `engine/intent_directives.json`, pinned to PHP by the drift test; reword a directive
     in `AgentIntents`, the JSON and the pinned test strings together.
+    **State switches (§5b, 2026-11-27, spec `docs/superpowers/specs/2026-11-27-state-switches-design.md`, plan
+    `docs/superpowers/plans/2026-11-27-state-switches.md`)** — the chatter's LASTING corrections of SSAI's read of a fan
+    (intents steer one message; these steer every generate until set back to Auto). The Fan tab's **SSAI state** card
+    (`SsStateCard`, `lib/stateSwitches.ts`) has nine rows: Phase (Warm up · Rapport · Link · Sale · Loop · Aftersale), RLS
+    beat 1-12, Fan type, Lane (Normal · Sex-only · Rude), Posture, Trust, Promise, Language (only when
+    **`aich_models.is_bilingual`**), Support mode. Stored per fan in **`customer_profiles.state_overrides`** (json; an
+    absent key = Auto; lane normal / support off are absent) — Trust is NOT there, it stays the locked `trust_level` (no
+    note line: legacy already prints trust, and a lock-keyed line would break all-Auto byte-identity). `PATCH …/profile`
+    takes `state_overrides: {key: value|null}` (merged per key, `StateSwitches::rules`, `language` rejected for a
+    non-bilingual creator); `GET|PATCH …/profile` also return `auto_read` (SSAI's own read for the Auto rows, from
+    `aich_chat_intel.telemetry` + the last strategy; a FORCED posture/tier/promise is never stored as SSAI's read),
+    `counters`, `is_bilingual`, `price_ladder`. `generate` loads the overrides SERVER-side and sends
+    `StateSwitches::toEngine()` as the engine's **`stateOverrides`** (legacy-shaped: `{phase, rlsBeat, fanTier, spender,
+    lane, posture, frameHold, promiseStatus, language, support}`) ONLY when one is manual — all-Auto reaches the engine
+    byte-identical (no key, no note, no hook). A stored `language` is dropped once the creator stops being bilingual.
+    **`engine/stateNote.js`** appends the fixed `AGENT-SET STATE (set by the chat agent; treat as true until they change
+    it):` block (one `- Switch: value — rule` line per manual switch, §4 order) as the INNERMOST transport wrapper, so it
+    sits after everything (follow-up note included) on every strategy*/generator* call; it is not the AGENT OVERRIDE
+    channel, so an intent's directive still wins for its one message. It also wraps `computePosture` /
+    `computeCustomerTier` per VM (the Fan-tab `is_timewaster` flag wins over both — the Posture row is disabled while it
+    is on), pins `_promiseStatus` (and re-pins it in telemetry), and `ChatStateService::commit` never writes a field with
+    a manual override. **RLS auto-advance:** a send under a manual beat stamps `customer_profiles.rls_beat_sent_at`; the
+    next generate with a NEWER fan message moves the beat N → N+1 (cap 12) and returns `rlsBeat`. **Support mode is the
+    one hard rule:** `StateSwitches::SELLING_INTENTS` (`ppv`, `repitch`, `reoffer_mppv`, `cta`, `tip_ask`, `promise`,
+    `free_picture`) 422 `Support mode is on — no selling.` before any upstream call, and so does a priced `send` (free
+    media and text still go); the client greys those chips, refuses a priced step load AND a priced send, and shows a
+    "Support mode" pill. **§5c counters** on `aich_chat_state`: `objection_redirects` (strategy `wall_detected ===
+    'objection'` or the Objection intent) and `sex_only_pulls` (legacy fork `vending_machine_attempt`, or Lane sex-only +
+    a sexual fan message — a narrow keyword read, everyday words excluded). They advance on commit-on-accept, ONCE per fan
+    message (`*_counted_at` vs the server-stamped `telemetry.fanMessageAt`, which the client relays back verbatim on
+    Accept), and RESET only in `ChatStateService::refreshCounters` at generate (an opened PPV newer than the count, or the
+    walked `session_gap_hours` rule) — one reset rule, not two. FreePicture lights at objections ≥ 3, PPV at sex-only ≥ 2
+    (when unlocked). **Ladder:** `aich_models.price_ladder` (null → `[12,21,35,49,69,100]`; the Creator Models page sends
+    null when empty so the default isn't pinned); the counters line shows `last rung $21 → next $35` and `SsPpvStrip`
+    offers `Ladder: $35 [Use]` — a suggestion only, never applied by itself. Real-AI spot check:
+    `node engine/switch_spot.js` (manual, NOT CI, invented threads, one case per process via `--only=`); on 2026-11-26
+    (5 switches × 2 drafts) no forbidden content 10/10, switch followed 8/10 — both Lane rude drafts were calm and
+    unsold but never stated a boundary; the rule now says "state one clear boundary in plain words" and the rerun
+    followed it 2/2. Guards:
+    `tests/{Unit,Feature}/StateSwitchesTest.php`, `tests/client/state-check.mjs`, `node engine/switch_check.js`.
     Client UX: `Conversations.vue` keeps a per-chat **stale-while-revalidate** cache
     (`msgCache`/`fanCache` Maps) so revisiting a chat renders instantly then revalidates in the
     background (race-safe via `selected.id` check). The Maps are module-scoped and NOT cleared on a
