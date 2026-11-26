@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\PasswordChangeController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GenerationController;
+use App\Http\Controllers\GuideController;
 use App\Http\Controllers\MediaVaultController;
 use App\Http\Controllers\MessageTagController;
 use App\Http\Controllers\ModelController;
@@ -35,6 +36,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('media-vault', [MediaVaultController::class, 'index'])->name('media-vault.index');
 
     // Scripts management page — thin shell over the onlyfans/{model}/scripts endpoints.
+    // The chatter guide (docs/chatter-guide.md), for every signed-in role.
+    Route::get('guide', [GuideController::class, 'show'])->name('guide');
     Route::get('scripts', [ScriptsPageController::class, 'index'])->middleware('can:manage-team')->name('scripts.index');
 
     // OnlyFans live proxy (no persistence). {model} = AichModel; access scoped in the controller.

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Link, router } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import {
+    BookOpen,
     ChevronDown,
     LogOut,
     Moon,
@@ -20,6 +21,12 @@ import type { User } from '@/types/auth';
 const props = defineProps<{ title: string; user: User }>();
 
 const { toggleSidebar } = useCrmShell();
+
+// The chatter guide button lives on Conversations only — that's where chatters steer SSAI.
+const page = usePage();
+const onConversations = computed(
+    () => page.url.split('?')[0] === '/conversations',
+);
 const { resolvedAppearance, updateAppearance } = useAppearance();
 
 function toggleTheme(): void {
@@ -65,6 +72,20 @@ function handleLogout(): void {
         <h1 class="text-sm font-semibold text-ss-text">{{ title }}</h1>
 
         <div class="ml-auto flex items-center gap-1.5">
+            <!-- Chatter guide: a new tab, so the open chat and any draft stay put -->
+            <a
+                v-if="onConversations"
+                href="/guide"
+                target="_blank"
+                rel="noopener"
+                class="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-ss-text-2 hover:bg-ss-surface-2 hover:text-ss-text"
+                title="Open the chatter guide in a new tab"
+                data-testid="guide-button"
+            >
+                <BookOpen :size="17" />
+                <span class="hidden sm:inline">Guide</span>
+            </a>
+
             <!-- New fan messages, per creator -->
             <SsInboxBell />
 
