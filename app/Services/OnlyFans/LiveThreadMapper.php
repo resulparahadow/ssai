@@ -36,6 +36,7 @@ class LiveThreadMapper
                 'isTip' => (bool) ($m['isTip'] ?? false),
                 'tipAmount' => isset($m['tipAmount']) ? (float) $m['tipAmount'] : null,
                 'fromQueue' => (bool) ($m['fromQueue'] ?? false),
+                'mediaCount' => max(0, (int) ($m['mediaCount'] ?? 0)),
             ];
 
             // Effective tag: only a creator-sent paid, non-tip message is taggable. A stored
@@ -84,6 +85,28 @@ class LiveThreadMapper
             // relative gaps ("9 hrs later"). No time → no stamp (legacy skips an empty one).
             if ($m['ts'] !== null) {
                 $bubble['ts'] = Carbon::createFromTimestamp($m['ts'], $timezone)->format('g:i A');
+            }
+
+            // Legacy's "Came with tip / media" tags, filled from OnlyFans instead of chips: legacy
+            // prints them on the line as "CUSTOMER [TIPPED $15 · CAME-WITH-MEDIA]: …" (ui.js
+            // fmtMsg). Without them a tip reached the AI as an empty fan line and a photo he sent
+            // as nothing at all. Fan lines only; absent (not empty) when neither applies, so a
+            // thread with no tips or fan media reaches the engine byte-identical.
+            if ($m['from'] === 'fan') {
+                $msgTags = [];
+                if ($m['isTip']) {
+                    $msgTags['tip'] = true;
+                    $amount = $m['tipAmount'] ?? $m['price'];
+                    if ($amount > 0) {
+                        $msgTags['tipAmount'] = $amount;
+                    }
+                }
+                if ($m['mediaCount'] > 0) {
+                    $msgTags['customerMedia'] = true;
+                }
+                if ($msgTags !== []) {
+                    $bubble['tags'] = $msgTags;
+                }
             }
 
             if ($inWindow && $m['tag'] !== null) {

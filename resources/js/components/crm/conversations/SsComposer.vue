@@ -25,6 +25,8 @@ import { intentRefLabel } from '@/lib/intents';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { humanPlan } from '@/lib/ppvComposer';
 import { findScriptNote } from '@/lib/scriptLabels';
+import { EMPTY_FAN_STATE } from '@/lib/stateSwitches';
+import type { ComposerFanState } from '@/lib/stateSwitches';
 import type {
     ComposerAttachment,
     ChatCounters,
@@ -61,7 +63,11 @@ const props = defineProps<{
     intent: IntentRef | null; // the intent shown on the card: the one generating, else the pending suggestion's
     noteDropped?: boolean; // the typed override note was not used (Aftersale)
     requestedIntent: IntentRef | null; // the intent being generated right now (spinner on its chip)
+    // The open fan's §5b/§5c state (support mode, counters, ladder). Absent = all off.
+    fanState?: ComposerFanState;
 }>();
+
+const fanState = computed(() => props.fanState ?? EMPTY_FAN_STATE);
 
 const emit = defineEmits<{
     'update:draft': [value: string];
@@ -658,6 +664,7 @@ function onKeydown(e: KeyboardEvent) {
             :step="mediaStep"
             :model-id="props.modelId"
             :generating="props.generating"
+            :next-rung="fanState.nextRung"
             @update:price="setPpvPrice"
             @update:media="setPpvMedia"
             @remove="emit('update:step', null)"
@@ -817,6 +824,7 @@ function onKeydown(e: KeyboardEvent) {
             :media-loaded="mediaStep !== null"
             :active-intent="props.intent"
             :generating-intent="props.requestedIntent"
+            :fan-state="fanState"
             @fire="fireIntent"
         />
 

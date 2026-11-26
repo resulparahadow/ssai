@@ -20,6 +20,7 @@ import {
     chatsNextCache,
     chatsViewCache,
     fanCache,
+    fanProfiles,
     msgCache,
     nextCache,
     recallOpenChat,
@@ -49,6 +50,15 @@ import {
 } from '@/lib/realtimeInbound';
 import type { InboundPayload } from '@/lib/realtimeInbound';
 import { fillLabels } from '@/lib/scriptLabels';
+import {
+    SUPPORT_REASON,
+    applyLiveState,
+    composerFanState,
+    fanTypeOverride,
+    sellingIntent,
+    stepBlockedBySupport,
+    supportOn,
+} from '@/lib/stateSwitches';
 import type { Role } from '@/types/auth';
 import type {
     ComposerAttachment,
@@ -180,12 +190,38 @@ const curRejections = computed(() =>
         : [],
 );
 
+// The open fan's stored profile (the Fan tab loads + edits it): §5b switches, §5c counters.
+const curProfile = computed(() =>
+    selected.value ? (fanProfiles.get(selected.value.id) ?? null) : null,
+);
+const curSupport = computed(() => supportOn(curProfile.value));
+
 // `hasMore`: the loaded page is a floor, not the thread's real length (older pages remain).
+// A manual Fan type decides "returning" (the 10-message PPV rule), like the server's tier.
 const counters = computed(() =>
     chatCounters(messages.value, tags.value, {
         hasMore: msgsNext.value !== null,
         sessionGapHours: props.sessionGapHours,
+        fanType: fanTypeOverride(curProfile.value),
     }),
+);
+
+// Support switched off: drop the composer's own "support mode" refusal, it no longer applies.
+watch(curSupport, (on) => {
+    if (!on && cur.value?.error === SUPPORT_REASON) {
+        cur.value.error = null;
+    }
+});
+
+// Support mode, counters and the ladder for the intent bar + PPV strip.
+// The fan details feed the Hook hint (new subscriber); only when they belong to the open chat.
+const curFanState = computed(() =>
+    composerFanState(
+        curProfile.value,
+        messages.value,
+        tags.value,
+        fan.value && fan.value.id === selected.value?.id ? fan.value : null,
+    ),
 );
 
 // Drives which fan-settings actions are offered. UI-only — `can:manage-team` on the
@@ -267,6 +303,9 @@ async function generate(intent: IntentRef | null = null) {
     // A free step is captioned too, but its price read is thrown away (there is nothing to price).
     const pricedCaption = captionFor !== null && (st.step?.price ?? 0) > 0;
 
+    // The stored RLS beat now: a beat the chatter changes while this runs wins (applyLiveState).
+    const beatAtStart = fanProfiles.get(chatId)?.state_overrides.rls_beat;
+
     // A new caption gets a new price read: drop the last one now so the strip shows "pricing".
     if (captionFor !== null && st.step) {
         st.step = { ...st.step, priceSuggestion: null, notReadyPlan: null };
@@ -293,6 +332,11 @@ async function generate(intent: IntentRef | null = null) {
                     isOpened: mm.isOpened,
                     isTip: mm.isTip,
                     fromQueue: mm.fromQueue,
+                    // A photo/video the fan sent → legacy's CAME-WITH-MEDIA tag on his line.
+                    mediaCount: Math.max(
+                        mm.media?.length ?? 0,
+                        mm.mediaCount ?? 0,
+                    ),
                 })),
             // Name + username are load-bearing, not decoration: the legacy prompt prints
             // "Customer: {name} (@{username})" and then tells the model "You already know
@@ -318,6 +362,14 @@ async function generate(intent: IntentRef | null = null) {
                 ? { ppvMedia: ppvMediaCounts(st.step.media) }
                 : {}),
         });
+
+        // The counters and the RLS beat are the server's truth whatever happens to the draft
+        // (superseded or discarded), so they land on THIS chat's profile either way.
+        const fp = fanProfiles.get(chatId);
+
+        if (fp) {
+            applyLiveState(fp, data, beatAtStart);
+        }
 
         const outcome = generationOutcome(
             { seq, captionFor, loads: loadsAtStart, intent },
@@ -556,6 +608,14 @@ function fireIntent(ref: IntentRef) {
         return;
     }
 
+    // Support mode: the bar shows selling chips disabled; this backs that up (the server
+    // refuses selling intents too).
+    if (curSupport.value && sellingIntent(ref.key)) {
+        st.error = SUPPORT_REASON;
+
+        return;
+    }
+
     // Free picture: pick vault photos first; the flow continues in `loadFreePicture`.
     if (ref.key === 'free_picture') {
         freePictureChat.value = selected.value?.id ?? null;
@@ -592,6 +652,13 @@ function loadFreePicture(media: ScriptStepMedia[]) {
     freePictureChat.value = null;
 
     if (!st || media.length === 0 || st.sending) {
+        return;
+    }
+
+    // Support mode was switched on while the picker was open.
+    if (curSupport.value) {
+        st.error = SUPPORT_REASON;
+
         return;
     }
 
@@ -672,7 +739,27 @@ function commitStrategyMemory(chatId: string) {
             strategy: st.strategy,
             telemetry: st.telemetry,
         })
+        .then(() => refreshFanCounters(m.id, chatId))
         .catch(() => {});
+}
+
+/** The accept just committed may have moved the §5c counters (and SSAI's own read): re-read
+ *  them (a local DB read, no OnlyFans call) and patch ONLY those keys — the Fan tab may hold
+ *  unsaved edits on the rest of the profile. */
+async function refreshFanCounters(modelId: number, chatId: string) {
+    const fp = fanProfiles.get(chatId);
+
+    if (!fp) {
+        return;
+    }
+
+    const { profile } = await ofApi.getProfile(modelId, chatId);
+    const cur = fanProfiles.get(chatId);
+
+    if (cur) {
+        cur.counters = profile.counters;
+        cur.auto_read = profile.auto_read;
+    }
 }
 
 /** Accept the suggestion into the typing bar to edit before sending. */
@@ -758,6 +845,14 @@ async function send(override?: string) {
 
     if (ppv && !isValidPpvPrice(ppv.price)) {
         st.error = 'PPV price must be free, or between $3 and $200.';
+
+        return;
+    }
+
+    // Support mode: no priced send, even for a step loaded before support was turned on, or a
+    // free step the chatter then priced. loadStep's check alone misses both; the server 422s too.
+    if (ppv && ppv.price > 0 && supportOn(fanProfiles.get(chatId))) {
+        st.error = SUPPORT_REASON;
 
         return;
     }
@@ -1256,6 +1351,19 @@ function loadStep(step: ScriptStep): boolean {
     }
 
     const st = chatComposer(chat.id);
+
+    // Support mode: a priced media step stays out (before the replace confirm, so nothing the
+    // chatter typed is at risk). The server refuses the priced send as well.
+    const blocked = stepBlockedBySupport(
+        step,
+        supportOn(fanProfiles.get(chat.id)),
+    );
+
+    if (blocked !== null) {
+        st.error = blocked;
+
+        return false;
+    }
 
     if (composerDirty(st) && !window.confirm(REPLACE_MSG)) {
         return false;
@@ -2256,6 +2364,7 @@ onBeforeUnmount(() => {
                 :load-more-error="msgsMoreError"
                 :spend="fan?.totalSpent ?? null"
                 :tags="tags"
+                :support-mode="curSupport"
                 @tag="onTag"
                 @like="onLike"
                 @delete="onDelete"
@@ -2290,6 +2399,7 @@ onBeforeUnmount(() => {
                         @pick-file="onPickFile"
                         @pick-vault="onPickVault"
                         :counters="counters"
+                        :fan-state="curFanState"
                         :intent="
                             cur.generating
                                 ? (cur.requestedIntent ?? null)
@@ -2406,6 +2516,7 @@ onBeforeUnmount(() => {
                     v-show="rail === 'fan'"
                     :fan="fan"
                     :model-id="model?.id ?? null"
+                    :chat-id="selected?.id ?? null"
                 />
                 <SsAiIntel
                     v-show="rail === 'ai'"
