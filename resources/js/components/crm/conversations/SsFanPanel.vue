@@ -8,9 +8,13 @@ import {
 } from '@lucide/vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import SsNoteModal from '@/components/crm/conversations/SsNoteModal.vue';
+import SsStateCard from '@/components/crm/conversations/SsStateCard.vue';
+import { fanProfiles } from '@/lib/conversationCache';
 import { absoluteTime, coarseDuration, relativeTime } from '@/lib/datetime';
 import { usd } from '@/lib/money';
 import { ofApi } from '@/lib/onlyfans';
+import { switchPatch } from '@/lib/stateSwitches';
+import type { SwitchKey, SwitchValue } from '@/lib/stateSwitches';
 import type {
     OfFan,
     OfFanProfile,
@@ -19,7 +23,16 @@ import type {
     OfToggleMode,
 } from '@/types/crm';
 
-const props = defineProps<{ fan: OfFan | null; modelId: number | null }>();
+const props = defineProps<{
+    fan: OfFan | null;
+    modelId: number | null;
+    // The open chat (= the fan's id). The profile loads by it on open, without waiting for the
+    // OnlyFans fan-detail call: support mode and the counters must not hang on a slow vendor.
+    chatId?: string | null;
+}>();
+
+/** Whose profile this panel shows and edits. */
+const profileKey = computed(() => props.chatId ?? props.fan?.id ?? null);
 
 // ---- Live subscription indicators (from the same getUser call as the rows) ---
 
@@ -187,7 +200,12 @@ const SUMMARY_FIELDS: {
 const TEMPS = ['cold', 'warm', 'hot'];
 const MODES: OfToggleMode[] = ['AUTO', 'FORCE_ON', 'FORCE_OFF'];
 
-const profile = ref<OfFanProfile | null>(null); // last-saved server state
+// Last-saved server state, from the shared per-chat store (the page reads support mode, the Fan
+// type override, counters and the ladder from the same entry). A revisit paints the cached copy
+// at once and revalidates.
+const profile = computed<OfFanProfile | null>(() =>
+    profileKey.value ? (fanProfiles.get(profileKey.value) ?? null) : null,
+);
 const profileLoading = ref(false);
 const profileSaving = ref(false);
 const profileError = ref<string | null>(null);
@@ -211,8 +229,19 @@ const form = reactive({
     tip_mode: 'AUTO' as OfToggleMode,
 });
 
-function syncForm(p: OfFanProfile): void {
-    profile.value = p;
+/** Store the server's profile for `fanId`; the form follows only if that fan is still open. */
+function syncForm(fanId: string, p: OfFanProfile): void {
+    fanProfiles.set(fanId, p);
+
+    // A switch still saving keeps its optimistic value over this (older) snapshot.
+    for (const [k, v] of statePending.get(fanId) ?? []) {
+        putSwitch(fanProfiles.get(fanId)!, k, v);
+    }
+
+    if (profileKey.value !== fanId) {
+        return;
+    }
+
     form.archetype = p.archetype ?? '';
     form.trust_level = p.trust_level;
     form.temperature = p.temperature ?? '';
@@ -227,20 +256,17 @@ function isLocked(field: OfLockableField): boolean {
 }
 
 async function fetchProfile(): Promise<void> {
-    if (!props.fan || props.modelId == null) {
+    if (!profileKey.value || props.modelId == null) {
         return;
     }
 
-    const fanId = props.fan.id;
+    const fanId = profileKey.value;
     profileLoading.value = true;
     profileError.value = null;
 
     try {
         const { profile: p } = await ofApi.getProfile(props.modelId, fanId);
-
-        if (props.fan?.id === fanId) {
-            syncForm(p);
-        }
+        syncForm(fanId, p);
     } catch (e) {
         profileError.value =
             e instanceof Error ? e.message : 'Failed to load memory.';
@@ -251,7 +277,7 @@ async function fetchProfile(): Promise<void> {
 
 /** Send only edited fields — editing an AI-owned field pins it server-side. */
 async function saveProfile(): Promise<void> {
-    if (!props.fan || props.modelId == null || !profile.value) {
+    if (!profileKey.value || props.modelId == null || !profile.value) {
         return;
     }
 
@@ -290,16 +316,17 @@ async function saveProfile(): Promise<void> {
         return;
     }
 
+    const fanId = profileKey.value;
     profileSaving.value = true;
     profileError.value = null;
 
     try {
         const { profile: next } = await ofApi.saveProfile(
             props.modelId,
-            props.fan.id,
+            fanId,
             payload,
         );
-        syncForm(next);
+        syncForm(fanId, next);
     } catch (e) {
         profileError.value = e instanceof Error ? e.message : 'Failed to save.';
     } finally {
@@ -309,24 +336,231 @@ async function saveProfile(): Promise<void> {
 
 /** Hand a pinned field back to the AI (un-pins; the server clears it, except the memory log). */
 async function unlockField(field: OfLockableField): Promise<void> {
-    if (!props.fan || props.modelId == null) {
+    if (!profileKey.value || props.modelId == null) {
         return;
     }
 
+    const fanId = profileKey.value;
     profileSaving.value = true;
 
     try {
         const { profile: next } = await ofApi.saveProfile(
             props.modelId,
-            props.fan.id,
+            fanId,
             { unlock: [field] },
         );
-        syncForm(next);
+        syncForm(fanId, next);
     } catch (e) {
         profileError.value =
             e instanceof Error ? e.message : 'Failed to unlock.';
     } finally {
         profileSaving.value = false;
+    }
+}
+
+// ---- SSAI state switches (§5b): optimistic per row, rolled back on failure ----
+
+// All three keyed `${fanId}:${key}`, so a save still in flight for the fan just left can't
+// spin, claim or clear a row of the fan now open.
+const stateSavingKeys = reactive(new Set<string>());
+const stateSaving = computed(() => {
+    const out: Partial<Record<SwitchKey, boolean>> = {};
+    const id = profileKey.value;
+
+    for (const k of stateSavingKeys) {
+        const [fanId, key] = k.split(':') as [string, SwitchKey];
+
+        if (fanId === id) {
+            out[key] = true;
+        }
+    }
+
+    return out;
+});
+const stateError = ref<string | null>(null);
+// Per-row token: a fast double change can land out of order — only the latest owns the row.
+const stateSeq = new Map<string, number>();
+// Values still on their way to the server, re-applied over any response that predates them.
+const statePending = new Map<string, Map<SwitchKey, SwitchValue | null>>();
+
+/** A row's last value the server confirmed. A failed save rolls back to THIS, not to the value
+ *  shown when that call started: with two quick changes A → B on one row, B's "before" is A's
+ *  optimistic value, which may never have been saved. */
+type RowSnapshot = {
+    override: unknown;
+    trust: number;
+    locked: OfLockableField[];
+};
+const stateConfirmed = new Map<string, RowSnapshot>();
+
+// Rows whose latest change failed and was rolled back while an OLDER save was still in flight:
+// if that older save then lands, it is the server's value and the row must show it.
+const stateRolledBack = new Set<string>();
+
+/** Show a row's snapshot on the stored profile (a rollback, or a late older save landing). */
+function applyRow(fanId: string, key: SwitchKey, snap: RowSnapshot): void {
+    const cur = fanProfiles.get(fanId);
+
+    if (!cur) {
+        return;
+    }
+
+    if (key === 'trust') {
+        cur.trust_level = snap.trust;
+        cur.locked_fields = snap.locked;
+
+        if (profileKey.value === fanId) {
+            form.trust_level = snap.trust;
+        }
+    } else {
+        putSwitch(cur, key, (snap.override ?? null) as SwitchValue | null);
+    }
+}
+
+function rowSnapshot(p: OfFanProfile, key: SwitchKey): RowSnapshot {
+    return {
+        override: p.state_overrides[key as keyof typeof p.state_overrides],
+        trust: p.trust_level,
+        locked: [...p.locked_fields],
+    };
+}
+
+/** Put one switch value on a stored profile (the optimistic write, and its re-apply). */
+function putSwitch(
+    p: OfFanProfile,
+    key: SwitchKey,
+    value: SwitchValue | null,
+): void {
+    if (key === 'trust') {
+        const rest = p.locked_fields.filter((f) => f !== 'trust_level');
+
+        if (value === null) {
+            p.locked_fields = rest;
+        } else {
+            p.trust_level = Number(value);
+            p.locked_fields = [...rest, 'trust_level'];
+        }
+
+        return;
+    }
+
+    const next = { ...p.state_overrides } as Record<string, unknown>;
+
+    if (value === null || value === '') {
+        delete next[key];
+    } else {
+        next[key] = value;
+    }
+
+    p.state_overrides = next;
+}
+
+/**
+ * Take the server's state keys only. A card save must not go through syncForm: that rewrites the
+ * whole Memory form and would wipe an unsaved edit there (a half-typed archetype). Trust follows
+ * into the form only when the form still showed the old saved level (no unsaved trust edit).
+ */
+function applyStateKeys(fanId: string, next: OfFanProfile): void {
+    const p = fanProfiles.get(fanId);
+
+    if (!p) {
+        fanProfiles.set(fanId, next);
+
+        return;
+    }
+
+    if (profileKey.value === fanId && form.trust_level === p.trust_level) {
+        form.trust_level = next.trust_level;
+    }
+
+    p.state_overrides = next.state_overrides;
+    p.auto_read = next.auto_read;
+    p.counters = next.counters;
+    p.is_bilingual = next.is_bilingual;
+    p.price_ladder = next.price_ladder;
+    p.trust_level = next.trust_level;
+    p.locked_fields = next.locked_fields;
+
+    for (const [k, v] of statePending.get(fanId) ?? []) {
+        putSwitch(p, k, v);
+    }
+}
+
+async function setSwitch(key: SwitchKey, value: SwitchValue | null) {
+    const fanId = profileKey.value;
+    const p = profile.value;
+
+    if (!fanId || props.modelId == null || !p) {
+        return;
+    }
+
+    const rowId = `${fanId}:${key}`;
+
+    // The first unconfirmed change on this row records the server's value to fall back to.
+    if (!stateConfirmed.has(rowId)) {
+        stateConfirmed.set(rowId, rowSnapshot(p, key));
+    }
+
+    const seq = (stateSeq.get(rowId) ?? 0) + 1;
+    stateSeq.set(rowId, seq);
+    stateRolledBack.delete(rowId); // this change owns the row now
+    const pending = statePending.get(fanId) ?? new Map();
+    statePending.set(fanId, pending);
+    pending.set(key, value);
+
+    putSwitch(p, key, value);
+
+    if (key === 'trust' && value !== null) {
+        form.trust_level = Number(value);
+    }
+
+    stateSavingKeys.add(rowId);
+    stateError.value = null;
+
+    try {
+        const { profile: next } = await ofApi.saveProfile(
+            props.modelId,
+            fanId,
+            switchPatch(key, value),
+        );
+
+        if (stateSeq.get(rowId) !== seq) {
+            if (stateRolledBack.has(rowId)) {
+                // The newer change already failed and rolled back to a value from before this
+                // one: this save is the server's truth now, so show it.
+                applyRow(fanId, key, rowSnapshot(next, key));
+            } else {
+                // A newer change is still in flight: this is now the value to roll back to.
+                stateConfirmed.set(rowId, rowSnapshot(next, key));
+            }
+
+            return;
+        }
+
+        stateConfirmed.delete(rowId);
+        stateRolledBack.delete(rowId);
+        pending.delete(key);
+        applyStateKeys(fanId, next);
+    } catch (e) {
+        if (stateSeq.get(rowId) !== seq) {
+            return;
+        }
+
+        const before = stateConfirmed.get(rowId) ?? rowSnapshot(p, key);
+        stateConfirmed.delete(rowId);
+        stateRolledBack.add(rowId);
+        pending.delete(key);
+        // Roll back THIS row only: another row may have changed meanwhile.
+        applyRow(fanId, key, before);
+
+        if (profileKey.value === fanId) {
+            stateError.value =
+                e instanceof Error ? e.message : 'Failed to save the switch.';
+        }
+    } finally {
+        if (stateSeq.get(rowId) === seq) {
+            stateSavingKeys.delete(rowId);
+        }
     }
 }
 
@@ -337,12 +571,27 @@ watch(
         summary.value = null;
         generating.value = false;
         error.value = null;
-        profile.value = null;
-        profileError.value = null;
         showNote.value = false;
 
         if (props.fan && props.modelId != null) {
             fetchSummary();
+        }
+    },
+    { immediate: true },
+);
+
+watch(
+    profileKey,
+    (key) => {
+        profileError.value = null;
+        stateError.value = null;
+
+        // Paint the cached profile at once (stale-while-revalidate); the fetch below refreshes it.
+        if (key && profile.value) {
+            syncForm(key, profile.value);
+        }
+
+        if (key && props.modelId != null) {
             fetchProfile();
         }
     },
@@ -753,6 +1002,15 @@ onBeforeUnmount(stopPolling);
                     </label>
                 </template>
             </div>
+
+            <!-- SSAI state (§5b switches): under Memory & controls -->
+            <SsStateCard
+                v-if="profile"
+                :profile="profile"
+                :saving="stateSaving"
+                :error="stateError"
+                @change="setSwitch"
+            />
 
             <p v-if="!fan" class="text-ss-text-3">
                 Open a conversation to load fan details.

@@ -292,3 +292,44 @@ it('with no tags and no ids the engine messages are identical to before', functi
         ['sender' => 'ppv', 'text' => 'unlock', 'ts_iso' => $t->copy()->subMinutes(5)->format('c'), 'ts' => $t->copy()->subMinutes(5)->utc()->format('g:i A'), 'opened' => true, 'price' => 20.0],
     ])->and($out['total_spend'])->toBe(20.0);
 });
+
+// ---- "Came with tip / media" tags (legacy's CAME-WITH-MEDIA / TIPPED, filled from OnlyFans) ----
+
+it('tags a fan tip with its amount and a fan photo as customer media', function () {
+    $t = now()->startOfMinute();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => '', 'time' => $t->copy()->subMinutes(3)->toIso8601String(),
+            'price' => 15, 'isFree' => false, 'isTip' => true],
+        ['from' => 'fan', 'text' => 'look', 'time' => $t->copy()->subMinutes(2)->toIso8601String(), 'mediaCount' => 2],
+        ['from' => 'fan', 'text' => 'for you', 'time' => $t->copy()->subMinute()->toIso8601String(),
+            'price' => 5, 'isFree' => false, 'isTip' => true, 'mediaCount' => 1],
+    ]);
+
+    expect($out['messages'][0]['tags'])->toBe(['tip' => true, 'tipAmount' => 15.0])
+        ->and($out['messages'][1]['tags'])->toBe(['customerMedia' => true])
+        ->and($out['messages'][2]['tags'])->toBe(['tip' => true, 'tipAmount' => 5.0, 'customerMedia' => true]);
+});
+
+it('adds no tags key to plain fan lines, creator lines or creator media', function () {
+    $t = now()->startOfMinute();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => 'hi', 'time' => $t->copy()->subMinutes(3)->toIso8601String()],
+        ['from' => 'creator', 'text' => 'pic', 'time' => $t->copy()->subMinutes(2)->toIso8601String(), 'mediaCount' => 1],
+        ['from' => 'fan', 'text' => 'nice', 'time' => $t->copy()->subMinute()->toIso8601String(), 'mediaCount' => 0],
+    ]);
+
+    foreach ($out['messages'] as $m) {
+        expect($m)->not->toHaveKey('tags');
+    }
+});
+
+it('tags a tip with no amount without a tipAmount, and outside the session window too', function () {
+    $t = now()->startOfMinute();
+    $out = mapThread([
+        ['from' => 'fan', 'text' => '', 'time' => $t->copy()->subDays(3)->toIso8601String(), 'isTip' => true],
+        ['from' => 'fan', 'text' => 'back', 'time' => $t->copy()->subMinute()->toIso8601String()],
+    ]);
+
+    expect($out['messages'][0]['tags'])->toBe(['tip' => true])
+        ->and($out['tips_spend'])->toBe(0.0);
+});

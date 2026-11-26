@@ -21,10 +21,12 @@ class AichChatIntel extends Model
         'chat_id',
         'generated_by',
         'strategy',
+        'telemetry',
     ];
 
     protected $casts = [
         'strategy' => 'array',
+        'telemetry' => 'array',
     ];
 
     protected static function booted(): void

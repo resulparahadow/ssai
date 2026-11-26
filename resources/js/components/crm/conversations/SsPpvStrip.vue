@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
     AlertTriangle,
+    BarChart3,
     Film,
     Image as ImageIcon,
     Lock,
@@ -13,6 +14,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { isValidPpvPrice, usd } from '@/lib/money';
 import { mediaSrc } from '@/lib/onlyfans';
 import { parsePpvPriceInput, priceSuggestionView } from '@/lib/ppvComposer';
+import { dollars, ladderOffer } from '@/lib/stateSwitches';
 import type { ComposerStep, ScriptStepMedia } from '@/types/crm';
 
 /**
@@ -25,6 +27,9 @@ const props = defineProps<{
     step: ComposerStep;
     modelId: number;
     generating: boolean;
+    // The creator's ladder price above the last rung he bought (§5c). Advice beside the chip:
+    // it never changes the price on its own.
+    nextRung?: number | null;
 }>();
 const emit = defineEmits<{
     'update:price': [value: number];
@@ -49,6 +54,11 @@ const aiPrice = computed(() =>
         props.generating && props.step.price > 0,
         props.step.price,
     ),
+);
+
+// Shown only for a priced step whose price differs from the next rung.
+const ladderPrice = computed(() =>
+    ladderOffer(props.nextRung ?? null, props.step.price),
 );
 
 // Inline price editor: a chip that turns into a number input on click.
@@ -231,6 +241,30 @@ function tileIcon(m: ScriptStepMedia) {
                     Use
                 </button>
             </template>
+        </div>
+
+        <div
+            v-if="ladderPrice !== null"
+            class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px]"
+            data-testid="ppv-ladder"
+        >
+            <BarChart3 :size="11" class="shrink-0 text-ss-text-3" />
+            <span
+                class="min-w-0 truncate text-ss-text-2"
+                title="The next price on this creator's ladder, above the last PPV he bought"
+            >
+                <b class="font-semibold text-ss-text"
+                    >Ladder: {{ dollars(ladderPrice) }}</b
+                >
+            </span>
+            <button
+                type="button"
+                class="shrink-0 rounded-full border border-ss-border px-2 py-0.5 font-semibold text-ss-accent-text hover:bg-ss-accent-soft"
+                :title="`Set the price to ${dollars(ladderPrice)}`"
+                @click="emit('update:price', ladderPrice)"
+            >
+                Use
+            </button>
         </div>
 
         <div class="flex items-center gap-1.5">

@@ -22,7 +22,29 @@ class AichModel extends Model
         'tier',
         'of_account_id',
         'timezone',
+        'is_bilingual',
+        'price_ladder',
     ];
+
+    /** The team's Master Script ladder — the default when a creator has no ladder of her own. */
+    public const DEFAULT_PRICE_LADDER = [12, 21, 35, 49, 69, 100];
+
+    protected $casts = [
+        'is_bilingual' => 'boolean',
+        'price_ladder' => 'array',
+    ];
+
+    /** @return list<int|float> the creator's PPV price ladder, ascending (suggestions only — never auto-applied). */
+    public function priceLadder(): array
+    {
+        $ladder = array_values(array_filter(
+            array_map(fn ($p) => is_numeric($p) ? $p + 0 : null, (array) ($this->price_ladder ?? [])),
+            fn ($p) => $p !== null && $p > 0,
+        ));
+        sort($ladder);
+
+        return $ladder !== [] ? $ladder : self::DEFAULT_PRICE_LADDER;
+    }
 
     /** The IANA zone the engine's clock runs in for this creator — theirs, else the agency default. */
     public function timezoneOrDefault(): string

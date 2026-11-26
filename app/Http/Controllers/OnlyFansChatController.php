@@ -8,6 +8,7 @@ use App\Models\AichChatIntel;
 use App\Models\AichDraftRejection;
 use App\Models\AichMessageTag;
 use App\Models\AichModel;
+use App\Models\CustomerProfile;
 use App\Models\ScriptStep;
 use App\Models\ScriptStepSend;
 use App\Rules\PpvPrice;
@@ -23,6 +24,7 @@ use App\Services\OnlyFans\PpvReadiness;
 use App\Support\AgentIntents;
 use App\Support\IntentUnavailable;
 use App\Support\PpvPriceSuggestion;
+use App\Support\StateSwitches;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
@@ -537,6 +539,15 @@ class OnlyFansChatController extends Controller
             return response()->json(['error' => 'A price needs media attached.'], 422);
         }
 
+        // §5b: the fan's manual switches (read-only lookup — never creates a row). Support mode
+        // blocks a paid send server-side, so a bypassed client still can't sell; free media and
+        // plain text still go.
+        $fanProfile = $this->profiles->find($model, $chat);
+        $overrides = $fanProfile?->state_overrides ?? [];
+        if ($price > 0 && ! empty($overrides['support'])) {
+            return response()->json(['error' => StateSwitches::SUPPORT_ERROR], 422);
+        }
+
         // Resolve the step BEFORE the vendor call: a step id from another creator must fail
         // cheaply, not after a billed send that then has nowhere to be recorded.
         $step = null;
@@ -580,6 +591,18 @@ class OnlyFansChatController extends Controller
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('script.ledger_failed', ['step' => $step->id, 'chat' => $chat, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // RLS auto-advance marker: any send under a manual beat counts as that beat's message
+        // (even a rewritten draft). The beat moves on at the next generate once the fan replies.
+        // Like the ledger, a failure here must never fail a send that already reached the fan.
+        if ($fanProfile && isset($overrides['rls_beat'])) {
+            try {
+                $fanProfile->rls_beat_sent_at = now();
+                $fanProfile->save();
+            } catch (\Throwable $e) {
+                Log::warning('state.rls_stamp_failed', ['chat' => $chat, 'error' => $e->getMessage()]);
             }
         }
 
@@ -905,6 +928,8 @@ class OnlyFansChatController extends Controller
             // Load-bearing like `time` above: unlisted keys are stripped, and without
             // `fromQueue` every mass blast would read as a chatter-sent PPV again.
             'messages.*.fromQueue' => 'nullable|boolean',
+            // Load-bearing too: the fan's media count becomes legacy's CAME-WITH-MEDIA tag.
+            'messages.*.mediaCount' => 'nullable|integer|min:0',
             // Deliberately rule-less nested keys: `customer` carries id/name/username, and
             // adding `customer.*` rules would strip anything not listed — the same trap
             // documented on `messages.*.time` above. The fan's name reaches the prompt.
@@ -927,6 +952,12 @@ class OnlyFansChatController extends Controller
         ]);
         $sender = $data['sender'] ?? 'customer';
         $captionMode = $sender === 'ppv';
+
+        // §5b support mode refuses selling intents before anything else runs (no OnlyFans call,
+        // no profile row, no engine call). A read-only lookup: the overrides are server-side.
+        if (StateSwitches::blocksIntent($this->profiles->find($model, $chat)?->state_overrides ?? [], $data['intent'] ?? null)) {
+            return response()->json(['error' => StateSwitches::SUPPORT_ERROR], 422);
+        }
 
         $mapped = $this->mapper->map(
             $data['messages'] ?? [],
@@ -975,6 +1006,15 @@ class OnlyFansChatController extends Controller
         $profile = $this->profiles->loadForGenerate($model, $account, $chat, $customer);
         $state = $this->states->find($model, $chat);
 
+        // §5b/§5c: the thread's fan-reply / opened-PPV times drive the RLS auto-advance and the
+        // counter resets; the manual switches reach the engine only when at least one is set.
+        $marks = $this->threadMarks($data['messages'] ?? []);
+        $overrides = $this->advanceRlsBeat($profile, $marks['fanAt']);
+        $counters = $this->states->refreshCounters($state, $marks['times'], $marks['openedAt']);
+        // What still applies this turn: a stale Language and, with the timewaster flag on,
+        // Posture / Fan type are dropped (the flag wins; see StateSwitches::effective).
+        $applied = StateSwitches::effective($overrides, (bool) $model->is_bilingual, (bool) $profile->is_timewaster);
+
         $startedAt = microtime(true);
 
         try {
@@ -1001,6 +1041,8 @@ class OnlyFansChatController extends Controller
                 'rejections' => $this->rejections->toEngineFeedback(
                     $this->rejections->active($model, $chat, array_column($data['messages'] ?? [], 'time')),
                 ),
+                // Legacy-shaped manual switches; [] (all Auto) → EngineClient omits the key.
+                'stateOverrides' => StateSwitches::toEngine($applied),
             ]);
         } catch (ConnectionException $e) {
             // ConnectionException covers BOTH "nothing is listening" and "it answered too
@@ -1054,18 +1096,43 @@ class OnlyFansChatController extends Controller
         // Persist the AI Intel (strategy only — no message text) so the right-rail
         // panel survives a reload and is shared across chatters. Latest wins per chat.
         $generatedAt = null;
+        $telemetry = $out['telemetry'] ?? null;
         if (! $captionMode && ! empty($out['strategy'])) {
             $row = AichChatIntel::updateOrCreate(
                 ['creator_model' => $model->name, 'chat_id' => $chat],
-                ['strategy' => $out['strategy'], 'generated_by' => $request->user()?->id],
+                [
+                    'strategy' => $out['strategy'],
+                    'generated_by' => $request->user()?->id,
+                    'telemetry' => $this->autoReadTelemetry($model, $chat, $telemetry, $applied),
+                ],
             );
             $generatedAt = $row->updated_at?->toIso8601String();
+        }
+
+        // Server stamps the commit-on-accept path reads for the §5c counters (count once per fan
+        // message). The client relays telemetry back verbatim on Accept, so they ride along
+        // without a new request field. Added only to a real telemetry object: a stamps-only
+        // object would make commit() reset progress fields it otherwise leaves alone.
+        if (is_array($telemetry)) {
+            $telemetry += [
+                'fanMessageAt' => $marks['fanAt'] !== null ? gmdate('c', $marks['fanAt']) : null,
+                'openedPpvAt' => $marks['openedAt'] !== null ? gmdate('c', $marks['openedAt']) : null,
+                'intent' => $intent,
+                'lane' => $overrides['lane'] ?? null,
+                'fanSexual' => $marks['fanSexual'],
+                // The promise was forced by the switch for THIS draft (telemetry repinned), so a
+                // later Accept must not store it as SSAI's progress even if the switch is back
+                // to Auto by then (commit() also skips while a current override is set).
+                'promisePinned' => isset($applied['promise']),
+            ];
         }
 
         return response()->json([
             'draft' => $out['draft'] ?? '',
             'strategy' => $out['strategy'] ?? null,
-            'telemetry' => $out['telemetry'] ?? null,
+            'telemetry' => $telemetry,
+            'counters' => $counters,
+            'rlsBeat' => isset($overrides['rls_beat']) ? (int) $overrides['rls_beat'] : null,
             'generatedAt' => $generatedAt,
             'intent' => $intent,
             'intentOption' => $intentOption,
@@ -1105,8 +1172,124 @@ class OnlyFansChatController extends Controller
         $this->authorizeCreator($request, $model);
 
         return response()->json([
-            'profile' => $this->profiles->toPanel($this->profiles->find($model, $chat)),
+            'profile' => $this->panel($model, $chat, $this->profiles->find($model, $chat)),
         ]);
+    }
+
+    /** The FanPanel payload with the §5b state card keys (auto read, counters, creator flags). */
+    private function panel(AichModel $model, string $chat, ?CustomerProfile $profile): array
+    {
+        return $this->profiles->toPanel(
+            $profile,
+            $model,
+            AichChatIntel::withoutGlobalScopes()->where('creator_model', $model->name)->where('chat_id', $chat)->first(),
+            $this->states->find($model, $chat),
+        );
+    }
+
+    /**
+     * SSAI's own read for the state card's Auto rows (labels only, no text). A value the engine
+     * returned only because a switch forced it (posture, promise) is not SSAI's read, so the
+     * previously stored one is kept — otherwise setting a switch back to Auto would show
+     * "Auto · <the forced value>" until the next generate.
+     *
+     * @param  array<string, mixed>|null  $telemetry
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>|null
+     */
+    private function autoReadTelemetry(AichModel $model, string $chat, ?array $telemetry, array $overrides): ?array
+    {
+        if (! is_array($telemetry)) {
+            return null;
+        }
+        $read = array_intersect_key($telemetry, array_flip(['posture', 'customerTier', 'promiseStatus']));
+        $pinned = array_filter([
+            'posture' => isset($overrides['posture']),
+            'customerTier' => isset($overrides['fan_type']),
+            'promiseStatus' => isset($overrides['promise']),
+        ]);
+        if ($pinned !== []) {
+            $previous = AichChatIntel::withoutGlobalScopes()
+                ->where('creator_model', $model->name)->where('chat_id', $chat)
+                ->value('telemetry');
+            $previous = is_string($previous) ? json_decode($previous, true) : $previous;
+            foreach (array_keys($pinned) as $key) {
+                $read[$key] = is_array($previous) ? ($previous[$key] ?? null) : null;
+            }
+        }
+
+        return $read;
+    }
+
+    /**
+     * The thread's times the §5b/§5c server logic reads: every message (ascending), the newest
+     * fan message, the newest opened PPV (any priced creator message he bought, chat or mass),
+     * and whether the newest fan message reads sexual (the sex-only Lane's counter signal).
+     *
+     * @param  list<array<string, mixed>>  $messages
+     * @return array{times: list<int>, fanAt: ?int, openedAt: ?int, fanSexual: bool}
+     */
+    private function threadMarks(array $messages): array
+    {
+        $times = [];
+        $fanAt = null;
+        $openedAt = null;
+        $fanText = '';
+        foreach ($messages as $m) {
+            $t = isset($m['time']) && $m['time'] !== null ? strtotime((string) $m['time']) : false;
+            if ($t === false) {
+                continue;
+            }
+            $times[] = $t;
+            $creator = ($m['from'] ?? 'fan') === 'creator';
+            if (! $creator && ($fanAt === null || $t >= $fanAt)) {
+                $fanAt = $t;
+                $fanText = (string) ($m['text'] ?? '');
+            }
+            if ($creator && (float) ($m['price'] ?? 0) > 0 && ! empty($m['isOpened']) && empty($m['isTip'])) {
+                $openedAt = max($openedAt ?? $t, $t);
+            }
+        }
+        sort($times);
+
+        return ['times' => $times, 'fanAt' => $fanAt, 'openedAt' => $openedAt, 'fanSexual' => self::readsSexual($fanText)];
+    }
+
+    /**
+     * A plain keyword read (EN + ES) of whether a fan message is sexual. Counter signal only.
+     * Only words that are sexual on their own: everyday ones that are sexual only in context
+     * ("wet", "suck", "ass", "caliente", "coger", "chupar", "pito", "coño") would count
+     * "soaking wet from the rain" or "this traffic sucks" as a sex-only pull.
+     */
+    private static function readsSexual(string $text): bool
+    {
+        return (bool) preg_match(
+            '/\b(nudes?|naked|horny|dick|cock|pussy|tits|boobs|sex|sexy|fuck(ing)?|cum|desnud[ao]s?|verga|chocha|tetas|sexo|follar|cachond[ao])\b/iu',
+            $text,
+        );
+    }
+
+    /**
+     * RLS auto-advance (spec §4): a message was sent under manual beat N and the fan replied
+     * after it → beat N+1 (cap 12). The marker is cleared, so the same reply can't advance it
+     * twice. Returns the (possibly advanced) overrides.
+     *
+     * @return array<string, mixed>
+     */
+    private function advanceRlsBeat(CustomerProfile $profile, ?int $fanAt): array
+    {
+        $overrides = $profile->state_overrides ?? [];
+        $sentAt = $profile->rls_beat_sent_at?->getTimestamp();
+        if (! isset($overrides['rls_beat']) || $sentAt === null || $fanAt === null || $fanAt <= $sentAt) {
+            return $overrides;
+        }
+
+        $overrides['rls_beat'] = min(StateSwitches::RLS_BEAT_MAX, (int) $overrides['rls_beat'] + 1);
+        $profile->state_overrides = $overrides;
+        $profile->rls_beat_sent_at = null;
+        $profile->save();
+
+        return $overrides;
     }
 
     /** Manual edit: edited AI fields get pinned, toggles/notes set, `unlock[]` re-opens fields. */
@@ -1126,11 +1309,14 @@ class OnlyFansChatController extends Controller
             'tip_mode' => 'sometimes|in:AUTO,FORCE_ON,FORCE_OFF',
             'unlock' => 'sometimes|array',
             'unlock.*' => 'string',
+            // §5b state switches, merged per key (null = back to Auto). Language only for a
+            // bilingual creator. Trust is not here: it stays `trust_level` + its lock.
+            ...StateSwitches::rules((bool) $model->is_bilingual),
         ]);
 
         $profile = $this->profiles->applyManualEdit($this->profiles->findOrNew($model, $chat), $data);
 
-        return response()->json(['profile' => $this->profiles->toPanel($profile)]);
+        return response()->json(['profile' => $this->panel($model, $chat, $profile)]);
     }
 
     /**
@@ -1146,7 +1332,10 @@ class OnlyFansChatController extends Controller
             'telemetry' => 'nullable|array',
         ]);
 
-        $this->states->commit($model, $chat, $data['strategy'], $data['telemetry'] ?? [], $request->user()?->id);
+        // Manual switches pin their fields: commit() never stores them as SSAI progress.
+        $overrides = $this->profiles->find($model, $chat)?->state_overrides ?? [];
+
+        $this->states->commit($model, $chat, $data['strategy'], $data['telemetry'] ?? [], $request->user()?->id, $overrides);
 
         return response()->json(['ok' => true]);
     }

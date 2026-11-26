@@ -4,6 +4,8 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { intentLock, ppvChipLock } from '@/lib/chatCounters';
 import { barLayout, findIntent, intentCatalogue } from '@/lib/intents';
 import { usd } from '@/lib/money';
+import { stateChipLock } from '@/lib/stateSwitches';
+import type { ComposerFanState } from '@/lib/stateSwitches';
 import type { ChatCounters, IntentKey, IntentRef } from '@/types/crm';
 
 const props = defineProps<{
@@ -15,6 +17,9 @@ const props = defineProps<{
     mediaLoaded: boolean; // a PPV/media step is loaded in the composer
     activeIntent: IntentRef | null; // what the pending suggestion was generated for
     generatingIntent: IntentRef | null; // the intent being generated right now
+    // The fan's §5b/§5c state: support mode locks the selling chips, the counters light
+    // FreePicture / PPV, and the summary gains the ladder + counter parts.
+    fanState: ComposerFanState;
 }>();
 
 const emit = defineEmits<{ fire: [ref: IntentRef] }>();
@@ -28,6 +33,7 @@ interface Chip {
     enabled: boolean;
     lit: boolean;
     reason: string | null;
+    hint: string | null; // why a lit chip is lit (its title)
     active: boolean;
     spinning: boolean;
 }
@@ -59,13 +65,21 @@ function chipFor(key: IntentKey): Chip {
         reason = 'Sending…';
     }
 
+    // The fan's state goes last so support mode's reason wins over every other lock.
+    const s = stateChipLock(
+        key,
+        { enabled, lit: lock.lit && enabled, reason },
+        props.fanState,
+    );
+
     return {
         key,
         label: intent?.label ?? key,
         options: intent?.options ?? [],
-        enabled: enabled && !props.busy,
-        lit: key !== 'ppv' && lock.lit && enabled,
-        reason: enabled ? null : reason,
+        enabled: s.enabled && !props.busy,
+        lit: s.lit && s.enabled,
+        reason: s.enabled ? null : s.reason,
+        hint: s.enabled && s.lit ? s.hint : null,
         active: props.activeIntent?.key === key && !props.busy,
         spinning: props.busy && props.generatingIntent?.key === key,
     };
@@ -74,6 +88,8 @@ function chipFor(key: IntentKey): Chip {
 const barChips = computed(() => layout.bar.map(chipFor));
 const moreChips = computed(() => layout.more.map(chipFor));
 const moreActive = computed(() => moreChips.value.some((c) => c.active));
+// A lit intent under More (FreePicture at 3 objections) would be invisible behind the trigger.
+const moreLit = computed(() => moreChips.value.find((c) => c.lit) ?? null);
 const moreSpinning = computed(() => moreChips.value.some((c) => c.spinning));
 
 // One menu open at a time: a chip key (its options) or 'more'. In More, an intent with options
@@ -216,6 +232,8 @@ const summary = computed(() => {
         parts.push(`${c.unpaidPpv.since} ago`);
     }
 
+    parts.push(...props.fanState.parts);
+
     return parts.join(' · ');
 });
 </script>
@@ -231,8 +249,9 @@ const summary = computed(() => {
             <button
                 type="button"
                 :disabled="!c.enabled"
-                :title="c.reason ?? undefined"
+                :title="c.reason ?? c.hint ?? undefined"
                 :aria-describedby="c.reason ? `intent-why-${c.key}` : undefined"
+                :data-lit="c.lit ? 'true' : undefined"
                 :aria-haspopup="c.options.length ? 'menu' : undefined"
                 :aria-expanded="
                     c.options.length ? openMenu === c.key : undefined
@@ -288,13 +307,17 @@ const summary = computed(() => {
                 type="button"
                 aria-haspopup="menu"
                 :aria-expanded="openMenu === 'more'"
+                :title="moreLit?.hint ?? undefined"
+                :data-lit="moreLit ? 'true' : undefined"
                 data-testid="intent-more"
                 data-trigger="more"
                 :class="[
                     CHIP,
                     moreActive
                         ? 'border-ss-accent bg-ss-accent text-white'
-                        : 'border-ss-border bg-ss-surface text-ss-text-2 hover:bg-ss-surface-2',
+                        : moreLit
+                          ? 'border-ss-accent/60 bg-ss-accent-soft text-ss-accent-text hover:bg-ss-accent/20'
+                          : 'border-ss-border bg-ss-surface text-ss-text-2 hover:bg-ss-surface-2',
                 ]"
                 @click="toggle('more')"
             >
@@ -319,21 +342,32 @@ const summary = computed(() => {
                         type="button"
                         role="menuitem"
                         :disabled="!c.enabled"
-                        :title="c.reason ?? undefined"
+                        :title="c.reason ?? c.hint ?? undefined"
                         :aria-haspopup="c.options.length ? 'menu' : undefined"
                         :aria-expanded="
                             c.options.length ? expanded === c.key : undefined
                         "
                         :data-testid="`intent-${c.key}`"
-                        :class="ITEM"
+                        :data-lit="c.lit ? 'true' : undefined"
+                        :class="[
+                            ITEM,
+                            c.lit
+                                ? 'bg-ss-accent-soft text-ss-accent-text'
+                                : '',
+                        ]"
                         @click="onMoreItem(c)"
                     >
                         <span class="flex flex-col items-start">
                             {{ c.label }}
                             <span
-                                v-if="c.reason"
-                                class="text-[10px] text-ss-text-3"
-                                >{{ c.reason }}</span
+                                v-if="c.reason ?? c.hint"
+                                class="text-[10px]"
+                                :class="
+                                    c.hint
+                                        ? 'text-ss-accent-text'
+                                        : 'text-ss-text-3'
+                                "
+                                >{{ c.reason ?? c.hint }}</span
                             >
                         </span>
                         <span

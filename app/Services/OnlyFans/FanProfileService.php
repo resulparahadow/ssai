@@ -2,8 +2,11 @@
 
 namespace App\Services\OnlyFans;
 
+use App\Models\AichChatIntel;
+use App\Models\AichChatState;
 use App\Models\AichModel;
 use App\Models\CustomerProfile;
+use App\Support\StateSwitches;
 
 /**
  * Owns the live-path fan memory record (customer_profiles keyed by of_fan_id).
@@ -179,6 +182,17 @@ class FanProfileService
             }
         }
 
+        // §5b state switches: merged per key; null (or lane normal / support off) = back to Auto.
+        if (array_key_exists('state_overrides', $data) && is_array($data['state_overrides'])) {
+            $before = $profile->state_overrides ?? [];
+            $merged = StateSwitches::merge($before, $data['state_overrides']);
+            // A re-set beat is a fresh start: the old sent-marker belongs to the previous beat.
+            if (($merged['rls_beat'] ?? null) !== ($before['rls_beat'] ?? null)) {
+                $profile->rls_beat_sent_at = null;
+            }
+            $profile->state_overrides = $merged === [] ? null : $merged;
+        }
+
         foreach ($data['unlock'] ?? [] as $field) {
             $locked = array_filter($locked, fn ($f) => $f !== $field);
             if ($field === 'key_details') {
@@ -195,9 +209,19 @@ class FanProfileService
         return $profile;
     }
 
-    /** Compact shape for the FanPanel (memory + toggles + read-only spend + locks). */
-    public function toPanel(?CustomerProfile $profile): array
+    /**
+     * Compact shape for the FanPanel (memory + toggles + read-only spend + locks), plus the §5b
+     * SSAI state card's keys: the manual switches, SSAI's own read for the Auto rows, the §5c
+     * counters and the creator's bilingual flag + price ladder.
+     */
+    public function toPanel(?CustomerProfile $profile, ?AichModel $model = null, ?AichChatIntel $intel = null, ?AichChatState $state = null): array
     {
+        // The committed chat state is the promise SSAI is carrying; the last generate's read is the fallback.
+        $telemetry = $intel?->telemetry ?? [];
+        if ($state?->promise_status) {
+            $telemetry['promiseStatus'] = $state->promise_status;
+        }
+
         return [
             'archetype' => $profile?->archetype,
             'trust_level' => (int) ($profile?->trust_level ?? 0),
@@ -211,6 +235,19 @@ class FanProfileService
             'tips_spend' => (float) ($profile?->tips_spend ?? 0),
             'subscription_status' => $profile?->subscription_status,
             'locked_fields' => $profile?->locked_fields ?? [],
+            // An object even when empty (the client reads it as a map, not a list).
+            'state_overrides' => (object) ($profile?->state_overrides ?? []),
+            'auto_read' => StateSwitches::autoRead(
+                $intel?->strategy ?? $state?->last_strategy,
+                $telemetry,
+                $profile,
+            ),
+            'counters' => [
+                'objection_redirects' => (int) ($state?->objection_redirects ?? 0),
+                'sex_only_pulls' => (int) ($state?->sex_only_pulls ?? 0),
+            ],
+            'is_bilingual' => (bool) ($model?->is_bilingual ?? false),
+            'price_ladder' => $model?->priceLadder() ?? AichModel::DEFAULT_PRICE_LADDER,
         ];
     }
 

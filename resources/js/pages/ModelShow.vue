@@ -87,6 +87,18 @@ async function loadStatus() {
     }
 }
 
+// The ladder is edited as "12, 21, 35"; the server validates each rung ($3–$200).
+const ladderText = ref((props.model.price_ladder ?? []).join(', '));
+const ladderError = ref<string | null>(null);
+
+function parseLadder(text: string): number[] {
+    return text
+        .split(/[\s,]+/)
+        .map((p) => p.replace(/^\$/, ''))
+        .filter((p) => p !== '')
+        .map(Number);
+}
+
 // ---- model field + assignment editing ----
 const savingSettings = ref(false);
 const savingAssign = ref(false);
@@ -103,10 +115,24 @@ function saveSettings() {
             feedback_rules: draft.feedback_rules,
             of_account_id: draft.of_account_id,
             timezone: draft.timezone,
+            is_bilingual: !!draft.is_bilingual,
+            // Empty = null: the creator follows the default ladder (not a pinned copy of it).
+            price_ladder: parseLadder(ladderText.value).length
+                ? parseLadder(ladderText.value)
+                : null,
         },
         {
             preserveScroll: true,
             preserveState: true,
+            onSuccess: () => (ladderError.value = null),
+            onError: (errors) => {
+                const key = Object.keys(errors).find((k) =>
+                    k.startsWith('price_ladder'),
+                );
+                ladderError.value = key
+                    ? 'Each rung must be a price from $3 to $200.'
+                    : null;
+            },
             onFinish: () => (savingSettings.value = false),
         },
     );
@@ -303,6 +329,41 @@ onMounted(loadStatus);
                             — it's {{ localNow }} there now</template
                         >.
                     </span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input
+                        v-model="draft.is_bilingual"
+                        type="checkbox"
+                        class="size-4 rounded border-ss-border accent-ss-accent"
+                    />
+                    <span class="text-[13px] text-ss-text"
+                        >Bilingual (ES / EN)</span
+                    >
+                    <span class="text-[11px] text-ss-text-3"
+                        >— shows the Language switch on her fans' SSAI state
+                        card</span
+                    >
+                </label>
+                <label class="block">
+                    <span class="mb-1 block text-[12px] text-ss-text-2"
+                        >PPV price ladder</span
+                    >
+                    <input
+                        v-model="ladderText"
+                        type="text"
+                        placeholder="12, 21, 35, 49, 69, 100"
+                        class="h-9 w-full rounded-lg border border-ss-border bg-ss-bg px-2 font-ss-mono text-sm text-ss-text placeholder:text-ss-text-3 focus:border-ss-accent focus:outline-none"
+                    />
+                    <span class="mt-1 block text-[11px] text-ss-text-3">
+                        Prices in dollars, lowest first. SSAI suggests the next
+                        rung after his last purchase — it never changes a price
+                        by itself. Leave empty for the default ladder.
+                    </span>
+                    <span
+                        v-if="ladderError"
+                        class="mt-1 block text-[11px] text-ss-neg"
+                        >{{ ladderError }}</span
+                    >
                 </label>
                 <label class="block">
                     <span class="mb-1 block text-[12px] text-ss-text-2"

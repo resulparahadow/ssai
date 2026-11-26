@@ -26,6 +26,10 @@ class AichChatState extends Model
         'promise_status',
         'story_framework_step',
         'committed_by',
+        'objection_redirects',
+        'sex_only_pulls',
+        'objection_counted_at',
+        'sex_only_counted_at',
     ];
 
     protected $casts = [
@@ -33,6 +37,10 @@ class AichChatState extends Model
         'last_analysis' => 'array',
         'story_framework_step' => 'integer',
         'next_planned_move_at_msg' => 'integer',
+        'objection_redirects' => 'integer',
+        'sex_only_pulls' => 'integer',
+        'objection_counted_at' => 'datetime',
+        'sex_only_counted_at' => 'datetime',
     ];
 
     protected static function booted(): void

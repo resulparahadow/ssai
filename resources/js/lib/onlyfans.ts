@@ -1,5 +1,6 @@
 import { postJson } from '@/lib/api';
 import type { ServerIntentKey } from '@/lib/intents';
+import { normalizeProfile } from '@/lib/stateSwitches';
 import type {
     AiStrategy,
     DraftRejection,
@@ -14,6 +15,8 @@ import type {
     OfVaultList,
     PpvPriceSuggestion,
     Script,
+    StateOverrideKey,
+    StateOverrides,
     ScriptImportResult,
     ScriptStatus,
     ScriptStep,
@@ -428,6 +431,9 @@ export const ofApi = {
             intentOption?: string | null;
             // True only when typed override text was dropped (Aftersale ignores it).
             noteDropped?: boolean;
+            // §5b/§5c: the fan's server-side counters and the effective RLS beat (null = Auto).
+            counters?: { objectionRedirects: number; sexOnlyPulls: number };
+            rlsBeat?: number | null;
         }>(`${base(m)}/chats/${chat}/generate`, payload),
     intel: (m: number, chat: string) =>
         req<{ strategy: AiStrategy | null; generatedAt: string | null }>(
@@ -444,13 +450,15 @@ export const ofApi = {
         },
     ) =>
         req<{ ok: boolean }>('POST', `${base(m)}/chats/${chat}/state`, payload),
-    /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). */
+    /** Persisted fan memory + toggles for a chat (chat id = of_fan_id). The state keys are
+     *  defaulted here (normalizeProfile), so an older server's payload can't crash the UI. */
     getProfile: (m: number, chat: string) =>
         req<{ profile: OfFanProfile }>(
             'GET',
             `${base(m)}/chats/${chat}/profile`,
-        ),
-    /** Edit fan memory/toggles. Sending an AI-owned field pins it; `unlock` re-opens fields. */
+        ).then((r) => ({ profile: normalizeProfile(r.profile) })),
+    /** Edit fan memory/toggles. Sending an AI-owned field pins it; `unlock` re-opens fields.
+     *  `state_overrides` merges per key on the server; null sets that switch back to Auto. */
     saveProfile: (
         m: number,
         chat: string,
@@ -465,13 +473,21 @@ export const ofApi = {
                 | 'sexting_mode'
                 | 'tip_mode'
             >
-        > & { unlock?: OfLockableField[] },
+        > & {
+            unlock?: OfLockableField[];
+            state_overrides?: Partial<
+                Record<
+                    StateOverrideKey,
+                    StateOverrides[StateOverrideKey] | null
+                >
+            >;
+        },
     ) =>
         req<{ profile: OfFanProfile }>(
             'PATCH',
             `${base(m)}/chats/${chat}/profile`,
             payload,
-        ),
+        ).then((r) => ({ profile: normalizeProfile(r.profile) })),
 
     // ---- Message PPV tags (chat PPV / mass PPV / free preview) ---------------
     tags: (m: number, chat: string) =>
