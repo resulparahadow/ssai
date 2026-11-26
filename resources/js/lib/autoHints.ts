@@ -12,12 +12,15 @@ export interface AutoHints {
     postTip: boolean;
     /** A new subscriber the creator hasn't written to herself yet. */
     hook: boolean;
+    /** He said no to the PPV still waiting for him, and she hasn't answered yet. */
+    aftersale: boolean;
 }
 
 export const NO_HINTS: AutoHints = {
     postPurchase: false,
     postTip: false,
     hook: false,
+    aftersale: false,
 };
 
 /** A subscriber this new still gets the Hook hint. */
@@ -85,7 +88,12 @@ export function autoHints(
         break;
     }
 
-    return { postPurchase, postTip, hook: hookHint(real, sub, now) };
+    return {
+        postPurchase,
+        postTip,
+        hook: hookHint(real, sub, now),
+        aftersale: aftersaleHint(real, tags),
+    };
 }
 
 /**
@@ -118,4 +126,74 @@ function hookHint(
     return !real.some(
         (m) => m.from === 'creator' && !m.fromQueue && at(m) > grace,
     );
+}
+
+/**
+ * A plain refusal, English or Spanish: "no", "nah", "not now", "maybe later", "no thanks",
+ * "I'm good", "not interested", "can't afford it", "ahora no", "no gracias", "después"…
+ * Deliberately narrow: a price push-back ("too expensive", "for free") is an OBJECTION —
+ * that button answers it — and a "no" inside a sentence ("no way you're so hot") isn't one.
+ */
+const REFUSAL = new RegExp(
+    [
+        String.raw`^\s*(no+|nah+|nope|pass)\b[\s.!,]*$`,
+        String.raw`^\s*no+[\s,.!]+(thanks|thank you|gracias|babe|baby|bb|hun|sorry)\b`,
+        String.raw`\b(not now|maybe later|another time|some other time|next time|not today|not tonight)\b`,
+        String.raw`\b(no thanks|no thank you|i'?m good|im good|i'?ll pass|not interested|not for me)\b`,
+        String.raw`\b(don'?t want (it|that|to)|dont want (it|that|to)|not buying|not paying|won'?t pay|wont pay)\b`,
+        String.raw`\b(can'?t afford|cant afford|no money|i'?m broke|im broke)\b`,
+        String.raw`\b(ahora no|hoy no|no gracias|no quiero|no puedo|no tengo (dinero|plata)|otro d[ií]a|despu[eé]s|luego|m[aá]s tarde)\b`,
+    ].join('|'),
+    'iu',
+);
+
+export function isRefusal(text: string): boolean {
+    const plain = text
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/[\u2018\u2019]/g, "'")
+        .trim();
+
+    return plain !== '' && REFUSAL.test(plain);
+}
+
+/**
+ * Aftersale ("After a no") lights when the newest PPV he can see is NOT bought, his newest
+ * message after it is a refusal, and she hasn't written since that message. Hidden unbought
+ * mass PPVs are not a pitch to him, so they don't count as "the PPV".
+ */
+function aftersaleHint(
+    real: OfMessage[],
+    tags: Record<string, MessageTag>,
+): boolean {
+    let ppvAt = -1;
+
+    for (let i = real.length - 1; i >= 0; i--) {
+        const tag = effectiveTag(real[i], tags);
+
+        if (tag === 'chat_ppv' || (tag === 'mppv' && real[i].isOpened)) {
+            ppvAt = i;
+            break;
+        }
+    }
+
+    if (ppvAt < 0 || real[ppvAt].isOpened) {
+        return false;
+    }
+
+    let fanAt = -1;
+
+    for (let i = real.length - 1; i > ppvAt; i--) {
+        if (real[i].from === 'fan' && !real[i].isTip) {
+            fanAt = i;
+            break;
+        }
+    }
+
+    if (fanAt < 0 || !isRefusal(real[fanAt].text)) {
+        return false;
+    }
+
+    return !real
+        .slice(fanAt + 1)
+        .some((m) => m.from === 'creator' && !m.fromQueue);
 }

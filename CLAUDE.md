@@ -718,7 +718,12 @@ engine uses its in-process copy. Provider keys live in the engine's env
     (`OfFan.subscribedAt`, only when the fan details belong to the open chat) when the creator hasn't
     written to him herself since — mass blasts and anything in the first 10 min (OnlyFans' own
     automatic Welcome Message) don't count. Light only, by choice: no background draft, never an
-    auto-send. NOT yet: Aftersale glow (trigger undefined). Guard: `tests/client/state-check.mjs`.
+    auto-send. **Aftersale** ("After a no") lights when the newest PPV he can see (a chat PPV, or a
+    bought mass PPV) is unbought, his newest non-tip message after it is a refusal (`isRefusal`: a
+    narrow EN/ES list — "no", "not now", "maybe later", "no gracias", "ahora no"…; price push-backs
+    like "too expensive" are left to the Objection button), and she hasn't written since. NOT on a
+    bought PPV: the playbook says a purchase keeps the ladder climbing, and Post-purchase owns that
+    moment. Guard: `tests/client/state-check.mjs`.
     **"Came with tip / media" tags** — legacy's paste-in chips, now filled from OnlyFans:
     `LiveThreadMapper` puts `tags: {tip, tipAmount}` on a fan tip and `{customerMedia}` on a fan
     message with media (`mediaCount`, sent by `Conversations.vue`, a load-bearing `generate` rule),
