@@ -206,6 +206,8 @@ class ModelController extends Controller
             'feedback_rules' => $model->feedback_rules,
             'of_account_id' => $model->of_account_id,
             'timezone' => $model->timezone,
+            'is_bilingual' => (bool) $model->is_bilingual,
+            'price_ladder' => $model->priceLadder(),
             'assigned' => $assigned,
         ];
     }
@@ -230,6 +232,11 @@ class ModelController extends Controller
             'feedback_rules' => 'nullable|string',
             'of_account_id' => 'nullable|string|max:120',
             'timezone' => 'nullable|timezone:all',
+            // §5b: the Language switch shows only for a bilingual creator.
+            'is_bilingual' => 'sometimes|boolean',
+            // §5c: PPV price ladder (next-rung suggestion only); null/empty → the default ladder.
+            'price_ladder' => 'sometimes|nullable|array|max:20',
+            'price_ladder.*' => 'numeric|min:3|max:200',
         ]);
     }
 }

@@ -96,6 +96,9 @@ class EngineClient
             // The clock legacy's "current time" prompt lines read (engine/zonedDate.js). Must
             // match the zone LiveThreadMapper stamped the messages in.
             'timezone' => $model->timezoneOrDefault(),
+            // §5b manual state switches (StateSwitches::toEngine), only when at least one is set:
+            // an all-Auto generate must reach the engine byte-identical to before (no key at all).
+            ...(! empty($opts['stateOverrides']) ? ['stateOverrides' => $opts['stateOverrides']] : []),
         ]));
     }
 
