@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { autoHints } from '../../resources/js/lib/autoHints.ts';
 import { chatCounters } from '../../resources/js/lib/chatCounters.ts';
 import {
     DEFAULT_LADDER,
@@ -369,7 +370,14 @@ for (const k of [
 
 // ---- stateChipLock: support first, then the lit thresholds ---------------------
 const open = { enabled: true, lit: false, reason: null };
-const S0 = { support: false, objections: 0, sexOnly: 0 };
+const S0 = {
+    support: false,
+    objections: 0,
+    sexOnly: 0,
+    postPurchase: false,
+    postTip: false,
+    hook: false,
+};
 assert.equal(SUPPORT_REASON, 'Support mode is on — no selling.');
 {
     const r = stateChipLock('cta', open, { ...S0, support: true });
@@ -550,6 +558,9 @@ assert.equal(ladderOffer(null, 21), null);
         support: false,
         objections: 0,
         sexOnly: 0,
+        postPurchase: false,
+        postTip: false,
+        hook: false,
         nextRung: 12,
         parts: [],
     });
@@ -574,6 +585,156 @@ assert.equal(ladderOffer(null, 21), null);
         composerFanState(P({ price_ladder: [15, 30, 60] }), [bought], {})
             .nextRung,
         30,
+    );
+}
+
+// ---- autoHints: Post-tip / Post-purchase light up by themselves --------------
+{
+    const me = (o = {}) => msg({ from: 'creator', ...o });
+    const H = (ms, tags = {}) => autoHints(ms, tags);
+
+    // Post-tip: a tip after her last message lights; her reply turns it off.
+    assert.deepEqual(
+        H([me(), msg({ isTip: true, price: 10, isFree: false })]),
+        {
+            postPurchase: false,
+            postTip: true,
+            hook: false,
+        },
+    );
+    assert.equal(H([msg({ isTip: true, price: 10 }), me()]).postTip, false);
+    // He tipped, then typed — still lit (he tipped since she wrote).
+    assert.equal(
+        H([me(), msg({ isTip: true, price: 5 }), msg()]).postTip,
+        true,
+    );
+    // No creator message at all: any tip lights.
+    assert.equal(H([msg({ isTip: true, price: 5 })]).postTip, true);
+    // A mass blast after the tip is not her answering him.
+    assert.equal(
+        H([me(), msg({ isTip: true, price: 5 }), ppv({ fromQueue: true })])
+            .postTip,
+        true,
+    );
+    // Optimistic / failed bubbles don't count as her answer.
+    assert.equal(
+        H([me(), msg({ isTip: true, price: 5 }), me({ pending: true })])
+            .postTip,
+        true,
+    );
+    assert.equal(
+        H([me(), msg({ isTip: true, price: 5 }), me({ failed: true })]).postTip,
+        true,
+    );
+
+    // Post-purchase: the newest PPV bought, nothing she wrote after it.
+    assert.equal(H([me(), ppv({ isOpened: true })]).postPurchase, true);
+    assert.equal(H([ppv({ isOpened: true }), msg()]).postPurchase, true);
+    assert.equal(H([ppv({ isOpened: true }), me()]).postPurchase, false);
+    assert.equal(H([ppv({ isOpened: false })]).postPurchase, false);
+    // The NEWEST PPV decides: an older bought one doesn't light past a newer unbought one.
+    assert.equal(
+        H([ppv({ isOpened: true }), ppv({ isOpened: false })]).postPurchase,
+        false,
+    );
+    // A bought mass PPV counts (he bought it) and a later mass blast isn't her writing.
+    assert.equal(
+        H([me(), ppv({ fromQueue: true, isOpened: true })]).postPurchase,
+        true,
+    );
+    // A free preview is never a purchase signal.
+    {
+        const fp = ppv({ isOpened: true });
+        assert.equal(
+            H([me(), fp], { [fp.id]: 'free_preview' }).postPurchase,
+            false,
+        );
+    }
+    // Messages arriving out of order are read by time.
+    {
+        const bought = ppv({ isOpened: true });
+        const reply = me({
+            time: new Date(Date.parse(bought.time) + 60000).toISOString(),
+        });
+        assert.equal(H([reply, bought]).postPurchase, false);
+    }
+    assert.deepEqual(H([]), {
+        postPurchase: false,
+        postTip: false,
+        hook: false,
+    });
+
+    // Hook: a new subscriber she hasn't written to herself yet.
+    const DAY = 86400000;
+    const subAt = (msAgo) => ({
+        subscribed: true,
+        subscribedAt: new Date(NOW - msAgo).toISOString(),
+    });
+    const at = (msAgo) => new Date(NOW - msAgo).toISOString();
+    const hook = (ms, sub) => autoHints(ms, {}, sub, NOW).hook;
+    assert.equal(hook([], subAt(2 * DAY)), true);
+    assert.equal(hook([msg({ time: at(DAY) })], subAt(2 * DAY)), true); // he wrote, she didn't
+    assert.equal(hook([me({ time: at(DAY) })], subAt(2 * DAY)), false); // she wrote
+    // OnlyFans' Welcome Message right after subscribing doesn't count as her writing.
+    assert.equal(
+        hook([me({ time: at(2 * DAY - 60000) })], subAt(2 * DAY)),
+        true,
+    );
+    assert.equal(
+        hook([me({ time: at(2 * DAY - 11 * 60000) })], subAt(2 * DAY)),
+        false,
+    );
+    // A mass blast isn't her writing to him.
+    assert.equal(
+        hook([me({ time: at(DAY), fromQueue: true })], subAt(2 * DAY)),
+        true,
+    );
+    // Old messages from before he subscribed (a returning subscriber) don't count.
+    assert.equal(hook([me({ time: at(30 * DAY) })], subAt(2 * DAY)), true);
+    // Too old a subscription, no date, lapsed, or no details → no hint.
+    assert.equal(hook([], subAt(8 * DAY)), false);
+    assert.equal(hook([], { subscribed: true, subscribedAt: null }), false);
+    assert.equal(hook([], { subscribed: false, subscribedAt: at(DAY) }), false);
+    assert.equal(hook([], null), false);
+    assert.equal(hook([], { subscribed: null, subscribedAt: at(DAY) }), true);
+
+    // The chips: lit with a reason, only while enabled; support mode doesn't block them.
+    const open = { enabled: true, lit: false, reason: null };
+    {
+        const r = stateChipLock('post_tip', open, { ...S0, postTip: true });
+        assert.equal(r.lit, true);
+        assert.equal(r.hint, 'He just tipped — thank him');
+    }
+    {
+        const r = stateChipLock('post_purchase', open, {
+            ...S0,
+            postPurchase: true,
+        });
+        assert.equal(r.lit, true);
+        assert.equal(r.hint, 'He bought the PPV — follow up');
+    }
+    assert.equal(
+        stateChipLock('post_tip', open, { ...S0, postTip: true, support: true })
+            .lit,
+        true,
+    );
+    assert.equal(
+        stateChipLock(
+            'post_tip',
+            { enabled: false, lit: false, reason: 'Sending…' },
+            { ...S0, postTip: true },
+        ).lit,
+        false,
+    );
+    assert.equal(stateChipLock('post_tip', open, S0).lit, false);
+    {
+        const r = stateChipLock('hook', open, { ...S0, hook: true });
+        assert.equal(r.lit, true);
+        assert.equal(r.hint, 'New subscriber — say hi');
+    }
+    assert.equal(
+        stateChipLock('post_purchase', open, { ...S0, postTip: true }).lit,
+        false,
     );
 }
 
