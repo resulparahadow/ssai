@@ -148,7 +148,7 @@ export const NAV: NavNode[] = [
         alwaysOn: true,
     },
 
-    // --- Coming soon (not built yet) -----------------------------------------
+    // --- Not built yet: kept as the roadmap, hidden from the sidebar until routed --
     { key: 'whales', label: 'Whales & churn', icon: Crown, cap: 'analytics' },
     { key: 'playbooks', label: 'Playbooks', icon: BookOpen, cap: 'analytics' },
     { key: 'automations', label: 'Automations', icon: Zap, cap: 'analytics' },

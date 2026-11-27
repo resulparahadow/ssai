@@ -51,7 +51,20 @@ const title = computed(() => {
         return 'Chatter guide';
     }
 
-    return NAV.find((n) => n.href === path)?.label ?? 'Overview';
+    for (const n of NAV) {
+        // A leaf owns its sub-pages too (/models/14 is Creator Models).
+        if (n.href === path || (n.href && path.startsWith(`${n.href}/`))) {
+            return n.label;
+        }
+
+        const child = n.children?.find((c) => c.href === path);
+
+        if (child) {
+            return `${n.label} · ${child.label}`;
+        }
+    }
+
+    return 'Overview';
 });
 </script>
 

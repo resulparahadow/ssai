@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Settings\GlobalTrainingController;
+use App\Http\Controllers\Settings\IntegrationsController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -34,6 +35,15 @@ Route::middleware(['auth', 'can:edit-global-training'])->group(function () {
     Route::get('settings/global-training', [GlobalTrainingController::class, 'edit'])->name('global-training.edit');
     Route::put('settings/global-training', [GlobalTrainingController::class, 'update'])->name('global-training.update');
     Route::post('settings/global-training/reset', [GlobalTrainingController::class, 'reset'])->name('global-training.reset');
+});
+
+// Chat provider switch (OnlyFansAPI ↔ OopCRM) — admin only; changes every OnlyFans call.
+Route::middleware(['auth', 'can:manage-integrations'])->group(function () {
+    Route::get('settings/integrations', [IntegrationsController::class, 'edit'])->name('integrations.edit');
+    Route::put('settings/integrations', [IntegrationsController::class, 'update'])->name('integrations.update');
+    Route::post('settings/integrations/test', [IntegrationsController::class, 'test'])
+        ->middleware('throttle:10,1')
+        ->name('integrations.test');
 });
 
 Route::get('.well-known/passkey-endpoints', function () {

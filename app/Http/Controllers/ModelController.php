@@ -6,11 +6,13 @@ use App\Enums\UserRole;
 use App\Models\AichModel;
 use App\Models\ModelAssignment;
 use App\Models\User;
+use App\Services\Integrations\ChatProvider;
 use App\Services\OnlyFans\OnlyFansService;
 use DateTimeZone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -68,19 +70,26 @@ class ModelController extends Controller
      * rather than trusted: that also gives us the authoritative label to name the model,
      * instead of letting the client choose one.
      */
-    public function storeFromAccount(Request $request, OnlyFansService $of): RedirectResponse
+    public function storeFromAccount(Request $request, ChatProvider $providers): RedirectResponse
     {
-        $wanted = $request->validate(['of_account_id' => 'required|string|max:120'])['of_account_id'];
+        $data = $request->validate([
+            'of_account_id' => 'required|string|max:120',
+            // The two providers list the same creator under different ids, so the page says
+            // which list the account came from. Defaults to the active one.
+            'provider' => ['nullable', Rule::in(ChatProvider::ALL)],
+        ]);
+        $wanted = $data['of_account_id'];
+        $provider = $data['provider'] ?? $providers->active();
 
-        if (! $of->enabled()) {
-            abort(503, 'OnlyFans API key is not configured.');
+        if (! $providers->configured($provider)) {
+            abort(503, ChatProvider::LABELS[$provider].' API key is not configured.');
         }
 
-        $account = $this->connectedAccount($of, $wanted);
+        $account = $this->connectedAccount($providers->service($provider), $wanted, ChatProvider::LABELS[$provider]);
 
         if (! $account) {
             throw ValidationException::withMessages([
-                'of_account_id' => 'That OnlyFans account is not connected to this OnlyFansAPI key.',
+                'of_account_id' => 'That OnlyFans account is not connected to '.ChatProvider::LABELS[$provider].'.',
             ]);
         }
 
@@ -93,6 +102,7 @@ class ModelController extends Controller
         $model = AichModel::create([
             'name' => $this->availableName($account),
             'of_account_id' => $wanted,
+            'provider' => $provider,
         ]);
 
         return redirect()->route('models.show', $model)
@@ -104,13 +114,13 @@ class ModelController extends Controller
      *
      * @return array<string, mixed>|null
      */
-    private function connectedAccount(OnlyFansService $of, string $id): ?array
+    private function connectedAccount(OnlyFansService $of, string $id, string $label): ?array
     {
         $res = $of->listAccounts();
 
         if (! $res->successful()) {
             throw ValidationException::withMessages([
-                'of_account_id' => 'Could not reach OnlyFansAPI to confirm that account. Try again in a moment.',
+                'of_account_id' => "Could not reach {$label} to confirm that account. Try again in a moment.",
             ]);
         }
 

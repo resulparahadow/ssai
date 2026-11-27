@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\AichModel;
 use App\Models\User;
+use App\Services\Integrations\ChatProvider;
 use App\Support\CreatorContext;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -53,6 +54,9 @@ class HandleInertiaRequests extends Middleware
             // resolved from the untrusted `ss_creator` cookie against $creators. Lets SSR pages
             // scope server-side and lets the client repair a stale selection on first paint.
             'creatorContext' => app(CreatorContext::class)->resolveRequest($request, $creators),
+            // The agency-wide OnlyFans transport (Settings → Integrations). `creators` above only
+            // holds creators connected through it, so the shell says which one it is.
+            'chatProvider' => $request->user() ? $this->chatProvider() : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
@@ -70,7 +74,8 @@ class HandleInertiaRequests extends Middleware
             return [];
         }
 
-        $models = AichModel::query()->orderBy('name');
+        // Only creators the active provider can serve (see AichModel::scopeOnActiveProvider).
+        $models = AichModel::query()->onActiveProvider()->orderBy('name');
         if (! $user->canSeeAllCreators()) {
             $models->whereIn('name', $user->assignedCreatorModels());
         }
@@ -82,5 +87,13 @@ class HandleInertiaRequests extends Middleware
                 'hasOf' => ! empty($m->of_account_id),
             ])
             ->all();
+    }
+
+    /** @return array{key: string, label: string} */
+    protected function chatProvider(): array
+    {
+        $active = app(ChatProvider::class)->active();
+
+        return ['key' => $active, 'label' => ChatProvider::LABELS[$active]];
     }
 }

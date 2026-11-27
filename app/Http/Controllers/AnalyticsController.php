@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AichModel;
 use App\Models\User;
+use App\Services\Integrations\ChatProvider;
 use App\Services\OnlyFans\OnlyFansService;
 use App\Support\CreatorContext;
 use Illuminate\Http\Client\ConnectionException;
@@ -144,7 +145,7 @@ class AnalyticsController extends Controller
      */
     private function connectedIds(User $user): array
     {
-        $q = AichModel::query()->whereNotNull('of_account_id');
+        $q = AichModel::query()->onActiveProvider()->whereNotNull('of_account_id');
         if (! $user->canSeeAllCreators()) {
             $q->whereIn('name', $user->assignedCreatorModels());
         }
@@ -163,7 +164,7 @@ class AnalyticsController extends Controller
             return [];
         }
 
-        $q = AichModel::query()->whereNotNull('of_account_id')->orderBy('name');
+        $q = AichModel::query()->onActiveProvider()->whereNotNull('of_account_id')->orderBy('name');
         if (! $user->canSeeAllCreators()) {
             $q->whereIn('name', $user->assignedCreatorModels());
         }
@@ -224,6 +225,8 @@ class AnalyticsController extends Controller
         if (! $model->of_account_id) {
             abort(422, "Creator {$model->name} has no OnlyFans account connected.");
         }
+
+        app(ChatProvider::class)->ensureServes($model);
 
         return $model->of_account_id;
     }

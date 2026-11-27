@@ -22,9 +22,10 @@ class AiUsageService
     /**
      * @param  string|null  $creatorModel  Scope every figure to this creator (name), or null
      *                                     for all creators (the app-wide "All creators" mode).
+     * @param  list<string>|null  $creatorNames  What "all creators" covers (null = no limit).
      * @return array<string, mixed>
      */
-    public function build(User $user, string $period = '7d', ?string $creatorModel = null): array
+    public function build(User $user, string $period = '7d', ?string $creatorModel = null, ?array $creatorNames = null): array
     {
         $period = array_key_exists($period, self::PERIOD_DAYS) ? $period : '7d';
         $days = self::PERIOD_DAYS[$period];
@@ -32,7 +33,9 @@ class AiUsageService
 
         $base = AichUsageEvent::query()
             ->where('created_at', '>=', $start)
-            ->when(! empty($creatorModel), fn ($q) => $q->where('creator_model', $creatorModel));
+            ->when(! empty($creatorModel), fn ($q) => $q->where('creator_model', $creatorModel))
+            // "All creators" = the creators on the active provider (CreatorContext::namesInScopeForRequest).
+            ->when(empty($creatorModel) && $creatorNames !== null, fn ($q) => $q->whereIn('creator_model', $creatorNames));
 
         $totalCost = (float) (clone $base)->sum('cost');
         $totalCalls = (clone $base)->count();

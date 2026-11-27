@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Integrations\ChatProvider;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -21,10 +23,49 @@ class AichModel extends Model
         'feedback_rules',
         'tier',
         'of_account_id',
+        'provider',
         'timezone',
         'is_bilingual',
         'price_ladder',
     ];
+
+    /**
+     * `provider` follows `of_account_id`: an id set without naming its provider belongs to the
+     * active one (that's the transport it was entered for), and clearing the id clears it.
+     * Callers that know better (Add as creator model, the Creator Models sync) set it explicitly.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (AichModel $model): void {
+            if (! $model->isDirty('of_account_id') || $model->isDirty('provider')) {
+                return;
+            }
+
+            $model->provider = filled($model->of_account_id) ? app(ChatProvider::class)->active() : null;
+        });
+    }
+
+    /**
+     * Creators the app works with right now: those whose OnlyFans account is connected through
+     * the active provider. A creator on the OTHER provider is hidden everywhere (its account id
+     * doesn't work on this transport), and so is a model with no account yet — it has no chats,
+     * fans or vault to show; it stays reachable on the Creator Models page.
+     *
+     * @param  Builder<AichModel>  $query
+     */
+    public function scopeOnActiveProvider(Builder $query): void
+    {
+        $query->where('provider', app(ChatProvider::class)->active())
+            ->whereNotNull('of_account_id')
+            ->where('of_account_id', '!=', '');
+    }
+
+    /** Whether this creator's account works on the active provider (or it has no account). */
+    public function onActiveProvider(): bool
+    {
+        return blank($this->of_account_id) || $this->provider === null
+            || $this->provider === app(ChatProvider::class)->active();
+    }
 
     /** The team's Master Script ladder — the default when a creator has no ladder of her own. */
     public const DEFAULT_PRICE_LADDER = [12, 21, 35, 49, 69, 100];

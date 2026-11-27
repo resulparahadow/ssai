@@ -107,6 +107,27 @@ class CreatorContext
     }
 
     /**
+     * The creator names a request's aggregate figures cover: the selected creator, or — under
+     * "All creators" — every creator on the active provider the user may see. Lets dashboards
+     * show the active provider's data only, like the rest of the app.
+     *
+     * @return list<string>
+     */
+    public function namesInScopeForRequest(Request $request): array
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return [];
+        }
+
+        $creators = $this->scopedCreators($user);
+        $selected = $this->selectedName($user, $this->cookieFrom($request), $creators);
+
+        return $selected !== null ? [$selected] : array_map(static fn (array $c): string => $c['name'], $creators);
+    }
+
+    /**
      * Creators the user may access (id + name), scoped exactly like
      * HandleInertiaRequests::creatorsFor (ordered by name, so the "first" default matches).
      *
@@ -114,7 +135,7 @@ class CreatorContext
      */
     private function scopedCreators(User $user): array
     {
-        $q = AichModel::query()->orderBy('name');
+        $q = AichModel::query()->onActiveProvider()->orderBy('name');
 
         if (! $user->canSeeAllCreators()) {
             $q->whereIn('name', $user->assignedCreatorModels());

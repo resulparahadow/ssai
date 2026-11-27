@@ -3,6 +3,7 @@ import type {
     OfAccountStatus,
     OfBundle,
     OfConnectedAccount,
+    OfProviderStatus,
     OfFanRow,
     OfFanSummary,
     OfLinkStats,
@@ -53,7 +54,10 @@ export const ofModel = {
     /** Every OnlyFans account connected to the agency's OnlyFansAPI key. Agency-level,
      *  so it takes no model id — the picker needs it precisely when a model has none. */
     accounts: () =>
-        reqJson<{ accounts: OfConnectedAccount[] }>('GET', '/of/accounts'),
+        reqJson<{
+            accounts: OfConnectedAccount[];
+            providers: OfProviderStatus[];
+        }>('GET', '/of/accounts'),
     status: (m: number) =>
         reqJson<{ status: OfAccountStatus }>('GET', `${base(m)}/status`),
     fans: (m: number, params: FansParams = {}) => {

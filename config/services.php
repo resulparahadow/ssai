@@ -47,6 +47,17 @@ return [
         'model' => env('OPENROUTER_MODEL', 'mistralai/mistral-nemo'),
     ],
 
+    // Which backend OnlyFans calls go through until an admin picks one in Settings → Integrations
+    // (App\Services\Integrations\ChatProvider): 'onlyfansapi' or 'oopcrm'.
+    'chat_provider' => env('CHAT_PROVIDER', 'onlyfansapi'),
+
+    // OopCRM's OFAPI-compatible layer: same paths and shapes as OnlyFansAPI.
+    'oopcrm' => [
+        'key' => env('OOPCRM_API_KEY', env('OOPCRM_KEY')),
+        'base_url' => env('OOPCRM_BASE_URL', 'https://app.oopcrm.com/api/v1/ofapi'),
+        'webhook_secret' => env('OOPCRM_WEBHOOK_SECRET'),
+    ],
+
     'onlyfans' => [
         'key' => env('ONLYFANS_API_KEY'),
         'base_url' => env('ONLYFANS_BASE_URL', 'https://app.onlyfansapi.com/api'),

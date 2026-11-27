@@ -47,7 +47,9 @@ Later phases build the other CRM views and may port the engine to PHP. See
 │   └── js/
 │       ├── layouts/SmartStarsLayout.vue   ← CRM design shell (routed in app.ts for Dashboard)
 │       ├── components/crm/                ← SsSidebar, SsTopbar, Ss{Sparkline,Donut,BarChart}
-│       ├── composables/useCrmShell.ts     ← sidebar-collapse + admin role-preview state
+│       ├── composables/useCrmShell.ts     ← sidebar state: ≥1024px docked + collapsible to an icon rail
+│       │                                    (persisted, `[` key, groups open as a flyout); narrower = off-canvas
+│       │                                    drawer (backdrop/Esc/navigation close it)
 │       ├── crm/nav.ts                     ← nav tree + PERM matrix + ssColor()
 │       └── pages/Dashboard.vue            ← Overview view (real data via DashboardController)
 ├── routes/web.php                    ← inertia routes + webhooks/onlyfans
@@ -246,7 +248,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
 - **CRM views** — DONE: app shell + Overview dashboard (Phase 2), **Conversations**
   + **Creator Models** (Phase 4), **AI Usage** (`/analytics/ai-usage`), **Media Vault**
   (`/media-vault`). The remaining design views (Chatting Performance, Smart Links, Channels,
-  Creative, Content, Whales/Churn) are each their own spec — inert sidebar placeholders today.
+  Creative, Content, Whales/Churn) are each their own spec. Their `NAV` entries stay in `crm/nav.ts`
+    as the roadmap, but `SsSidebar` HIDES anything without a route (no "Soon" placeholders) — an
+    entry appears once it gets an `href`.
   - **AI Usage** (`/analytics/ai-usage`, manager/admin via `can:manage-team`) — restores the legacy
     `js/api.js` cost telemetry (`_ssaiCostLog` / `$/msg · Cache` card / cost-diagnostic modal). The
     engine now records a per-LLM-call usage ledger (`engine/callModel.js` → `makeRealCallApi`/`Mistral`
@@ -807,8 +811,10 @@ engine uses its in-process copy. Provider keys live in the engine's env
     preview in the list (still nothing persisted).
   - **Creator Models** (`/models`, manager/admin via `can:manage-team`) — `ModelController`
     CRUD over `aich_models` (persona/library/rules/OF-id/tier) + chatter assignment sync. The
-    **index** (`Models.vue`) is a card grid (avatar, tier, green "OnlyFans connected" dot when
-    `of_account_id` is set, assigned-chatter count) → each card opens the **show page**
+    **index** (`Models.vue`) is ONE list grouped by provider (see the OopCRM entry): a section per
+    provider with a key (active first), each row an OnlyFans account plus the model wired to it
+    (`SsCreatorRow`: status Ready / Needs re-auth / Not added, chatters, Manage or Add), then
+    "Not linked to a provider" for models no list holds → Manage opens the **show page**
     (`ModelController@show` → `ModelShow.vue`): edit the model's own fields + assignments, plus —
     when an OF account is mapped — a tabbed panel of **live** OnlyFans account data (nothing
     persisted) served by `ModelOnlyFansController` under `models/{model}/of/*` (also manage-team
@@ -848,8 +854,8 @@ engine uses its in-process copy. Provider keys live in the engine's env
     (`/smart-links/{id}/…`) address the smart-link id directly (still `manage-team` gated).
     The show header runs a **live** connection check via `GET {acct}/me` (`isAuth` + real OF
     avatar/@username/subscriber count).
-    **Creator models are ADDED FROM connected accounts** (`SsConnectedAccounts`, at the top of the
-    `Models.vue` index): `GET /of/accounts` (`ModelOnlyFansController::accounts` →
+    **Creator models are ADDED FROM connected accounts** (the "Not added" rows of the
+    `Models.vue` index; the old separate `SsConnectedAccounts` panel was merged into that list): `GET /of/accounts` (`ModelOnlyFansController::accounts` →
     `OnlyFansService::listAccounts`/`normalizeAccount`) lists every OnlyFans account connected to
     the agency's OnlyFansAPI key — avatar, name, @username, subscriber count, plus a "Needs
     re-auth" badge when `is_authenticated` is false. Accounts with no creator model sort first and
@@ -978,6 +984,73 @@ engine uses its in-process copy. Provider keys live in the engine's env
   `GET {acct}/giphy/search?q&limit&offset`. **Note:** `aich_sessions`/`aich_messages` are NO LONGER used by
   Conversations (kept only for the Dashboard + future analytics). STILL deferred: **tip requests**
   (PPV + media sends are done).
+- **OopCRM transport + provider switch (2026-11-27).** Every OnlyFans call can go through
+  OnlyFansAPI or Sammi's OopCRM **OFAPI-compatible layer** (`https://app.oopcrm.com/api/v1/ofapi`,
+  spec `…/ofapi/openapi.json`, no auth: all 100 paths SSAI calls, OFAPI-shaped responses — verified
+  live on chats, messages, users, notes, vault, vault lists, accounts, media download). **One
+  agency-wide switch**, admin only: **Settings → Integrations** (`IntegrationsController`, gate
+  `manage-integrations`, `settings/Integrations.vue`) with per-provider "key set / webhook secret set"
+  status, **Test connection** (one `GET accounts` through that provider, as a toast, no switch) and
+  **Use …**. Only the choice is stored (`app_settings.chat_provider`, `AppSetting`); keys stay in
+  `.env` — `ONLYFANS_API_KEY`/`ONLYFANS_BASE_URL`/`ONLYFANS_WEBHOOK_SECRET` and
+  `OOPCRM_API_KEY` (falls back to `OOPCRM_KEY`)/`OOPCRM_BASE_URL`/`OOPCRM_WEBHOOK_SECRET`;
+  `CHAT_PROVIDER` is only the default before an admin picks. `App\Services\Integrations\ChatProvider`
+  resolves it (cached forever, forgotten on change); `OnlyFansService`'s constructor takes its
+  key/base from it unless both are passed explicitly (tests, the Test button). Other `services.onlyfans.*`
+  values (timeouts) apply to both. Differences that matter:
+  - **Media urls come back pre-wrapped** in OopCRM's download route
+    (`{base}/{acct}/media/download/https%3A%2F%2Fcdn2.onlyfans.com…`). `OnlyFansService::client()`
+    peels that off every JSON response (`unwrapMediaDownloadUrls`), so the app keeps seeing bare
+    `cdn*.onlyfans.com` urls and the existing proxy/SSRF guard/script-thumb rules work unchanged.
+    Our proxy then downloads through OopCRM with the key (verified live). No-op on OnlyFansAPI.
+  - **Account ids:** OopCRM's `GET accounts` returns its own `acct_<uuid-hex>` ids. With one switch for
+    everyone, a creator keeps working on BOTH sides only if its OnlyFansAPI `acct_…` is registered in
+    OopCRM's **OFAPI migration** tab (a permanent mapping). A creator OopCRM doesn't have stops loading
+    while OopCRM is active (only 3 were there on 2026-11-27).
+    Verified live 2026-11-27: OopCRM answers an OnlyFansAPI id with 403 "Creator access is
+    unavailable" and lists the same creator under its OWN id (camila-ahh: `acct_f726…` on
+    OnlyFansAPI, `acct_d0cf…` on OopCRM), so today a model's `of_account_id` belongs to exactly
+    one provider. **The Creator Models page groups by provider:** `GET of/accounts` lists BOTH
+    providers' accounts (each row tagged `provider`, plus `providers[]` = key/label/active/
+    configured/error; one side failing doesn't hide the other, all failing forwards the first
+    upstream error) and `Models.vue` files each model under the provider whose list holds its id
+    (then "Account not found", then "Not connected"); a non-active group says it won't load until
+    an admin switches. `POST models/from-account` takes `provider` (default the active one) and
+    checks the id against THAT provider's list. OopCRM's `display_name` placeholder "Awaiting OnlyFans login" is not a
+    name: `normalizeAccount` skips it (falls back to the profile name, then the username). `phpunit.xml` blanks `OOPCRM_API_KEY`/`OOPCRM_KEY`
+    so a developer's real key in `.env` can't turn an unfaked Http call into a live one.
+    **The switch scopes the whole app (2026-11-27).** `aich_models.provider` (`onlyfansapi`|`oopcrm`,
+    null = no account) records which provider a model's id belongs to: the migration backfilled every
+    existing id as OnlyFansAPI, `storeFromAccount` writes the provider the account came from, a model
+    `saving` hook stamps the ACTIVE provider on an id set without one (and clears it with the id), and
+    `GET of/accounts` re-syncs it from the live lists (`syncModelProviders`). `AichModel::onActiveProvider()`
+    (only creators with an account on the active provider — account-less models are hidden too, by
+    choice: they have nothing to show; the Creator Models page still lists them) feeds the shared `creators` prop
+    (`HandleInertiaRequests`) and `CreatorContext::scopedCreators`, so the creator selector, the
+    Conversations/Media Vault/Scripts dropdowns, the inbox bell and realtime subscriptions all follow
+    the switch; a stale `ss_creator` cookie for a now-hidden creator falls back like any other.
+    "All creators" on the Dashboard and AI Usage covers `CreatorContext::namesInScopeForRequest` (the
+    active provider's creators), and Analytics' account lists use the same scope. Every OnlyFans
+    call path (`account()` in `OnlyFansChatController`, `ModelOnlyFansController`,
+    `AnalyticsController`) calls `ChatProvider::ensureServes`, which answers a creator on the other
+    provider with a JSON **409 `PROVIDER_MISMATCH`** naming both providers — before any upstream call.
+    The shell shares `chatProvider` {key,label}: `SsCreatorSelect` says "On OOP CRM" under All creators
+    and "Creators on … · Change" (admin link) at the foot of its popover. The Creator Models page is
+    deliberately NOT scoped (it lists both providers). Guards: `tests/Feature/ProviderScopeTest.php`.
+  - **Rate limit: 60 requests/min per key** (plus 300/min per IP), shared with OopCRM's native API,
+    and every media proxy miss is one request. The full chat UI can hit 429s with several chatters.
+  - **Webhooks** from both are accepted whichever is active. A `Signature` header (OopCRM OFAPI format:
+    HMAC-SHA256 of the raw body, hex, optional `sha256=`) must match ONE of the configured secrets;
+    without it the old OnlyFansAPI rule applies (`X-Webhook-Secret` equal to
+    `ONLYFANS_WEBHOOK_SECRET`, or no check while that is blank — OnlyFansAPI's own HMAC scheme is still
+    unverified). `X-OFAPI-Idempotency-Key` drops redeliveries (cache, 24h). If both providers are
+    subscribed, the same fan message arrives twice under different keys; the inbox bell dedups by
+    message id. OopCRM had webhook dispatch DISABLED server-side on 2026-11-26.
+  - Fan `isSubscribed` comes back null, so `extractFanSpend`'s subscription status reads unknown.
+  - OopCRM sends the auth flag as **null** (`accounts[].is_authenticated`, `me.isAuth`) even for creators
+    whose chats load. `normalizeAccount`/`normalizeAccountStatus` keep null (unknown) instead of casting
+    it to false; the UI shows "Needs re-auth" only on an explicit `false`.
+  Guards: `tests/Feature/{ChatProviderSwitchTest,OopCrmMediaUrlTest,OnlyFansWebhookTest}.php`.
 - **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
   (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)
   handles `messages.received`: resolves the creator by `of_account_id`, normalises the message

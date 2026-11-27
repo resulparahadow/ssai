@@ -388,15 +388,32 @@ export interface OfConnectedAccount {
     username: string;
     name: string;
     email: string | null;
-    isAuthenticated: boolean;
+    /** null = the provider doesn't report it (OOP CRM); only `false` means re-auth. */
+    isAuthenticated: boolean | null;
     /** Vendor auth state, e.g. `signed_in`. Null when the vendor omits it. */
     authProgress: string | null;
     avatar: string | null;
     subscribersCount: number | null;
+    /** Which provider's account list this row came from (ids differ per provider). */
+    provider: ChatProviderKey;
+}
+
+export type ChatProviderKey = 'onlyfansapi' | 'oopcrm';
+
+/** One provider's slice of `GET /of/accounts`. */
+export interface OfProviderStatus {
+    key: ChatProviderKey;
+    label: string;
+    /** The agency-wide provider every OnlyFans call goes through right now. */
+    active: boolean;
+    configured: boolean;
+    /** Why its account list didn't load; null when it did (or it has no key). */
+    error: string | null;
 }
 
 export interface OfAccountStatus {
-    isAuth: boolean;
+    /** null = the provider doesn't report it (OOP CRM); only `false` means re-auth. */
+    isAuth: boolean | null;
     id: string | null;
     username: string | null;
     name: string | null;

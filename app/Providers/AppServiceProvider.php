@@ -40,6 +40,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('manage-team', fn (User $user): bool => $user->role->canManageTeam());
         Gate::define('view-agency-profit', fn (User $user): bool => $user->role->canViewAgencyProfit());
         Gate::define('edit-global-training', fn (User $user): bool => $user->role->isAdmin());
+        // Which backend every OnlyFans call uses (OnlyFansAPI ↔ OopCRM) — agency-wide, admin only.
+        Gate::define('manage-integrations', fn (User $user): bool => $user->role->isAdmin());
     }
 
     /**
