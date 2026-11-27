@@ -34,6 +34,8 @@ export type ServerIntentKey = Exclude<IntentKey, 'ppv' | 'free_picture'>;
 export interface CatalogueOption {
     key: string;
     label: string;
+    /** What this option makes SSAI write, shown under its label in the menu. */
+    hint?: string;
 }
 
 export interface CatalogueIntent {
@@ -43,6 +45,8 @@ export interface CatalogueIntent {
     /** false = handled by the client alone (PPV, Free picture): never posted as `intent`. */
     server: boolean;
     options: CatalogueOption[];
+    /** What the button does, shown as its tooltip. */
+    hint?: string;
 }
 
 /** The id of the media step built on the fly from picked vault media (no `script_steps` row). */
