@@ -26,6 +26,7 @@ const items = computed(() => {
             title: 'Global Training',
             href: '/settings/global-training',
         });
+        base.push({ title: 'Integrations', href: '/settings/integrations' });
     }
 
     return base;

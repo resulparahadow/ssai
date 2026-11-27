@@ -88,3 +88,48 @@ it('authorizes the creator channel for an assigned chatter and admins, not an un
     expect($channel->join(User::factory()->admin()->create(), $model))->toBeTrue();
     expect($channel->join($unassigned, $model))->toBeFalse();
 });
+
+it('accepts an OopCRM delivery signed with HMAC-SHA256 of the raw body', function () {
+    config(['services.oopcrm.webhook_secret' => 'whsec_test']);
+    AichModel::create(['name' => 'Camila', 'of_account_id' => 'acct_cam']);
+    Event::fake([OnlyFansMessageReceived::class]);
+
+    $body = json_encode(inboundPayload());
+    $headers = ['Content-Type' => 'application/json', 'Signature' => hash_hmac('sha256', $body, 'whsec_test')];
+
+    $this->call('POST', '/webhooks/onlyfans', [], [], [], $this->transformHeadersToServerVars($headers), $body)->assertOk();
+
+    Event::assertDispatched(OnlyFansMessageReceived::class);
+});
+
+it('accepts a sha256= prefixed signature', function () {
+    config(['services.oopcrm.webhook_secret' => 'whsec_test']);
+    $body = json_encode(['event' => 'subscriptions.updated', 'account_id' => 'acct_1']);
+    $headers = ['Content-Type' => 'application/json', 'Signature' => 'sha256='.hash_hmac('sha256', $body, 'whsec_test')];
+
+    $this->call('POST', '/webhooks/onlyfans', [], [], [], $this->transformHeadersToServerVars($headers), $body)->assertOk();
+});
+
+it('rejects a delivery whose signature does not match the body', function () {
+    config(['services.oopcrm.webhook_secret' => 'whsec_test']);
+    Event::fake([OnlyFansMessageReceived::class]);
+
+    $body = json_encode(inboundPayload());
+    $headers = ['Content-Type' => 'application/json', 'Signature' => hash_hmac('sha256', $body.' ', 'whsec_test')];
+
+    $this->call('POST', '/webhooks/onlyfans', [], [], [], $this->transformHeadersToServerVars($headers), $body)->assertUnauthorized();
+
+    Event::assertNotDispatched(OnlyFansMessageReceived::class);
+});
+
+it('broadcasts a redelivered message only once', function () {
+    config(['services.onlyfans.webhook_secret' => '']);
+    AichModel::create(['name' => 'Camila', 'of_account_id' => 'acct_cam']);
+    Event::fake([OnlyFansMessageReceived::class]);
+
+    $headers = ['X-OFAPI-Idempotency-Key' => 'evt_123'];
+    $this->postJson('/webhooks/onlyfans', inboundPayload(), $headers)->assertOk();
+    $this->postJson('/webhooks/onlyfans', inboundPayload(), $headers)->assertOk()->assertJson(['duplicate' => true]);
+
+    Event::assertDispatchedTimes(OnlyFansMessageReceived::class, 1);
+});

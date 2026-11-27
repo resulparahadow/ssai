@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ForwardsOnlyFansErrors;
 use App\Models\AichModel;
+use App\Services\Integrations\ChatProvider;
 use App\Services\OnlyFans\OnlyFansService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
@@ -26,36 +28,92 @@ class ModelOnlyFansController extends Controller
     public function __construct(protected OnlyFansService $of) {}
 
     /**
-     * Every OnlyFans account connected to the agency's OnlyFansAPI key.
+     * Every OnlyFans account connected to the agency, from BOTH providers (OnlyFansAPI and
+     * OopCRM's OFAPI layer), each row tagged with its `provider`. The two sides give the same
+     * creator different `acct_` ids, so the Creator Models page groups each model under the
+     * provider whose list holds its `of_account_id`. `providers` says which one is active and
+     * whether each loaded; one side failing doesn't hide the other.
      *
      * The ONE method here that takes no `AichModel`: the vendor's `accounts` endpoint is
      * agency-level, and the Creator Models picker needs the list precisely when a model
      * has no `of_account_id` yet. Routed at `of/accounts` rather than under `models/…`,
      * where the `models/{model}` wildcard registered above would swallow it.
      */
-    public function accounts(Request $request): JsonResponse
+    public function accounts(Request $request, ChatProvider $providers): JsonResponse
     {
-        if (! $this->of->enabled()) {
+        $filters = $request->only(['onlyfans_id', 'onlyfans_username', 'onlyfans_email']);
+        $active = $providers->active();
+        $accounts = [];
+        $meta = [];
+        $failure = null;
+        $loaded = 0;
+
+        foreach (ChatProvider::ALL as $provider) {
+            $entry = [
+                'key' => $provider,
+                'label' => ChatProvider::LABELS[$provider],
+                'active' => $provider === $active,
+                'configured' => $providers->configured($provider),
+                'error' => null,
+            ];
+
+            if ($entry['configured']) {
+                try {
+                    $res = $providers->service($provider)->listAccounts($filters);
+                } catch (ConnectionException) {
+                    $res = null;
+                    $entry['error'] = 'Could not connect.';
+                }
+
+                if ($res?->successful()) {
+                    $loaded++;
+                    // This endpoint answers with a BARE ARRAY (no `data`, no `_meta`) — unwrap
+                    // defensively anyway, so a vendor change to the house wrapper isn't an outage.
+                    $body = $res->json();
+                    $rows = array_is_list($body ?? []) ? $body : ($body['data'] ?? []);
+
+                    foreach (array_filter(is_array($rows) ? $rows : [], 'is_array') as $row) {
+                        $accounts[] = [...$this->of->normalizeAccount($row), 'provider' => $provider];
+                    }
+                } elseif ($res) {
+                    $failure ??= $res;
+                    $entry['error'] = (string) ($res->json('message') ?? $res->json('error') ?? 'HTTP '.$res->status());
+                }
+            }
+
+            $meta[] = $entry;
+        }
+
+        if (! collect($meta)->contains('configured', true)) {
             abort(503, 'OnlyFans API key is not configured.');
         }
 
-        $res = $this->of->listAccounts($request->only(['onlyfans_id', 'onlyfans_username', 'onlyfans_email']));
-
-        if (! $res->successful()) {
-            return $this->forward($res);
+        // Nothing loaded anywhere: surface the real upstream error rather than an empty list.
+        if ($loaded === 0) {
+            return $failure ? $this->forward($failure) : response()->json(['message' => 'Could not connect.'], 502);
         }
 
-        // This endpoint answers with a BARE ARRAY (no `data`, no `_meta`) — unwrap
-        // defensively anyway, so a vendor change to the house wrapper isn't an outage.
-        $body = $res->json();
-        $rows = array_is_list($body ?? []) ? $body : ($body['data'] ?? []);
+        $this->syncModelProviders($accounts);
 
-        return response()->json([
-            'accounts' => array_values(array_map(
-                fn (array $a) => $this->of->normalizeAccount($a),
-                array_filter(is_array($rows) ? $rows : [], 'is_array'),
-            )),
-        ]);
+        return response()->json(['accounts' => $accounts, 'providers' => $meta]);
+    }
+
+    /**
+     * Correct `aich_models.provider` from the live lists: a model whose `of_account_id` sits in a
+     * provider's list belongs to that provider. Rows added before the column existed were
+     * assumed OnlyFansAPI; this fixes any that are really OopCRM ids. Query-level update, so the
+     * model's "provider follows the id" hook doesn't fire.
+     *
+     * @param  list<array<string, mixed>>  $accounts
+     */
+    private function syncModelProviders(array $accounts): void
+    {
+        foreach (collect($accounts)->groupBy('provider') as $provider => $rows) {
+            AichModel::query()
+                ->whereIn('of_account_id', $rows->pluck('id')->all())
+                ->where(fn ($q) => $q->whereNull('provider')->orWhere('provider', '!=', $provider))
+                ->update(['provider' => $provider]);
+        }
     }
 
     /** Live connection status + the real OnlyFans profile (avatar, @username, subscribers). */
@@ -763,6 +821,8 @@ class ModelOnlyFansController extends Controller
         if (! $model->of_account_id) {
             abort(422, "Creator {$model->name} has no OnlyFans account connected.");
         }
+
+        app(ChatProvider::class)->ensureServes($model);
 
         return $model->of_account_id;
     }

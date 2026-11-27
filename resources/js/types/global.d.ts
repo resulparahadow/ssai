@@ -19,6 +19,8 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             creators: { id: number; name: string; hasOf: boolean }[];
+            /** The agency-wide OnlyFans transport; `creators` holds only its creators. */
+            chatProvider: { key: 'onlyfansapi' | 'oopcrm'; label: string } | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

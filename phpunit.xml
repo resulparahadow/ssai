@@ -32,5 +32,8 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Never let a developer's real OopCRM key (.env) leak into tests: an unfaked Http call would go live. -->
+        <env name="OOPCRM_API_KEY" value=""/>
+        <env name="OOPCRM_KEY" value=""/>
     </php>
 </phpunit>

@@ -51,7 +51,19 @@ const title = computed(() => {
         return 'Chatter guide';
     }
 
-    return NAV.find((n) => n.href === path)?.label ?? 'Overview';
+    for (const n of NAV) {
+        if (n.href === path) {
+            return n.label;
+        }
+
+        const child = n.children?.find((c) => c.href === path);
+
+        if (child) {
+            return `${n.label} · ${child.label}`;
+        }
+    }
+
+    return 'Overview';
 });
 </script>
 

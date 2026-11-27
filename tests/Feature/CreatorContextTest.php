@@ -39,8 +39,9 @@ function usageRow(string $creator, float $cost): void
 }
 
 beforeEach(function () {
-    $this->alpha = AichModel::create(['name' => 'Alpha']);
-    $this->beta = AichModel::create(['name' => 'Beta']);
+    // Connected creators: the context only knows creators on the active provider.
+    $this->alpha = AichModel::create(['name' => 'Alpha', 'of_account_id' => 'acct_alpha']);
+    $this->beta = AichModel::create(['name' => 'Beta', 'of_account_id' => 'acct_beta']);
 });
 
 // ---- resolver: admin/manager (canSeeAll) -----------------------------------

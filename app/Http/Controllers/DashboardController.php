@@ -17,6 +17,7 @@ class DashboardController extends Controller
                 $request->user(),
                 (string) $request->query('period', 'Today'),
                 $context->selectedNameForRequest($request),
+                $context->namesInScopeForRequest($request),
             ),
         ]);
     }

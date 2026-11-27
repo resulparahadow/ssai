@@ -3,13 +3,16 @@
 namespace App\Services\OnlyFans;
 
 use App\Models\AichModel;
+use App\Services\Integrations\ChatProvider;
 use Carbon\Carbon;
 use Exception;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
@@ -32,8 +35,15 @@ class OnlyFansService
         protected ?string $apiKey = null,
         protected ?string $baseUrl = null,
     ) {
-        $this->apiKey ??= (string) config('services.onlyfans.key');
-        $this->baseUrl = rtrim($this->baseUrl ?? (string) config('services.onlyfans.base_url') ?: 'https://app.onlyfansapi.com/api', '/');
+        // Explicit args win (tests, one-off scripts); otherwise the admin-chosen provider —
+        // OnlyFansAPI or OopCRM's OFAPI-compatible layer (Settings → Integrations).
+        if ($this->apiKey === null || $this->baseUrl === null) {
+            $connection = app(ChatProvider::class)->connection();
+            $this->apiKey ??= $connection['key'];
+            $this->baseUrl ??= $connection['base_url'];
+        }
+
+        $this->baseUrl = rtrim($this->baseUrl ?: 'https://app.onlyfansapi.com/api', '/');
     }
 
     public function enabled(): bool
@@ -430,7 +440,14 @@ class OnlyFansService
         return [
             'id' => (string) ($a['id'] ?? ''),
             'username' => $username,
-            'name' => $this->firstNonEmpty([$a['display_name'] ?? null, $user['name'] ?? null, $username]),
+            // OopCRM fills `display_name` with a status placeholder ("Awaiting OnlyFans login")
+            // until the creator signs in; it isn't a name, so it must not label the row or the
+            // model created from it.
+            'name' => $this->firstNonEmpty([
+                preg_match('/^awaiting onlyfans login$/i', trim((string) ($a['display_name'] ?? ''))) ? null : ($a['display_name'] ?? null),
+                $user['name'] ?? null,
+                $username,
+            ]),
             'email' => $a['onlyfans_email'] ?? null,
             'isAuthenticated' => (bool) ($a['is_authenticated'] ?? $user['isAuth'] ?? false),
             'authProgress' => isset($a['authentication_progress']) ? (string) $a['authentication_progress'] : null,
@@ -1756,14 +1773,58 @@ class OnlyFansService
             throw new RuntimeException('ONLYFANS_API_KEY is not configured.');
         }
 
+        $base = $this->baseUrl;
+
         return Http::baseUrl($this->baseUrl)
             ->withToken($this->apiKey)
             ->acceptJson()
+            ->withResponseMiddleware(fn (ResponseInterface $r) => self::unwrapMediaDownloadUrls($r, $base))
             ->timeout((int) config('services.onlyfans.timeout', 30))
             ->retry(3, 1000, function ($e) {
                 return $e instanceof ConnectionException
                     || ($e instanceof RequestException && $e->response->status() === 429);
             }, throw: false);
+    }
+
+    /**
+     * OopCRM's OFAPI-compatible layer (ONLYFANS_BASE_URL=https://app.oopcrm.com/api/v1/ofapi)
+     * hands back every media url pre-wrapped in its own download route:
+     * `{base}/{acct}/media/download/https%3A%2F%2Fcdn2.onlyfans.com%2F…` (verified live
+     * 2026-11-27). OnlyFansAPI returns the bare CDN url. The rest of the app expects the bare
+     * url: the client's mediaSrc() proxies only onlyfans.com hosts, mediaFile()'s SSRF guard
+     * allows only onlyfans.com, and script thumbs are kept only for those hosts. So the wrapper
+     * is peeled off here, once, for every JSON response. Our own proxy then calls the same
+     * download route, with the key, server-side. A no-op against OnlyFansAPI.
+     */
+    public static function unwrapMediaDownloadUrls(ResponseInterface $response, string $baseUrl): ResponseInterface
+    {
+        if (! str_contains($response->getHeaderLine('Content-Type'), 'json')) {
+            return $response;
+        }
+
+        $body = (string) $response->getBody();
+
+        if (! str_contains($body, 'media\/download\/http') && ! str_contains($body, 'media/download/http')) {
+            return $response;
+        }
+
+        $data = json_decode($body, true);
+
+        if (! is_array($data)) {
+            return $response;
+        }
+
+        $pattern = '#^'.preg_quote(rtrim($baseUrl, '/'), '#').'/[^/]+/media/download/(https?%3A.+)$#i';
+
+        array_walk_recursive($data, function (&$value) use ($pattern) {
+            if (is_string($value) && preg_match($pattern, $value, $m)) {
+                $value = rawurldecode($m[1]);
+            }
+        });
+
+        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+
+        return $json === false ? $response : $response->withBody(Utils::streamFor($json));
     }
 
     private function initials(string $name): string

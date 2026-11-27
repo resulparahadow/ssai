@@ -14,6 +14,7 @@ use App\Models\ScriptStepSend;
 use App\Rules\PpvPrice;
 use App\Services\AI\AiUsageRecorder;
 use App\Services\Engine\EngineClient;
+use App\Services\Integrations\ChatProvider;
 use App\Services\OnlyFans\ChatStateService;
 use App\Services\OnlyFans\DraftRejectionService;
 use App\Services\OnlyFans\FanMemoryLog;
@@ -1399,6 +1400,7 @@ class OnlyFansChatController extends Controller
         if (! $model->of_account_id) {
             abort(422, "Creator {$model->name} has no OnlyFans account connected.");
         }
+        app(ChatProvider::class)->ensureServes($model);
 
         return $model->of_account_id;
     }

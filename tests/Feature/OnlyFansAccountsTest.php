@@ -195,3 +195,98 @@ it('forbids chatters from adding an account as a creator model', function () {
 
     expect(AichModel::count())->toBe(0);
 });
+
+describe('both providers', function () {
+    beforeEach(function () {
+        config([
+            'services.oopcrm.key' => 'oop-key',
+            'services.oopcrm.base_url' => 'https://app.oopcrm.com/api/v1/ofapi',
+        ]);
+    });
+
+    function oopAccount(): array
+    {
+        $row = ofAccountsExample()[0];
+        $row['id'] = 'acct_oop1';
+        $row['display_name'] = 'Awaiting OnlyFans login';
+        $row['is_authenticated'] = null;
+
+        return $row;
+    }
+
+    it('lists the accounts of both providers, each tagged with its provider', function () {
+        Http::fake([
+            'app.onlyfansapi.com/api/accounts*' => Http::response(ofAccountsExample()),
+            'app.oopcrm.com/api/v1/ofapi/accounts*' => Http::response([oopAccount()]),
+        ]);
+
+        $res = test()->actingAs($this->admin)->getJson('/of/accounts')->assertOk();
+
+        expect($res->json('accounts.*.id'))->toBe(['acct_123', 'acct_oop1'])
+            ->and($res->json('accounts.*.provider'))->toBe(['onlyfansapi', 'oopcrm'])
+            ->and($res->json('providers.*.key'))->toBe(['onlyfansapi', 'oopcrm'])
+            ->and($res->json('providers.0.active'))->toBeTrue()
+            ->and($res->json('providers.1.active'))->toBeFalse();
+
+        Http::assertSent(fn ($r) => str_starts_with($r->url(), 'https://app.oopcrm.com/api/v1/ofapi/accounts')
+            && $r->hasHeader('Authorization', 'Bearer oop-key'));
+    });
+
+    it('still lists one provider when the other fails, with the failure on that provider', function () {
+        Http::fake([
+            'app.onlyfansapi.com/api/accounts*' => Http::response(ofAccountsExample()),
+            'app.oopcrm.com/api/v1/ofapi/accounts*' => Http::response(['message' => 'Rate limit exceeded.'], 429),
+        ]);
+
+        test()->actingAs($this->admin)->getJson('/of/accounts')
+            ->assertOk()
+            ->assertJsonCount(1, 'accounts')
+            ->assertJsonPath('providers.1.error', 'Rate limit exceeded.')
+            ->assertJsonPath('providers.0.error', null);
+    });
+
+    it('skips a provider with no key', function () {
+        config(['services.oopcrm.key' => '']);
+        Http::fake(['app.onlyfansapi.com/api/accounts*' => Http::response(ofAccountsExample())]);
+
+        test()->actingAs($this->admin)->getJson('/of/accounts')
+            ->assertOk()
+            ->assertJsonPath('providers.1.configured', false);
+
+        Http::assertSentCount(1);
+    });
+
+    it('adds a creator model from the OOP CRM list when the account came from there', function () {
+        Http::fake(['app.oopcrm.com/api/v1/ofapi/accounts*' => Http::response([oopAccount()])]);
+
+        test()->actingAs($this->admin)
+            ->post('/models/from-account', ['of_account_id' => 'acct_oop1', 'provider' => 'oopcrm'])
+            ->assertRedirect();
+
+        expect(AichModel::query()->where('of_account_id', 'acct_oop1')->exists())->toBeTrue();
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'onlyfansapi.com'));
+    });
+
+    it('refuses an OOP CRM id checked against the OnlyFansAPI list', function () {
+        Http::fake(['app.onlyfansapi.com/api/accounts*' => Http::response(ofAccountsExample())]);
+
+        test()->actingAs($this->admin)
+            ->post('/models/from-account', ['of_account_id' => 'acct_oop1', 'provider' => 'onlyfansapi'])
+            ->assertSessionHasErrors(['of_account_id' => 'That OnlyFans account is not connected to OnlyFansAPI.']);
+    });
+
+    it('rejects an unknown provider', function () {
+        test()->actingAs($this->admin)
+            ->post('/models/from-account', ['of_account_id' => 'acct_123', 'provider' => 'nope'])
+            ->assertSessionHasErrors('provider');
+    });
+});
+
+it("doesn't use OopCRM's sign-in placeholder as the account name", function () {
+    $payload = ofAccountsExample();
+    $payload[0]['display_name'] = 'Awaiting OnlyFans login';
+    Http::fake(['app.onlyfansapi.com/api/accounts*' => Http::response($payload)]);
+
+    test()->actingAs($this->admin)->getJson('/of/accounts')
+        ->assertJsonPath('accounts.0.name', 'Name');
+});

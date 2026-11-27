@@ -17,6 +17,7 @@ class AiUsageController extends Controller
                 $request->user(),
                 (string) $request->query('period', '7d'),
                 $context->selectedNameForRequest($request),
+                $context->namesInScopeForRequest($request),
             ),
         ]);
     }

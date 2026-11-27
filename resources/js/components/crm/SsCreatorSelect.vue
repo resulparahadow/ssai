@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { usePage } from '@inertiajs/vue3';
-import { Check, ChevronsUpDown, Search, Users } from '@lucide/vue';
+import { Link, usePage } from '@inertiajs/vue3';
+import { Check, ChevronsUpDown, Plug, Search, Users } from '@lucide/vue';
 import { onClickOutside } from '@vueuse/core';
 import { computed, nextTick, ref } from 'vue';
 import { useCreatorContext } from '@/composables/useCreatorContext';
@@ -19,6 +19,13 @@ const creators = computed<SidebarCreator[]>(
 );
 // Only managers/admins get the aggregate "All creators" option (matches the server default).
 const canSeeAll = computed(() => can(props.role, 'manageTeam'));
+
+// The list only holds creators connected through the active provider (Settings → Integrations),
+// so the selector names it: switching providers is what changes who appears here.
+const providerLabel = computed(
+    () => page.props.chatProvider?.label ?? 'OnlyFans',
+);
+const isAdmin = computed(() => props.role === 'admin');
 
 const selectedCreator = computed<SidebarCreator | null>(
     () => creators.value.find((c) => c.id === selectedId.value) ?? null,
@@ -113,7 +120,7 @@ function pick(value: number | 'all'): void {
                     <span
                         class="flex items-center gap-1.5 text-[11px] text-ss-text-3"
                     >
-                        <template v-if="isAll">Agency-wide</template>
+                        <template v-if="isAll">On {{ providerLabel }}</template>
                         <template v-else-if="selectedCreator">
                             <span
                                 class="h-1.5 w-1.5 rounded-full"
@@ -228,7 +235,11 @@ function pick(value: number | 'all'): void {
                     v-if="!creators.length"
                     class="px-2 py-2 text-[12px] text-ss-text-3"
                 >
-                    No creators assigned.
+                    {{
+                        canSeeAll
+                            ? `No creators on ${providerLabel} yet.`
+                            : `None of your creators are on ${providerLabel}.`
+                    }}
                 </p>
                 <p
                     v-else-if="!filtered.length"
@@ -236,6 +247,26 @@ function pick(value: number | 'all'): void {
                 >
                     No matches.
                 </p>
+            </div>
+
+            <!-- Which provider this list comes from -->
+            <div
+                class="mt-1 flex items-center gap-2 border-t border-ss-border px-2 pt-2 pb-1 text-[11px] text-ss-text-3"
+            >
+                <Plug :size="12" class="shrink-0" />
+                <span class="min-w-0 flex-1 truncate"
+                    >Creators on
+                    <span class="font-medium text-ss-text-2">{{
+                        providerLabel
+                    }}</span></span
+                >
+                <Link
+                    v-if="isAdmin"
+                    href="/settings/integrations"
+                    class="shrink-0 font-medium text-ss-accent-text hover:underline"
+                    @click="open = false"
+                    >Change</Link
+                >
             </div>
         </div>
     </div>

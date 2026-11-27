@@ -20,7 +20,7 @@ import type { User } from '@/types/auth';
 
 const props = defineProps<{ title: string; user: User }>();
 
-const { toggleSidebar } = useCrmShell();
+const { toggleSidebar, expanded: sidebarExpanded, isMobile } = useCrmShell();
 
 // The chatter guide button lives on Conversations only — that's where chatters steer SSAI.
 const page = usePage();
@@ -63,7 +63,23 @@ function handleLogout(): void {
     >
         <button
             type="button"
-            class="grid h-8 w-8 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
+            class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ss-text-2 hover:bg-ss-surface-2"
+            aria-controls="ss-sidebar"
+            :aria-expanded="sidebarExpanded"
+            :aria-label="
+                isMobile
+                    ? sidebarExpanded
+                        ? 'Close menu'
+                        : 'Open menu'
+                    : sidebarExpanded
+                      ? 'Collapse sidebar'
+                      : 'Expand sidebar'
+            "
+            :title="
+                isMobile
+                    ? undefined
+                    : `${sidebarExpanded ? 'Collapse' : 'Expand'} sidebar  [`
+            "
             @click="toggleSidebar"
         >
             <PanelLeft :size="18" />
