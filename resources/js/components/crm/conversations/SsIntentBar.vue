@@ -29,7 +29,8 @@ const layout = barLayout(intentCatalogue());
 interface Chip {
     key: IntentKey;
     label: string;
-    options: { key: string; label: string }[];
+    options: { key: string; label: string; hint?: string }[];
+    about: string | null; // what the button does (its tooltip when not locked or lit)
     enabled: boolean;
     lit: boolean;
     reason: string | null;
@@ -76,6 +77,7 @@ function chipFor(key: IntentKey): Chip {
         key,
         label: intent?.label ?? key,
         options: intent?.options ?? [],
+        about: intent?.hint ?? null,
         enabled: s.enabled && !props.busy,
         lit: s.lit && s.enabled,
         reason: s.enabled ? null : s.reason,
@@ -249,7 +251,7 @@ const summary = computed(() => {
             <button
                 type="button"
                 :disabled="!c.enabled"
-                :title="c.reason ?? c.hint ?? undefined"
+                :title="c.reason ?? c.hint ?? c.about ?? undefined"
                 :aria-describedby="c.reason ? `intent-why-${c.key}` : undefined"
                 :data-lit="c.lit ? 'true' : undefined"
                 :aria-haspopup="c.options.length ? 'menu' : undefined"
@@ -295,9 +297,17 @@ const summary = computed(() => {
                     role="menuitem"
                     :class="ITEM"
                     :data-testid="`intent-option-${c.key}-${o.key}`"
+                    :title="o.hint"
                     @click="fire(c.key, o.key)"
                 >
-                    {{ o.label }}
+                    <span class="flex flex-col">
+                        {{ o.label }}
+                        <span
+                            v-if="o.hint"
+                            class="mt-0.5 max-w-64 text-[11px] leading-snug font-normal whitespace-normal text-ss-text-3"
+                            >{{ o.hint }}</span
+                        >
+                    </span>
                 </button>
             </span>
         </span>
@@ -342,7 +352,7 @@ const summary = computed(() => {
                         type="button"
                         role="menuitem"
                         :disabled="!c.enabled"
-                        :title="c.reason ?? c.hint ?? undefined"
+                        :title="c.reason ?? c.hint ?? c.about ?? undefined"
                         :aria-haspopup="c.options.length ? 'menu' : undefined"
                         :aria-expanded="
                             c.options.length ? expanded === c.key : undefined
@@ -385,9 +395,17 @@ const summary = computed(() => {
                             role="menuitem"
                             :class="[ITEM, 'ml-3']"
                             :data-testid="`intent-option-${c.key}-${o.key}`"
+                            :title="o.hint"
                             @click="fire(c.key, o.key)"
                         >
-                            {{ o.label }}
+                            <span class="flex flex-col">
+                                {{ o.label }}
+                                <span
+                                    v-if="o.hint"
+                                    class="mt-0.5 max-w-64 text-[11px] leading-snug font-normal whitespace-normal text-ss-text-3"
+                                    >{{ o.hint }}</span
+                                >
+                            </span>
                         </button>
                     </template>
                 </template>
