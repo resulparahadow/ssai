@@ -43,7 +43,7 @@ const status = computed<Status>(() => {
         return { label: 'Not added', tone: 'muted' };
     }
 
-    if (props.account && !props.account.isAuthenticated) {
+    if (props.account && props.account.isAuthenticated === false) {
         return { label: 'Needs re-auth', tone: 'warn' };
     }
 

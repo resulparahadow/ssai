@@ -1047,6 +1047,9 @@ engine uses its in-process copy. Provider keys live in the engine's env
     subscribed, the same fan message arrives twice under different keys; the inbox bell dedups by
     message id. OopCRM had webhook dispatch DISABLED server-side on 2026-11-26.
   - Fan `isSubscribed` comes back null, so `extractFanSpend`'s subscription status reads unknown.
+  - OopCRM sends the auth flag as **null** (`accounts[].is_authenticated`, `me.isAuth`) even for creators
+    whose chats load. `normalizeAccount`/`normalizeAccountStatus` keep null (unknown) instead of casting
+    it to false; the UI shows "Needs re-auth" only on an explicit `false`.
   Guards: `tests/Feature/{ChatProviderSwitchTest,OopCrmMediaUrlTest,OnlyFansWebhookTest}.php`.
 - **Realtime inbound — DONE (Laravel Reverb).** `POST /webhooks/onlyfans`
   (`OnlyFansWebhookController`, CSRF-exempt via `webhooks/*`, optional `ONLYFANS_WEBHOOK_SECRET`)

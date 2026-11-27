@@ -290,3 +290,22 @@ it("doesn't use OopCRM's sign-in placeholder as the account name", function () {
     test()->actingAs($this->admin)->getJson('/of/accounts')
         ->assertJsonPath('accounts.0.name', 'Name');
 });
+
+it('reports a missing auth flag as unknown, not as needing re-auth', function () {
+    $payload = ofAccountsExample();
+    $payload[0]['is_authenticated'] = null;
+    unset($payload[0]['onlyfans_user_data']['isAuth']);
+    Http::fake(['app.onlyfansapi.com/api/accounts*' => Http::response($payload)]);
+
+    test()->actingAs($this->admin)->getJson('/of/accounts')
+        ->assertJsonPath('accounts.0.isAuthenticated', null);
+});
+
+it('still reports an explicit false as needing re-auth', function () {
+    $payload = ofAccountsExample();
+    $payload[0]['is_authenticated'] = false;
+    Http::fake(['app.onlyfansapi.com/api/accounts*' => Http::response($payload)]);
+
+    test()->actingAs($this->admin)->getJson('/of/accounts')
+        ->assertJsonPath('accounts.0.isAuthenticated', false);
+});

@@ -242,7 +242,7 @@ onMounted(loadStatus);
                         />
                         <span class="text-ss-text-3">Checking connection…</span>
                     </template>
-                    <template v-else-if="status?.isAuth">
+                    <template v-else-if="status && status.isAuth !== false">
                         <span class="h-2 w-2 rounded-full bg-ss-pos" />
                         <span class="font-medium text-ss-pos">Connected</span>
                         <span class="text-ss-text-3"

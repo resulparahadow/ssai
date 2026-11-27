@@ -449,11 +449,19 @@ class OnlyFansService
                 $username,
             ]),
             'email' => $a['onlyfans_email'] ?? null,
-            'isAuthenticated' => (bool) ($a['is_authenticated'] ?? $user['isAuth'] ?? false),
+            // null = the provider doesn't say (OopCRM sends `is_authenticated: null` for creators
+            // whose chats load fine), which must not read as "needs re-auth".
+            'isAuthenticated' => self::authFlag($a['is_authenticated'] ?? $user['isAuth'] ?? null),
             'authProgress' => isset($a['authentication_progress']) ? (string) $a['authentication_progress'] : null,
             'avatar' => $this->firstNonEmpty([$user['avatarThumbs']['c50'] ?? null, $user['avatar'] ?? null]) ?: null,
             'subscribersCount' => isset($user['subscribersCount']) ? (int) $user['subscribersCount'] : null,
         ];
+    }
+
+    /** A vendor auth flag as true/false, or null when it is missing (unknown, not "signed out"). */
+    private static function authFlag(mixed $v): ?bool
+    {
+        return $v === null ? null : (bool) $v;
     }
 
     /**
@@ -1306,7 +1314,7 @@ class OnlyFansService
     public function normalizeAccountStatus(array $me): array
     {
         return [
-            'isAuth' => (bool) ($me['isAuth'] ?? false),
+            'isAuth' => self::authFlag($me['isAuth'] ?? null),
             'id' => isset($me['id']) ? (string) $me['id'] : null,
             'username' => $me['username'] ?? null,
             'name' => $me['name'] ?? null,

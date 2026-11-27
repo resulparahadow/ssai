@@ -52,7 +52,8 @@ const title = computed(() => {
     }
 
     for (const n of NAV) {
-        if (n.href === path) {
+        // A leaf owns its sub-pages too (/models/14 is Creator Models).
+        if (n.href === path || (n.href && path.startsWith(`${n.href}/`))) {
             return n.label;
         }
 
